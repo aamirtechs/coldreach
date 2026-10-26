@@ -28,6 +28,7 @@
   "private": true,
   "scripts": {
     "build": "next build",
+    "build:vercel": "prisma generate --schema prisma/prod/schema.prisma && prisma migrate deploy --schema prisma/prod/schema.prisma && next build",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:validate": "prisma validate",

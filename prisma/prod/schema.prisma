@@ -1,0 +1,425 @@
+// ColdReach core data model, production variant.
+// Identical models to prisma/schema.prisma; only the datasource differs.
+// This file lives in prisma/prod/ so that `prisma migrate deploy --schema
+// prisma/prod/schema.prisma` resolves prisma/prod/migrations/ (PostgreSQL
+// dialect) and never the SQLite migrations in prisma/migrations/.
+// See DEPLOYMENT.md for the production runbook.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy and identity
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+model User {
+  id           String       @id @default(cuid())
+  name         String
+  email        String       @unique
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  Membership[]
+  auditLogs    AuditLog[]
+  assignedThreads Thread[]  @relation("ThreadAssignee")
+}
+
+model Workspace {
+  id              String          @id @default(cuid())
+  name            String
+  slug            String          @unique
+  // Sender identity used in the compliance footer of every campaign email.
+  // senderAddress is the postal address CAN-SPAM style rules require; the
+  // campaign preflight refuses to launch while it is missing.
+  senderName      String?
+  senderAddress   String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  memberships     Membership[]
+  sendingAccounts SendingAccount[]
+  leadLists       LeadList[]
+  leads           Lead[]
+  campaigns       Campaign[]
+  suppressions    Suppression[]
+  threads         Thread[]
+  auditLogs       AuditLog[]
+  apiKeys         ApiKey[]
+  emailEvents     EmailEvent[]
+}
+
+model Membership {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        Role      @default(MEMBER)
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Sending infrastructure
+// ---------------------------------------------------------------------------
+
+enum SendingProvider {
+  GMAIL
+  MS365
+  SMTP
+  // Demo provider. Never touches the network; every surface that shows its
+  // results labels them DEMO. Lets the product be evaluated end to end
+  // without real mail credentials.
+  SIMULATION
+}
+
+enum SendingAccountStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PAUSED
+}
+
+enum WarmupStatus {
+  OFF
+  SIMULATED
+  EXTERNAL
+}
+
+model SendingAccount {
+  id             String               @id @default(cuid())
+  workspaceId    String
+  email          String
+  displayName    String?
+  provider       SendingProvider
+  status         SendingAccountStatus @default(DISCONNECTED)
+  dailyLimit     Int                  @default(50)
+  warmupStatus   WarmupStatus         @default(OFF)
+  // Credentials are never stored in plain text. OAuth tokens and SMTP
+  // passwords belong in encrypted storage; this field holds an opaque
+  // reference only, and stays null until a provider is connected.
+  credentialRef  String?
+  lastError      String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  threads        Thread[]
+  emailEvents    EmailEvent[]
+  campaigns      CampaignAccount[]
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Leads
+// ---------------------------------------------------------------------------
+
+enum LeadStatus {
+  NEW
+  VALID
+  INVALID
+  UNSUBSCRIBED
+  BOUNCED
+  SUPPRESSED
+}
+
+model LeadList {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads       Lead[]
+  campaigns   Campaign[]
+
+  @@index([workspaceId])
+}
+
+model Lead {
+  id          String       @id @default(cuid())
+  workspaceId String
+  listId      String?
+  email       String
+  // Arbitrary contact attributes imported from CSV or added by hand,
+  // for example firstName, company, role. Stored as JSON for portability.
+  // Application code supplies {} on create; a database level default is
+  // avoided because SQLite cannot express a JSON literal default portably.
+  fields      Json
+  status      LeadStatus   @default(NEW)
+  // Tag labels, stored as a JSON array of strings. Application code
+  // supplies [] on create, for the same portability reason as fields.
+  tags        Json
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  list        LeadList?    @relation(fields: [listId], references: [id], onDelete: SetNull)
+  enrollments Enrollment[]
+  threads     Thread[]
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Campaigns, sequences, enrollments
+// ---------------------------------------------------------------------------
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  ARCHIVED
+}
+
+model Campaign {
+  id               String         @id @default(cuid())
+  workspaceId      String
+  name             String
+  status           CampaignStatus @default(DRAFT)
+  // The lead list this campaign sends to. Enrollment reads from this list.
+  leadListId       String?
+  timezone         String         @default("UTC")
+  // Local sending window, "HH:MM" 24 hour values in the campaign timezone.
+  windowStart      String         @default("09:00")
+  windowEnd        String         @default("17:00")
+  businessDaysOnly Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leadList         LeadList?      @relation(fields: [leadListId], references: [id], onDelete: SetNull)
+  accounts         CampaignAccount[]
+  steps            SequenceStep[]
+  enrollments      Enrollment[]
+  threads          Thread[]
+  emailEvents      EmailEvent[]
+
+  @@index([workspaceId, status])
+}
+
+// Join between a campaign and the sending accounts it may send from.
+// The worker rotates across these accounts in createdAt order.
+model CampaignAccount {
+  id               String         @id @default(cuid())
+  campaignId       String
+  sendingAccountId String
+  createdAt        DateTime       @default(now())
+  campaign         Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sendingAccount   SendingAccount @relation(fields: [sendingAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, sendingAccountId])
+  @@index([campaignId])
+}
+
+model SequenceStep {
+  id         String   @id @default(cuid())
+  campaignId String
+  order      Int
+  delayDays  Int      @default(0)
+  delayHours Int      @default(0)
+  subject    String
+  body       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, order])
+  @@index([campaignId])
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  PAUSED
+  REPLIED
+  UNSUBSCRIBED
+  BOUNCED
+  COMPLETED
+  SUPPRESSED
+}
+
+model Enrollment {
+  id          String           @id @default(cuid())
+  campaignId  String
+  leadId      String
+  currentStep Int              @default(0)
+  status      EnrollmentStatus @default(ACTIVE)
+  nextSendAt  DateTime?
+  // Last provider error for a failed send attempt, shown to the user.
+  lastError   String?
+  enrolledAt  DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  campaign    Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead        Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  emailEvents EmailEvent[]
+
+  // Hard guarantee against duplicate enrollment of the same lead.
+  @@unique([campaignId, leadId])
+  @@index([status, nextSendAt])
+}
+
+// ---------------------------------------------------------------------------
+// Email events and suppression
+// ---------------------------------------------------------------------------
+
+enum EmailEventType {
+  SENT
+  // A send attempt that the provider rejected or could not complete.
+  // Recorded so failures are visible and auditable; never counted as sent.
+  FAILED
+  DELIVERED
+  OPENED
+  CLICKED
+  REPLIED
+  BOUNCED
+  UNSUBSCRIBED
+  COMPLAINED
+}
+
+model EmailEvent {
+  id               String         @id @default(cuid())
+  workspaceId      String
+  campaignId       String?
+  enrollmentId     String?
+  sendingAccountId String?
+  type             EmailEventType
+  // Provider assigned message identifier, when the provider supplies one.
+  providerMessageId String?
+  // Unique per logical event so webhook retries and provider redeliveries
+  // can be deduplicated safely.
+  idempotencyKey   String         @unique
+  // Optional reply classification, for example POSITIVE, NEUTRAL, NEGATIVE.
+  classification   String?
+  occurredAt       DateTime
+  createdAt        DateTime       @default(now())
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign         Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  enrollment       Enrollment?    @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, type])
+  @@index([campaignId, type])
+}
+
+enum SuppressionScope {
+  WORKSPACE
+  GLOBAL
+}
+
+model Suppression {
+  id          String           @id @default(cuid())
+  // Null workspaceId means a global entry that applies to every workspace.
+  workspaceId String?
+  scope       SuppressionScope @default(WORKSPACE)
+  // Exactly one of email or domain is set.
+  email       String?
+  domain      String?
+  reason      String
+  createdAt   DateTime         @default(now())
+  workspace   Workspace?       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([domain])
+  @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Unified inbox
+// ---------------------------------------------------------------------------
+
+enum ThreadStatus {
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model Thread {
+  id               String         @id @default(cuid())
+  workspaceId      String
+  campaignId       String?
+  leadId           String?
+  sendingAccountId String?
+  assigneeId       String?
+  subject          String
+  status           ThreadStatus   @default(OPEN)
+  lastMessageAt    DateTime       @default(now())
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign         Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  lead             Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
+  assignee         User?          @relation("ThreadAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  messages         ThreadMessage[]
+
+  @@index([workspaceId, status])
+}
+
+model ThreadMessage {
+  id        String           @id @default(cuid())
+  threadId  String
+  direction MessageDirection
+  fromEmail String
+  toEmail   String
+  subject   String?
+  body      String
+  occurredAt DateTime        @default(now())
+  createdAt DateTime         @default(now())
+  thread    Thread           @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, occurredAt])
+}
+
+// ---------------------------------------------------------------------------
+// Audit and API access
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id          String     @id @default(cuid())
+  workspaceId String?
+  userId      String?
+  action      String
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  // Only a hash of the key is stored, plus a short display prefix.
+  keyHash     String    @unique
+  prefix      String
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}

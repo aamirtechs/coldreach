@@ -1,5 +1,29 @@
 # Changelog
 
+## Deployment preparation (2026-10-26)
+
+The repository is ready to deploy to Vercel with PostgreSQL.
+
+- Production schema at `prisma/prod/schema.prisma`: models identical to
+  the SQLite development schema, datasource switched to PostgreSQL with
+  `DATABASE_URL` (pooled) and `DIRECT_URL` (direct) environment variables.
+- Production migrations generated at `prisma/prod/migrations/0001_init`
+  (16 tables, 11 enum types, JSONB columns, app-supplied cuid text keys),
+  kept in their own folder so `migrate deploy` with the production schema
+  can never pick up the SQLite migrations by mistake.
+- `vercel.json` at the repo root: Next.js framework, install command
+  `npm install`, build command `npm run build:vercel`, which runs
+  `prisma generate`, `prisma migrate deploy` against the production
+  schema, then `next build`. A migration failure fails the build; there
+  is no silent fallback.
+- DEPLOYMENT.md: the full production runbook covering Neon database
+  creation, the required Vercel environment variables, the first deploy,
+  post-deploy checks, and how the sending worker is triggered in
+  production (an external scheduler calling POST /api/worker/tick with
+  the worker secret, since Vercel Cron cannot set that custom header).
+- Verified locally: production schema validates, development typecheck,
+  all 79 tests, and the development build all pass unchanged.
+
 ## Phase 2, Functional MVP (2026-10-26)
 
 The product now runs a complete campaign lifecycle end to end.

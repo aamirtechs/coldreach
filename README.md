@@ -70,8 +70,10 @@ provider event handling, and analytics computed from recorded events.
 
 - Next.js 15 (App Router) and React 19, TypeScript throughout.
 - Tailwind CSS 3 with CSS variable design tokens and class based dark mode.
-- Prisma ORM. Local development uses SQLite; the production target is
-  PostgreSQL. The schema avoids provider specific features to stay portable.
+- Prisma ORM. Local development uses SQLite; production uses PostgreSQL
+  through the mirrored schema at `prisma/prod/schema.prisma` and the
+  PostgreSQL migrations in `prisma/prod/migrations`. The schema avoids
+  provider specific features to stay portable.
 - bcryptjs for password hashing, jose for JWT session cookies.
 - Vitest for unit tests.
 
@@ -90,6 +92,11 @@ npm run dev
 Then open http://localhost:3000, create an account, and you land in an empty
 workspace dashboard. That emptiness is correct: ColdReach ships no sample
 data.
+
+For production deployment to Vercel with Neon PostgreSQL, follow
+DEPLOYMENT.md. The production build (`npm run build:vercel`) generates
+the client from the PostgreSQL schema, applies the production migrations,
+and then builds; it is already wired up in `vercel.json`.
 
 Useful commands:
 
@@ -131,7 +138,10 @@ This is exactly how this development environment was set up.
 ## Project layout
 
 ```
-prisma/schema.prisma     Core data model and the migrations in prisma/migrations
+prisma/schema.prisma     Core data model (SQLite dev) and the migrations in prisma/migrations
+prisma/prod/             Production PostgreSQL schema and its own migrations folder
+vercel.json              Vercel build settings (npm run build:vercel)
+DEPLOYMENT.md            Production deployment runbook (Vercel + Neon PostgreSQL)
 src/app                  Routes: landing, auth pages, /app shell, /u unsubscribe,
                          /api for auth, leads, campaigns, accounts, worker, webhooks
 src/components           Shell and page components for leads, campaigns,
