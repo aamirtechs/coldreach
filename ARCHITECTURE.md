@@ -8,7 +8,8 @@ the complete core schema, a tested pure TypeScript domain engine, and the
 application shell. Phase 2 built the functional MVP on top: leads,
 campaigns, preflight, the sending worker, unsubscribe handling, event
 ingestion, and analytics, without changing the tenancy or domain
-contracts. Synchronisation and AI arrive in later phases.
+contracts. Phase 3 added synchronisation and team workflows, and
+Phase 4 the competitive capabilities below, on the same contracts.
 
 ```
 Browser
@@ -62,8 +63,10 @@ Prisma           SQLite for local development, PostgreSQL in production.
   `.env.example` contains placeholders. Sending account credentials are
   never stored in the database in Phase 1; the schema holds only an opaque
   `credentialRef`, anticipating encrypted or vault storage in Phase 2.
-- API keys, when issued in Phase 4, are stored hashed (`ApiKey.keyHash`)
-  with a display prefix, never in plaintext.
+- API keys (Phase 4) are stored only as a SHA-256 hash
+  (`ApiKey.keyHash`) with a display prefix; the full key is shown
+  exactly once at creation. Webhook endpoint secrets and OAuth
+  tokens are stored as AES-256-GCM ciphertext.
 - Next steps for Phase 5 hardening: rate limiting on auth endpoints, CSRF
   review for cookie based mutations, security headers, and centralised
   error reporting.
@@ -165,9 +168,10 @@ Users, Workspaces, Memberships; SendingAccounts; LeadLists and Leads;
 Campaigns, SequenceSteps, Enrollments (unique on campaign and lead, the
 structural guarantee against duplicate enrollment); EmailEvents (unique
 idempotency key); Suppressions; Threads, ThreadMessages, and ThreadNotes
-for the unified inbox; Invites (token hashes only); AuditLogs; ApiKeys.
-SendingAccount carries the Phase 3 OAuth fields (encryptedCredentials,
-tokenExpiresAt, lastSyncAt, syncCursor, providerAccountId). See
+for the unified inbox; Invites (token hashes only); AuditLogs; ApiKeys
+(scopes, revocation, creator). Phase 4 adds StepVariants (per-step A/B
+copy), WebhookEndpoints and WebhookDeliveries, and Subscriptions (one
+per workspace), and a nullable `variant` label on EmailEvent. See
 `prisma/schema.prisma` for the full model and `prisma/migrations` for
 the committed migrations.
 
@@ -223,7 +227,92 @@ the committed migrations.
   Vercel Hobby plan, with sub-daily options documented in
   DEPLOYMENT.md section 6.
 
-## Known limitations after Phase 3
+## Competitive capabilities (Phase 4, implemented)
+
+- **A/B testing.** A step's own subject and body are variant A; up to
+  two StepVariant rows add B and C, each with an optional subject, a
+  body, and a weight. `src/lib/domain/abtest.ts` assigns variants by
+  a stable FNV-1a hash of enrollment id and step index weighted by
+  the configured weights, so assignment is deterministic without any
+  stored state. The worker renders the assigned variant and records
+  its label on the SENT and FAILED events; downstream events applied
+  through `applyProviderEvent` inherit the label from the send they
+  reference, which is what makes per-variant delivery and reply
+  rates real. `variantStats` aggregates per label (a null label reads
+  as A, covering pre-Phase 4 sends), and `pickWinner` runs a
+  two-proportion z-test on reply rate with a pooled standard error:
+  the leader must beat every other variant at 95 percent confidence
+  with at least 30 delivered emails per variant (configurable),
+  otherwise the result is "not enough data", never a coin-flip win.
+- **AI assistance.** `src/lib/ai/` defines an AiProvider interface
+  (subject suggestions, body rewrite, lead icebreaker) with an
+  OpenAI implementation over plain fetch. All three endpoints are
+  session and role checked and workspace scoped; without
+  `OPENAI_API_KEY` they return 501 naming the variable, following
+  the OAuth honesty pattern. Output is inserted only on an explicit
+  Apply click, and icebreakers persist onto `Lead.fields.icebreaker`
+  marked `aiGenerated`, usable as the `{{icebreaker}}` token. The
+  system prompt forbids invented facts, fake familiarity, and any
+  spam-filter evasion content.
+- **Public API.** `/api/v1` authenticates with Bearer API keys
+  (SHA-256 hash lookup, per-key scopes leads:read, leads:write,
+  suppressions:write, stats:read, revocation, lastUsedAt tracking,
+  and a 120 request per minute in-memory fixed-window limiter that
+  is explicitly per instance). Lead creation reuses the in-app
+  `createLead` service with stricter suppression refusal (422);
+  stats come from the real metrics engine plus the A/B breakdown.
+  API.md is the reference.
+- **Outbound webhooks.** Provider events applied through
+  `applyProviderEvent` (SENT excluded) enqueue WebhookDelivery rows
+  for subscribed, active endpoints in the event's workspace. The
+  worker tick drains due deliveries: POST JSON with
+  `X-ColdReach-Signature` (HMAC-SHA256 hex of the body, keyed by the
+  endpoint secret, which is stored AES-256-GCM encrypted) and
+  `X-ColdReach-Event` headers; 2xx marks DELIVERED, failures retry
+  after 1 minute, 5 minutes, 30 minutes, and 2 hours, then FAILED at
+  5 attempts. Test deliveries travel the same path. CRM sync is
+  deliberately not native: Zapier and Make recipes in
+  INTEGRATIONS.md bridge to HubSpot and Salesforce.
+- **Plans, quotas, and billing.** `src/lib/domain/plans.ts` is the
+  plan catalog (FREE, STARTER, PRO, AGENCY) with seat, account, and
+  monthly send limits; prices there are placeholders until the owner
+  sets real Stripe prices. Usage is derived from EmailEvent SENT
+  rows in the current UTC calendar month, never a counter table.
+  Preflight FAILs when projected sends exceed the remaining quota,
+  the worker hard-stops sends at the cap and records the reason on
+  the enrollment, and account and seat limits are enforced at
+  account creation and invite creation. Stripe sits behind env vars
+  with plain fetch calls (no SDK): checkout sessions, the customer
+  portal, and a webhook that verifies the signature over the raw
+  body with `STRIPE_WEBHOOK_SECRET` before parsing, then syncs the
+  Subscription row. Without the env vars the billing endpoints
+  return 501 naming them, and an OWNER-only manual plan override
+  (audited) keeps quotas usable.
+- **Agency Command Center.** `src/lib/agency/rollup.ts` aggregates
+  only workspaces where the user holds an OWNER membership: this
+  month's sends, replies, and bounces, active campaigns, accounts in
+  ERROR, and a bounce-rate flag above 5 percent, per workspace and
+  in total. Users who own one workspace see an explainer plus a
+  create-workspace action instead; workspace creation makes the
+  creator OWNER, and switching reuses the Phase 3 switcher.
+
+## Known limitations after Phase 4
+
+- The API rate limiter and the webhook retry queue are per instance
+  and database backed respectively: the limiter resets on restart
+  and does not coordinate across instances (documented in API.md),
+  while deliveries persist in the database and survive restarts.
+- The A/B winner test compares reply rates only, one campaign at a
+  time, with no multiple-comparison correction across steps; the UI
+  copy states the method and the sample floor so a "winner" is
+  never oversold.
+- AI assistance has exactly one provider implementation (OpenAI).
+  The interface is the seam for others; none is claimed.
+- Stripe subscription state is eventually consistent through the
+  webhook; a checkout that completes while the webhook endpoint is
+  misconfigured leaves the plan unchanged until the subscription
+  events arrive, which the Billing page surfaces as the stored plan,
+  never an assumed one.
 
 - SQLite is a development database. Production should run PostgreSQL; the
   schema avoids SQLite specific constructs, with one documented exception:

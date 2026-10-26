@@ -1,5 +1,76 @@
 # Changelog
 
+## Phase 4, Competitive Capabilities (2026-10-26)
+
+A/B testing, AI assistance, a public API, outbound webhooks,
+billing with quotas, and an agency view.
+
+- **A/B testing.** StepVariant model (dev migration
+  `20261026180056_phase4_competitive`, production migration
+  `prisma/prod/migrations/0003_phase4_competitive`): up to two extra
+  variants per step with weights, edited in the sequence builder
+  with per-variant live preview. Pure engine in
+  `src/lib/domain/abtest.ts`: deterministic FNV-1a hash assignment,
+  per-variant stats, and a winner only via a two-proportion z-test
+  at 95 percent confidence with a 30 delivered minimum per variant.
+  EmailEvent gains a nullable `variant` label; the worker renders
+  and records the assigned variant, and downstream events inherit
+  it. Analytics gains a per-campaign A/B section with the winner
+  badge or the exact "not enough data" numbers.
+- **AI assistance.** AiProvider interface with an OpenAI
+  implementation (`OPENAI_API_KEY`, `AI_MODEL` default
+  `gpt-4o-mini`): subject ideas and body rewrites in the builder,
+  applied only on click, and per-lead icebreakers stored on the
+  lead as the `icebreaker` field for use as a token. Without the
+  key, endpoints return 501 naming the variable and panels show "AI
+  is not configured". Prompts forbid invented facts and
+  spam-filter evasion content.
+- **Public API and keys.** ApiKey gains scopes and a creator
+  relation; keys are `cr_` prefixed, SHA-256 hashed, shown once,
+  revocable, with a 120 request per minute per-instance limiter.
+  `/api/v1` offers paginated lead listing and creation (reusing the
+  in-app create service, with dedupe 409 and suppression 422),
+  idempotent suppression creation, and campaign stats from the real
+  metrics engine including the A/B breakdown. API.md documents
+  auth, scopes, endpoints, examples, and error shapes.
+- **Outbound webhooks.** WebhookEndpoint (secret stored AES-256-GCM
+  encrypted) and WebhookDelivery models. Provider events applied
+  through applyProviderEvent (DELIVERED, REPLIED, BOUNCED,
+  UNSUBSCRIBED, COMPLAINED; SENT excluded) enqueue deliveries,
+  which the worker tick sends with an HMAC-SHA256
+  `X-ColdReach-Signature` header; retries back off 1m, 5m, 30m, 2h
+  and stop at 5 attempts. Settings UI with event type picker, test
+  delivery through the same path, delivery log, pause and delete.
+  INTEGRATIONS.md gains Zapier and Make recipes and the plain CRM
+  note: no native HubSpot or Salesforce connector exists or is
+  claimed.
+- **Billing and quotas.** Plan catalog in `src/lib/domain/plans.ts`
+  (FREE 2 seats, 2 accounts, 1,000 sends per month; STARTER $29;
+  PRO $79; AGENCY $199; prices labelled placeholders). Subscription
+  model, one per workspace; usage derived from real SENT events in
+  the current UTC month. Preflight FAILs when projected sends exceed
+  the remaining quota, the worker hard-stops at the cap and records
+  why, and account and seat limits are enforced at creation and
+  invite time. Stripe behind env vars: checkout sessions, customer
+  portal, and a signature-verified webhook syncing the Subscription
+  row; without the vars, 501s name them and an audited OWNER manual
+  override keeps quotas usable. Billing page with plan cards and
+  real usage bars.
+- **Agency Command Center.** New Agency page and rollup service:
+  owners of multiple workspaces see this month's sends, replies,
+  and bounces in total and per workspace, with active campaigns,
+  ERROR account flags, and bounce rates above 5 percent flagged,
+  plus click-through workspace switching. Owners of one workspace
+  get an explainer and a create-workspace action (new endpoint;
+  the creator becomes OWNER).
+- Tests: 172 passing (47 new across A/B statistics, plan and quota
+  math, API key auth, webhook signing and retries, AI gating and
+  provider shape, variant attribution on applied events, and the
+  agency rollup). Typecheck and production build pass. A 41-check
+  live smoke (scripts/smoke-phase4.ts) passes end to end, including
+  a signed webhook delivery to a local listener and a declared A/B
+  winner from real reply skew.
+
 ## Phase 3, Professional Workflows (2026-10-26)
 
 Real sending identities, a working inbox, and team workflows.

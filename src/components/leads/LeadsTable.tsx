@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui";
@@ -40,6 +40,41 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tagValue, setTagValue] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [icebreakerBusy, setIcebreakerBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/ai/status")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setAiConfigured(Boolean(data.configured));
+      })
+      .catch(() => {
+        if (!cancelled) setAiConfigured(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function generateIcebreaker(leadId: string, email: string) {
+    setIcebreakerBusy(leadId);
+    setNotice(null);
+    const response = await fetch("/api/ai/icebreaker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId }),
+    });
+    const data = await response.json();
+    setIcebreakerBusy(null);
+    if (!response.ok) {
+      setNotice(data.error ?? `Icebreaker failed for ${email}`);
+      return;
+    }
+    setNotice(`Icebreaker saved for ${email}. It is available as the {{icebreaker}} token.`);
+    router.refresh();
+  }
 
   function toggle(id: string) {
     const next = new Set(selected);
@@ -175,6 +210,11 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
                     {lead.suppressed ? (
                       <span className="ml-2 text-xs font-normal text-warning">suppressed</span>
                     ) : null}
+                    {lead.fields.icebreaker ? (
+                      <p className="mt-1 max-w-md text-xs font-normal text-muted">
+                        Icebreaker (AI generated, stored as {"{{icebreaker}}"}): {String(lead.fields.icebreaker)}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-muted">
                     {name || ""}
@@ -191,6 +231,25 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
+                    {aiConfigured ? (
+                      <button
+                        type="button"
+                        className="btn-ghost !px-2 !py-1 text-xs"
+                        disabled={icebreakerBusy === lead.id}
+                        onClick={() => generateIcebreaker(lead.id, lead.email)}
+                        title="Generate an AI icebreaker line and store it as the {{icebreaker}} field"
+                      >
+                        {icebreakerBusy === lead.id
+                          ? "Writing..."
+                          : lead.fields.icebreaker
+                            ? "Regenerate icebreaker"
+                            : "Icebreaker"}
+                      </button>
+                    ) : aiConfigured === false ? (
+                      <span className="text-xs text-muted" title="Set OPENAI_API_KEY in the server environment to enable AI icebreakers">
+                        AI not configured
+                      </span>
+                    ) : null}
                     <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={() => deleteOne(lead.id, lead.email)}>
                       Delete
                     </button>

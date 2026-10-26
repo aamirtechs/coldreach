@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { ensureSuppression } from "@/lib/suppressions";
+import { enqueueEventDeliveries } from "@/lib/webhooks/service";
 
 /**
  * Provider event application.
@@ -39,16 +40,21 @@ export async function applyProviderEvent(
 ): Promise<ApplyEventResult> {
   let enrollmentId: string | null = event.enrollmentId ?? null;
   let sendingAccountId: string | null = null;
+  // The A/B variant of the send this event belongs to, copied onto
+  // the new event so per-variant analytics attribute downstream
+  // outcomes (delivered, replied, bounced) to the copy that sent.
+  let variant: string | null = null;
 
-  if (!enrollmentId && event.providerMessageId) {
+  if (event.providerMessageId) {
     const sent = await db.emailEvent.findFirst({
       where: { providerMessageId: event.providerMessageId, type: "SENT" },
-      select: { enrollmentId: true, sendingAccountId: true },
+      select: { enrollmentId: true, sendingAccountId: true, variant: true },
       orderBy: { createdAt: "asc" },
     });
     if (sent) {
-      enrollmentId = sent.enrollmentId;
+      enrollmentId = enrollmentId ?? sent.enrollmentId;
       sendingAccountId = sent.sendingAccountId;
+      variant = sent.variant;
     }
   }
   if (!enrollmentId) {
@@ -56,6 +62,19 @@ export async function applyProviderEvent(
       new Error("Event could not be resolved to an enrollment. Provide enrollmentId or a known providerMessageId."),
       { status: 404 },
     );
+  }
+  if (variant === null) {
+    // Direct enrollment reference with no message id match: use the
+    // enrollment's most recent send as the attribution source.
+    const sent = await db.emailEvent.findFirst({
+      where: { enrollmentId, type: "SENT" },
+      select: { variant: true, sendingAccountId: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (sent) {
+      variant = sent.variant;
+      sendingAccountId = sendingAccountId ?? sent.sendingAccountId;
+    }
   }
 
   const idempotencyKey =
@@ -83,6 +102,7 @@ export async function applyProviderEvent(
   }
   const workspaceId = enrollment.campaign.workspaceId;
 
+  const occurredAt = event.occurredAt ?? new Date();
   await db.emailEvent.create({
     data: {
       workspaceId,
@@ -93,7 +113,8 @@ export async function applyProviderEvent(
       providerMessageId: event.providerMessageId ?? null,
       idempotencyKey,
       classification: event.classification ?? null,
-      occurredAt: event.occurredAt ?? new Date(),
+      variant,
+      occurredAt,
     },
   });
 
@@ -130,6 +151,30 @@ export async function applyProviderEvent(
       break;
     case "DELIVERED":
       break;
+  }
+
+  // Outbound webhooks (Phase 4): every applied provider event is
+  // offered to the workspace's subscribed endpoints. Enqueueing is
+  // best-effort: a webhook failure must never fail the event itself,
+  // so errors are logged loudly here and the delivery queue (or its
+  // absence) never changes the event outcome.
+  try {
+    await enqueueEventDeliveries(db, {
+      workspaceId,
+      eventType: event.type,
+      payload: {
+        event: event.type,
+        workspaceId,
+        campaignId: enrollment.campaignId,
+        enrollmentId: enrollment.id,
+        leadEmail: enrollment.lead.email,
+        providerMessageId: event.providerMessageId ?? null,
+        classification: event.classification ?? null,
+        occurredAt: occurredAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error("Failed to enqueue webhook deliveries for applied event", error);
   }
 
   return { applied: true, duplicate: false, enrollmentId };

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Building2,
+  CreditCard,
   Inbox,
   LayoutDashboard,
   ListChecks,
@@ -29,7 +31,9 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/app/accounts", label: "Sending Accounts", icon: Mail },
   { href: "/app/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/app/team", label: "Team", icon: Users },
+  { href: "/app/agency", label: "Agency", icon: Building2 },
   { href: "/app/integrations", label: "Integrations", icon: Plug },
+  { href: "/app/billing", label: "Billing", icon: CreditCard },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
@@ -63,7 +67,8 @@ export function Sidebar() {
         })}
       </nav>
       <div className="px-5 py-4 text-xs leading-relaxed text-muted">
-        Phase 1 foundation. Campaigns and sending arrive in Phase 2.
+        Responsible sending: suppression checked before every send, honest analytics from real
+        events, no inbox placement promises.
       </div>
     </aside>
   );

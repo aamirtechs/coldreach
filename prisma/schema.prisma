@@ -34,6 +34,7 @@ model User {
   assignedThreads Thread[]  @relation("ThreadAssignee")
   threadNotes  ThreadNote[]
   invitesSent  Invite[]     @relation("InviteSender")
+  apiKeysCreated ApiKey[]   @relation("ApiKeyCreator")
 }
 
 model Workspace {
@@ -59,6 +60,8 @@ model Workspace {
   emailEvents     EmailEvent[]
   invites         Invite[]
   threadNotes     ThreadNote[]
+  webhookEndpoints WebhookEndpoint[]
+  subscription    Subscription?
 }
 
 model Membership {
@@ -254,9 +257,33 @@ model SequenceStep {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  variants   StepVariant[]
 
   @@unique([campaignId, order])
   @@index([campaignId])
+}
+
+// An A/B test variant of a sequence step. The step's own subject and
+// body are always variant "A"; rows here are the additional variants
+// (labels B, C), at most two per step, enforced by the builder API.
+// A null subject means the variant reuses the step's subject. The
+// worker picks a variant deterministically per enrollment and step
+// (see src/lib/domain/abtest.ts) and records the label on the send
+// event, so analytics can attribute outcomes to the exact copy sent.
+model StepVariant {
+  id        String   @id @default(cuid())
+  stepId    String
+  label     String
+  subject   String?
+  bodyText  String
+  bodyHtml  String?
+  weight    Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  step      SequenceStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@unique([stepId, label])
+  @@index([stepId])
 }
 
 enum EnrollmentStatus {
@@ -321,6 +348,11 @@ model EmailEvent {
   idempotencyKey   String         @unique
   // Optional reply classification, for example POSITIVE, NEUTRAL, NEGATIVE.
   classification   String?
+  // A/B test variant label (A, B, C) of the step copy this event
+  // belongs to, set on SENT and FAILED events when the worker sends.
+  // Null on events recorded before variant tracking and on events
+  // that carry no copy (the analytics layer reads null as variant A).
+  variant          String?
   occurredAt       DateTime
   createdAt        DateTime       @default(now())
   workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -480,13 +512,100 @@ model ApiKey {
   id          String    @id @default(cuid())
   workspaceId String
   name        String
-  // Only a hash of the key is stored, plus a short display prefix.
+  // Only a hash of the key is stored, plus a short display prefix
+  // (the first 10 characters of the full key, shown in the UI).
   keyHash     String    @unique
   prefix      String
+  // Granted scopes as a JSON array of strings, for example
+  // ["leads:read", "leads:write"]. Application code supplies the
+  // array on create; there is no database level default, matching
+  // the Lead JSON portability note above.
+  scopes      Json
+  createdById String?
   lastUsedAt  DateTime?
   revokedAt   DateTime?
   createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation("ApiKeyCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Outbound webhooks (Phase 4)
+// ---------------------------------------------------------------------------
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+model WebhookEndpoint {
+  id          String    @id @default(cuid())
+  workspaceId String
+  url         String
+  // HMAC signing secret, stored only as AES-256-GCM ciphertext via
+  // the crypto helper, the same discipline as OAuth tokens. The
+  // plaintext is shown exactly once, at creation.
+  secret      String
+  // Event types this endpoint subscribes to, as a JSON array of
+  // strings (REPLIED, BOUNCED, UNSUBSCRIBED, COMPLAINED, DELIVERED).
+  eventTypes  Json
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@index([workspaceId])
+}
+
+model WebhookDelivery {
+  id             String                @id @default(cuid())
+  endpointId     String
+  eventType      String
+  // The exact JSON body posted to the endpoint, stored for the
+  // delivery log and for signature verification by the receiver.
+  payload        Json
+  status         WebhookDeliveryStatus @default(PENDING)
+  attempts       Int                   @default(0)
+  nextAttemptAt  DateTime?
+  lastStatusCode Int?
+  lastError      String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  endpoint       WebhookEndpoint       @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId, createdAt])
+  @@index([status, nextAttemptAt])
+}
+
+// ---------------------------------------------------------------------------
+// Billing (Phase 4)
+// ---------------------------------------------------------------------------
+
+enum PlanTier {
+  FREE
+  STARTER
+  PRO
+  AGENCY
+}
+
+// One subscription row per workspace, created lazily on the FREE plan.
+// The plan catalog itself (limits and prices) lives in
+// src/lib/domain/plans.ts; this row records which plan the workspace
+// is on and the Stripe linkage once billing is configured.
+model Subscription {
+  id                   String    @id @default(cuid())
+  workspaceId          String    @unique
+  plan                 PlanTier  @default(FREE)
+  status               String    @default("ACTIVE")
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }

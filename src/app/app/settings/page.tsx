@@ -22,8 +22,8 @@ export default async function SettingsPage() {
     <div className="mx-auto max-w-4xl">
       <h1 className="font-display text-2xl font-semibold tracking-tight">Settings</h1>
       <p className="mt-1 text-sm text-muted">
-        Workspace identity and the suppression list. Billing, retention controls, and data
-        deletion workflows arrive in Phase 4.
+        Workspace identity and the suppression list. Plans and usage live on the Billing page;
+        API keys and webhooks live on the Integrations page.
       </p>
       <div className="mt-6">
         <WorkspaceSettingsForm

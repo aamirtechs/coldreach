@@ -3,6 +3,12 @@ import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { computeCampaignMetrics, type MetricEvent } from "@/lib/domain/metrics";
+import {
+  DEFAULT_MIN_WINNER_SAMPLE,
+  pickWinner,
+  variantStats,
+  type VariantStat,
+} from "@/lib/domain/abtest";
 import { EmptyState, StatusBadge, formatPercent } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -30,14 +36,26 @@ export default async function AnalyticsPage() {
   });
 
   const rows: { id: string; name: string; status: string; metrics: ReturnType<typeof computeCampaignMetrics> }[] = [];
+  const abRows: {
+    id: string;
+    name: string;
+    variants: VariantStat[];
+    winner: ReturnType<typeof pickWinner>;
+  }[] = [];
   let anyEvents = false;
   for (const campaign of campaigns) {
     const events = await prisma.emailEvent.findMany({
       where: { workspaceId, campaignId: campaign.id },
-      select: { type: true, classification: true },
+      select: { type: true, classification: true, variant: true },
     });
     if (events.length > 0) anyEvents = true;
     rows.push({ ...campaign, metrics: computeCampaignMetrics(events as MetricEvent[]) });
+    const variants = variantStats(events);
+    // An A/B section is meaningful only when more than one variant
+    // actually sent.
+    if (variants.filter((variant) => variant.sent > 0).length > 1) {
+      abRows.push({ id: campaign.id, name: campaign.name, variants, winner: pickWinner(variants) });
+    }
   }
 
   const maxSent = Math.max(0, ...rows.map((r) => r.metrics.sent));
@@ -115,6 +133,67 @@ export default async function AnalyticsPage() {
         them unreliable: some clients prefetch tracking pixels and invent opens, others block them
         entirely. They are never used as a denominator.
       </p>
+
+      {abRows.length > 0 ? (
+        <section className="mt-10">
+          <h2 className="font-display text-xl font-semibold tracking-tight">A/B test results</h2>
+          <p className="mt-1 text-sm text-muted">
+            Per-variant outcomes across all steps of each campaign, from the variant label recorded
+            on every send. A winner is declared only when the leading variant beats every other
+            variant on reply rate at 95% confidence (two-proportion z-test) with at least{" "}
+            {DEFAULT_MIN_WINNER_SAMPLE} delivered emails per variant. Anything less is reported as
+            not enough data, never as a win.
+          </p>
+          {abRows.map((row) => {
+            const maxDelivered = Math.max(0, ...row.variants.map((variant) => variant.delivered));
+            return (
+              <div key={row.id} className="card mt-4 overflow-x-auto">
+                <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">
+                  <span className="font-medium">{row.name}</span>
+                  {row.winner ? (
+                    <span className="rounded bg-accent px-2 py-0.5 text-xs font-semibold text-white">
+                      Winner: variant {row.winner.label} (p = {row.winner.pValue.toFixed(3)})
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted">
+                      Not enough data yet: every variant needs at least {DEFAULT_MIN_WINNER_SAMPLE}{" "}
+                      delivered emails and a statistically clear lead. The best variant currently
+                      has {maxDelivered} delivered.
+                    </span>
+                  )}
+                </div>
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
+                    <tr>
+                      <th className="px-4 py-2 font-medium">Variant</th>
+                      <th className="px-4 py-2 font-medium">Sent</th>
+                      <th className="px-4 py-2 font-medium">Delivered</th>
+                      <th className="px-4 py-2 font-medium">Replied</th>
+                      <th className="px-4 py-2 font-medium">Bounced</th>
+                      <th className="px-4 py-2 font-medium">Reply rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {row.variants.map((variant) => (
+                      <tr key={variant.label} className="border-b border-line last:border-0">
+                        <td className="px-4 py-2 font-medium">
+                          {variant.label}
+                          {row.winner?.label === variant.label ? " (winner)" : ""}
+                        </td>
+                        <td className="px-4 py-2">{variant.sent}</td>
+                        <td className="px-4 py-2">{variant.delivered}</td>
+                        <td className="px-4 py-2">{variant.replied}</td>
+                        <td className="px-4 py-2">{variant.bounced}</td>
+                        <td className="px-4 py-2">{formatPercent(variant.replyRate)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </section>
+      ) : null}
     </div>
   );
 }

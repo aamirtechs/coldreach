@@ -6,13 +6,18 @@ scheduling controls, suppression enforcement before every send, honest
 analytics computed from real events, and a clear line that no tool can
 guarantee inbox placement.
 
-This repository currently contains **Phase 1 (foundation) and Phase 2
-(functional MVP)**: the design system and application shell, working
-authentication with multi-tenant workspaces, the complete core data
-model, a tested domain engine, and now the full campaign lifecycle:
-lead import, campaign and sequence building, preflight launch checks,
-a sending worker behind a provider interface, unsubscribe enforcement,
-provider event handling, and analytics computed from recorded events.
+This repository currently contains **Phases 1 to 4**: the design
+system and application shell, working authentication with
+multi-tenant workspaces, the complete core data model, a tested
+domain engine, the full campaign lifecycle (lead import, campaign
+and sequence building, preflight launch checks, a sending worker
+behind a provider interface, unsubscribe enforcement, provider event
+handling, and analytics computed from recorded events), Phase 3
+professional workflows (OAuth mailbox connections, reply sync with a
+unified inbox, deliverability diagnostics, team collaboration), and
+Phase 4 competitive capabilities (A/B testing, AI assistance, a
+public API with keys, outbound webhooks, plan quotas with Stripe
+billing, and an agency command center).
 
 ## Status, honestly
 
@@ -26,10 +31,11 @@ provider event handling, and analytics computed from recorded events.
 - Audit log rows for sensitive actions across auth, leads, campaigns,
   accounts, suppressions, and workspace settings.
 - Full Prisma schema for the core product, with committed migrations.
-- Domain engine in `src/lib/domain`, covered by unit tests (125 tests
+- Domain engine in `src/lib/domain`, covered by unit tests (172 tests
   passing in total, including integration tests for the worker, the
   import service, event application, unsubscribe handling, reply sync,
-  invites, and the cron route).
+  invites, the cron route, A/B statistics, API keys, webhooks, and
+  the agency rollup).
 - Leads: lists, CSV import wizard with mapping, dedupe, suppression
   checks and a downloadable error report, manual add, filters, bulk
   actions, and CSV export.
@@ -58,6 +64,18 @@ provider event handling, and analytics computed from recorded events.
   guards, activity feed), a functional workspace switcher, a
   getting started checklist computed from live state, and a Vercel
   Cron endpoint (GET /api/cron/tick) that runs reply sync and sends.
+- Phase 4: A/B testing (up to two extra variants per step with
+  weights, deterministic per-enrollment assignment, per-variant
+  analytics, and a winner declared only by a two-proportion z-test
+  at 95 percent confidence with a minimum sample, never on noise),
+  AI assistance behind an AiProvider interface (subject ideas,
+  rewrites, and per-lead icebreakers, applied only on an explicit
+  click), a public API under /api/v1 with hashed, scoped,
+  rate-limited API keys (API.md), outbound webhooks with HMAC
+  signatures, retry backoff, and a delivery log, plan quotas
+  (Preflight gate, worker hard stop, account and seat limits) with
+  Stripe checkout, portal, and webhook sync behind env vars, and an
+  Agency Command Center rolling up every workspace the user owns.
 
 **Demo mode**
 
@@ -75,9 +93,19 @@ provider event handling, and analytics computed from recorded events.
   configured" by name. Google additionally gates the restricted Gmail
   scopes behind its verification process; INTEGRATIONS.md states
   exactly what that means.
-- AI assistance, CRM integrations, the public API, and billing arrive
-  in Phase 4. The Integrations page remains a described placeholder
-  until then.
+- AI assistance activates when the owner sets `OPENAI_API_KEY`
+  (optionally `AI_MODEL`); until then the AI endpoints return 501
+  naming the variable and the panels say "AI is not configured".
+  Stripe checkout and the customer portal activate with
+  `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and the three price
+  ID variables (INTEGRATIONS.md section 9); until then the Billing
+  page shows the real plan and usage with an owner-only manual plan
+  override, clearly labelled as the pre-Stripe path. Plan prices in
+  the catalog are placeholders until the owner sets real Stripe
+  prices.
+- CRM sync (HubSpot, Salesforce) runs through outbound webhooks into
+  Zapier or Make, or through the public API. There is no native CRM
+  connector, and the Integrations page says so plainly.
 
 ## Stack
 
@@ -154,6 +182,7 @@ This is exactly how this development environment was set up.
 prisma/schema.prisma     Core data model (SQLite dev) and the migrations in prisma/migrations
 prisma/prod/             Production PostgreSQL schema and its own migrations folder
 vercel.json              Vercel build settings (npm run build:vercel)
+API.md                   Public API reference: auth, scopes, endpoints, error shapes
 DEPLOYMENT.md            Production deployment runbook (Vercel + Neon PostgreSQL)
 src/app                  Routes: landing, auth pages, /app shell, /u unsubscribe,
                          /api for auth, leads, campaigns, accounts, worker, webhooks
@@ -170,9 +199,15 @@ src/lib/sync             Reply sync engine: Gmail, Graph, and fake sources feedi
 src/lib/deliverability   Live DNS lookups behind the deliverability diagnostics
 src/lib/team             Invitation service and the last owner guards
 src/lib/worker           Sending tick, reply sync pass, cron tick, provider event application, unsubscribe
+src/lib/ai               AiProvider interface and the OpenAI provider (Phase 4)
+src/lib/apiKeys          API key hashing, scope checks, per-key rate limit (Phase 4)
+src/lib/webhooks         Outbound webhook endpoints, signing, delivery retries (Phase 4)
+src/lib/billing          Subscriptions, usage accounting, Stripe client (Phase 4)
+src/lib/agency           Cross-workspace rollup for owners (Phase 4)
 src/lib/prisma.ts        Prisma client singleton
 src/lib/audit.ts         Audit log writer
 scripts/worker-once.ts   CLI entry for one sending tick
+scripts/smoke-phase4.ts  Live HTTP smoke test for the Phase 4 surfaces
 src/middleware.ts        Route protection for /app
 ```
 
@@ -200,7 +235,8 @@ and security notes.
 - Phase 3 (done): unified inbox and reply sync, Gmail and Microsoft 365
   OAuth with encrypted token storage, sender health and DNS checks,
   team collaboration, onboarding checklist, production cron.
-- Phase 4: AI assistance, A/B testing, agency features, CRM integrations,
-  public API and webhooks, billing.
+- Phase 4 (done): AI assistance, A/B testing, agency command center,
+  CRM integration through Zapier and Make, public API and outbound
+  webhooks, plan quotas and billing.
 - Phase 5: production hardening, credential vaulting, monitoring,
   deployment automation.

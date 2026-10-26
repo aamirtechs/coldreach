@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { apiError, intField, readJson, requireSession, stringField } from "@/lib/api";
-import { isValidEmail, normalizeEmail } from "@/lib/domain/dedupe";
+import { createLead } from "@/lib/leads/createLead";
 import { findSuppression } from "@/lib/domain/suppression";
 import { loadSuppressions } from "@/lib/suppressions";
 import { writeAuditLog } from "@/lib/audit";
@@ -76,56 +76,20 @@ export async function POST(request: Request) {
   }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
 
-  const rawEmail = stringField(body.email);
-  if (!isValidEmail(rawEmail)) {
-    return NextResponse.json({ error: "A valid email address is required" }, { status: 400 });
-  }
-  const email = normalizeEmail(rawEmail);
-  const fields: Record<string, string> = {};
-  if (body.fields && typeof body.fields === "object" && !Array.isArray(body.fields)) {
-    for (const [key, value] of Object.entries(body.fields)) {
-      if (value !== null && value !== undefined && String(value).trim() !== "") {
-        fields[key] = String(value);
-      }
-    }
-  }
-  // Convenience: firstName, lastName, company may also arrive top level.
-  for (const key of ["firstName", "lastName", "company"] as const) {
-    const value = stringField((body as Record<string, unknown>)[key]);
-    if (value && !fields[key]) fields[key] = value;
-  }
-  const tags = Array.isArray(body.tags)
-    ? body.tags.map((t) => String(t).trim()).filter(Boolean)
-    : [];
-
   try {
-    const listId = stringField(body.listId);
-    if (listId) {
-      const list = await prisma.leadList.findFirst({
-        where: { id: listId, workspaceId: ctx.workspace.id },
-        select: { id: true },
-      });
-      if (!list) return NextResponse.json({ error: "List not found" }, { status: 404 });
-    }
-    const existing = await prisma.lead.findUnique({
-      where: { workspaceId_email: { workspaceId: ctx.workspace.id, email } },
-      select: { id: true },
-    });
-    if (existing) {
-      return NextResponse.json(
-        { error: "A lead with this email already exists in the workspace" },
-        { status: 409 },
-      );
-    }
-    const lead = await prisma.lead.create({
-      data: {
-        workspaceId: ctx.workspace.id,
-        listId: listId || null,
-        email,
-        fields,
-        tags,
-        status: "NEW",
-      },
+    // Creation rules live in the shared service so the public API
+    // enforces exactly the same validation and dedupe.
+    const lead = await createLead(prisma, ctx.workspace.id, {
+      email: stringField(body.email),
+      listId: stringField(body.listId) || null,
+      fields:
+        body.fields && typeof body.fields === "object" && !Array.isArray(body.fields)
+          ? (body.fields as Record<string, unknown>)
+          : null,
+      firstName: (body as Record<string, unknown>).firstName,
+      lastName: (body as Record<string, unknown>).lastName,
+      company: (body as Record<string, unknown>).company,
+      tags: Array.isArray(body.tags) ? body.tags : null,
     });
     await writeAuditLog({
       action: "lead.create",

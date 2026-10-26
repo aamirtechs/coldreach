@@ -7,6 +7,10 @@ import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { resolveProvider as defaultResolveProvider, type MailProvider } from "@/lib/providers";
 import { loadSuppressions } from "@/lib/suppressions";
 import { syncAllConnectedAccounts, type AccountSyncSummary } from "@/lib/sync/syncService";
+import { pickVariant } from "@/lib/domain/abtest";
+import { canSend, type Plan } from "@/lib/domain/plans";
+import { countMonthlySends, getPlanForWorkspace } from "@/lib/billing/subscription";
+import { processDueDeliveries, type ProcessDueSummary } from "@/lib/webhooks/service";
 import { createUnsubscribeToken } from "./unsubscribe";
 
 /**
@@ -49,8 +53,12 @@ export interface SendTickSummary {
   skippedSuppressed: number;
   deferredNoCapacity: number;
   failed: number;
+  /** Sends refused because the workspace hit its plan's monthly quota. */
+  quotaBlocked: number;
   /** Reply sync pass that runs before sends (empty when skipped). */
   sync: AccountSyncSummary[];
+  /** Outbound webhook delivery pass that runs after sends. */
+  webhooks: ProcessDueSummary;
 }
 
 const TERMINAL_LEAD_STATUSES = new Set(["UNSUBSCRIBED", "BOUNCED", "SUPPRESSED", "INVALID"]);
@@ -96,7 +104,9 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     skippedSuppressed: 0,
     deferredNoCapacity: 0,
     failed: 0,
+    quotaBlocked: 0,
     sync: syncSummaries,
+    webhooks: { attempted: 0, delivered: 0, failed: 0, retrying: 0 },
   };
 
   const due = await db.enrollment.findMany({
@@ -109,7 +119,10 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       lead: true,
       campaign: {
         include: {
-          steps: { orderBy: { order: "asc" } },
+          steps: {
+            orderBy: { order: "asc" },
+            include: { variants: { orderBy: { createdAt: "asc" } } },
+          },
           accounts: { include: { sendingAccount: true }, orderBy: { createdAt: "asc" } },
           workspace: true,
         },
@@ -124,6 +137,24 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   const providerCache = new Map<string, MailProvider>();
   const rotationPointers = new Map<string, number>();
   const dayStart = startOfUtcDay(now);
+
+  // Plan quota state per workspace (Phase 4): the plan plus this
+  // month's real SENT count, loaded once per workspace per tick and
+  // incremented locally on every successful send.
+  const quotaCache = new Map<string, { plan: Plan; sentThisMonth: number }>();
+  const quotaFor = async (wsId: string): Promise<{ plan: Plan; sentThisMonth: number }> => {
+    const cached = quotaCache.get(wsId);
+    if (cached) {
+      return cached;
+    }
+    const [plan, sentThisMonth] = await Promise.all([
+      getPlanForWorkspace(db, wsId),
+      countMonthlySends(db, wsId, now),
+    ]);
+    const entry = { plan, sentThisMonth };
+    quotaCache.set(wsId, entry);
+    return entry;
+  };
 
   const sentTodayFor = async (account: SendingAccount): Promise<number> => {
     const cached = sentTodayCache.get(account.id);
@@ -234,14 +265,39 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       continue;
     }
 
+    // Gate 3: plan quota (Phase 4). A workspace at its monthly send
+    // limit does not send, and the reason is recorded on the
+    // enrollment rather than skipped silently. The enrollment stays
+    // due, so raising the plan or the month rolling over resumes it.
+    const quota = await quotaFor(workspaceId);
+    if (!canSend(quota.plan, quota.sentThisMonth)) {
+      summary.quotaBlocked += 1;
+      await db.enrollment.update({
+        where: { id: enrollment.id },
+        data: {
+          lastError: `Monthly send quota reached: the ${quota.plan.name} plan allows ${quota.plan.monthlySends} sends per month and this workspace has sent ${quota.sentThisMonth}. Upgrade in Billing or wait for next month.`,
+        },
+      });
+      continue;
+    }
+
+    // A/B variant (Phase 4): deterministic per enrollment and step,
+    // so a retry after a provider failure renders the identical copy.
+    // Variant A is the step's own subject and body.
+    const variantLabel = pickVariant(enrollment.id, stepIndex, [
+      { label: "A", weight: 1 },
+      ...step.variants.map((variant) => ({ label: variant.label, weight: variant.weight })),
+    ]);
+    const variant = step.variants.find((entry) => entry.label === variantLabel) ?? null;
+
     // Render with the lead's real fields and append the compliance
     // footer: sender identity, postal address, and the unsubscribe link.
     const leadFields: LeadFields =
       lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
         ? { ...(lead.fields as Record<string, string>), email: lead.email }
         : { email: lead.email };
-    const subject = renderTemplate(step.subject, leadFields);
-    const bodyText = renderTemplate(step.body, leadFields);
+    const subject = renderTemplate(variant?.subject ?? step.subject, leadFields);
+    const bodyText = renderTemplate(variant ? variant.bodyText : step.body, leadFields);
     const unsubscribeUrl = `${appUrl}/u/${createUnsubscribeToken(workspaceId, lead.id, campaign.id)}`;
     const senderLine = campaign.workspace.senderName ?? campaign.workspace.name;
     const footerText = [
@@ -255,7 +311,9 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     const footerHtml = `<hr /><p style="font-size:12px;color:#666">${senderLine}${
       campaign.workspace.senderAddress ? `<br />${campaign.workspace.senderAddress}` : ""
     }<br /><a href="${unsubscribeUrl}">Unsubscribe</a></p>`;
-    const fullHtml = `${textToHtml(bodyText)}\n${footerHtml}`;
+    const fullHtml = variant?.bodyHtml
+      ? `${renderTemplate(variant.bodyHtml, leadFields)}\n${footerHtml}`
+      : `${textToHtml(bodyText)}\n${footerHtml}`;
 
     let provider = providerCache.get(chosen.id);
     if (!provider) {
@@ -291,10 +349,12 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
           type: "SENT",
           providerMessageId: result.providerMessageId,
           idempotencyKey: sendKey,
+          variant: variantLabel,
           occurredAt: now,
         },
       });
       sentTodayCache.set(chosen.id, (sentTodayCache.get(chosen.id) ?? 0) + 1);
+      quota.sentThisMonth += 1;
       summary.sent += 1;
       if (provider.isSimulation) {
         summary.simulated += 1;
@@ -311,6 +371,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
           sendingAccountId: chosen.id,
           type: "FAILED",
           idempotencyKey: `fail:${enrollment.id}:${stepIndex}:${now.getTime()}`,
+          variant: variantLabel,
           occurredAt: now,
         },
       });
@@ -319,6 +380,17 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         data: { lastError: message },
       });
     }
+  }
+
+  // Outbound webhook pass (Phase 4): deliver everything due,
+  // including deliveries enqueued by events applied earlier and any
+  // retries whose backoff has elapsed. Failures inside the pass are
+  // recorded on the delivery rows themselves; a broken webhook
+  // receiver must never fail the send tick.
+  try {
+    summary.webhooks = await processDueDeliveries(db, { now });
+  } catch (error) {
+    console.error("Webhook delivery pass failed during send tick", error);
   }
 
   return summary;

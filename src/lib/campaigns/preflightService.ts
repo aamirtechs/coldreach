@@ -3,6 +3,7 @@ import { runPreflight, type PreflightResult } from "@/lib/domain/preflight";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { findSuppression } from "@/lib/domain/suppression";
 import { loadSuppressions } from "@/lib/suppressions";
+import { countMonthlySends, getPlanForWorkspace } from "@/lib/billing/subscription";
 
 /**
  * Assembles preflight inputs from the database and runs the pure
@@ -59,6 +60,14 @@ export async function getCampaignPreflight(
     }),
   }));
 
+  // Plan quota (Phase 4): the campaign's projection is every ACTIVE
+  // enrollment receiving every step, on top of this month's real
+  // SENT count under the workspace's plan.
+  const [plan, sentThisMonth] = await Promise.all([
+    getPlanForWorkspace(db, args.workspaceId),
+    countMonthlySends(db, args.workspaceId),
+  ]);
+
   return runPreflight({
     steps: campaign.steps.map((step) => ({ subject: step.subject, body: step.body })),
     enrolledCount: enrollments.length,
@@ -71,5 +80,11 @@ export async function getCampaignPreflight(
       postalAddress: campaign.workspace.senderAddress,
     },
     projectedDailyVolume: enrollments.length,
+    quota: {
+      planName: plan.name,
+      monthlyLimit: plan.monthlySends,
+      sentThisMonth,
+      projectedTotalSends: enrollments.length * campaign.steps.length,
+    },
   });
 }

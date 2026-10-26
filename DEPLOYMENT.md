@@ -69,6 +69,21 @@ steps in INTEGRATIONS.md):
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | From the Google Cloud OAuth client whose redirect URI is `{APP_URL}/api/accounts/oauth/google/callback` |
 | `MS_CLIENT_ID` / `MS_CLIENT_SECRET` | From the Microsoft app registration whose redirect URI is `{APP_URL}/api/accounts/oauth/microsoft/callback` |
 
+Phase 4 optional variables. Everything in this group is safe to
+leave unset: the affected features report "not configured" with the
+missing names, and the rest of Phase 4 (A/B testing, the public API,
+outbound webhooks, plan quotas, the agency rollup) works without
+any of them. Webhook endpoint secrets do reuse `ENCRYPTION_KEY`
+from the required table above.
+
+| Variable | Value |
+| --- | --- |
+| `OPENAI_API_KEY` | Phase 4 AI assistance. An OpenAI API key with chat completions access. Without it, /api/ai/* returns 501 and the builder panels show "AI is not configured". |
+| `AI_MODEL` | Optional. Chat model for AI assistance; defaults to `gpt-4o-mini`. |
+| `STRIPE_SECRET_KEY` | Phase 4 billing. Stripe secret key; required with the price IDs below for checkout and the customer portal. |
+| `STRIPE_WEBHOOK_SECRET` | Phase 4 billing. Signing secret of the Stripe webhook endpoint at `{APP_URL}/api/billing/webhook`; required for subscription sync (see INTEGRATIONS.md section 9 for the dashboard steps and the exact events to subscribe). |
+| `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_AGENCY` | Phase 4 billing. The recurring Price IDs for the three paid plans, created in the Stripe dashboard. |
+
 Optional, per SMTP sending account: an account stores only a
 `credentialRef` in the database. For a ref of `ACME_SMTP`, set
 `ACME_SMTP_HOST`, `ACME_SMTP_PORT`, `ACME_SMTP_USER`, `ACME_SMTP_PASS`,

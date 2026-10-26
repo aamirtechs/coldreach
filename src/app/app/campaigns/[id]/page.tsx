@@ -22,7 +22,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const campaign = await prisma.campaign.findFirst({
     where: { id, workspaceId },
     include: {
-      steps: { orderBy: { order: "asc" } },
+      steps: {
+        orderBy: { order: "asc" },
+        include: { variants: { orderBy: { createdAt: "asc" } } },
+      },
       accounts: { include: { sendingAccount: true } },
     },
   });
@@ -69,6 +72,13 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     body: step.body,
     delayDays: step.delayDays,
     delayHours: step.delayHours,
+    variants: step.variants.map((variant) => ({
+      label: variant.label,
+      subject: variant.subject ?? "",
+      bodyText: variant.bodyText,
+      bodyHtml: variant.bodyHtml ?? "",
+      weight: variant.weight,
+    })),
   }));
 
   const availableTokens = [
@@ -144,6 +154,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
 
       <SequenceBuilder
         campaignId={campaign.id}
+        campaignName={campaign.name}
         initialSteps={stepDrafts}
         editable={editable}
         sampleLead={sampleLead ? { email: sampleLead.email, fields: sampleFields } : null}

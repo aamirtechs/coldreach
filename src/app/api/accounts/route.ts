@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { apiError, intField, readJson, requireSession, stringField } from "@/lib/api";
 import { isValidEmail, normalizeEmail } from "@/lib/domain/dedupe";
 import { resolveSmtpConfig } from "@/lib/providers";
+import { withinAccountLimit } from "@/lib/domain/plans";
+import { getPlanForWorkspace, getWorkspaceUsage } from "@/lib/billing/subscription";
 import { writeAuditLog } from "@/lib/audit";
 
 const PROVIDERS = ["SIMULATION", "SMTP", "GMAIL", "MS365"] as const;
@@ -65,6 +67,19 @@ export async function POST(request: Request) {
   const credentialRef = stringField(body.credentialRef) || null;
 
   try {
+    // Plan limit (Phase 4): the workspace's plan caps sending accounts.
+    const [plan, usage] = await Promise.all([
+      getPlanForWorkspace(prisma, ctx.workspace.id),
+      getWorkspaceUsage(prisma, ctx.workspace.id),
+    ]);
+    if (!withinAccountLimit(plan, usage.sendingAccounts)) {
+      return NextResponse.json(
+        {
+          error: `The ${plan.name} plan allows ${plan.sendingAccounts} sending accounts and this workspace already has ${usage.sendingAccounts}. Upgrade in Billing to add more.`,
+        },
+        { status: 403 },
+      );
+    }
     const existing = await prisma.sendingAccount.findUnique({
       where: { workspaceId_email: { workspaceId: ctx.workspace.id, email: normalizeEmail(rawEmail) } },
       select: { id: true },

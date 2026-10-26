@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession, stringField } from "@/lib/api";
 import { isValidEmail, normalizeEmail } from "@/lib/domain/dedupe";
+import { withinSeatLimit } from "@/lib/domain/plans";
+import { getPlanForWorkspace, getWorkspaceUsage } from "@/lib/billing/subscription";
 import { createInvite, inviteState } from "@/lib/team/invites";
 import { resolveProvider } from "@/lib/providers";
 import { writeAuditLog } from "@/lib/audit";
@@ -59,6 +61,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Unknown role "${role}"` }, { status: 400 });
   }
   try {
+    // Plan limit (Phase 4): seats are members plus live pending
+    // invites, so an invite that would exceed the plan is refused at
+    // creation, not discovered at acceptance.
+    const [plan, usage] = await Promise.all([
+      getPlanForWorkspace(prisma, ctx.workspace.id),
+      getWorkspaceUsage(prisma, ctx.workspace.id),
+    ]);
+    if (!withinSeatLimit(plan, usage.seatsUsed)) {
+      return NextResponse.json(
+        {
+          error: `The ${plan.name} plan allows ${plan.seats} seats and this workspace already uses ${usage.seatsUsed} (members plus pending invites). Upgrade in Billing to invite more people.`,
+        },
+        { status: 403 },
+      );
+    }
     const invite = await createInvite(prisma, {
       workspaceId: ctx.workspace.id,
       email: normalizeEmail(email),

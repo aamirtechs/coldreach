@@ -137,6 +137,10 @@ export async function acceptInvite(
       status: 410,
     });
   }
+  // Note: the plan seat limit is enforced when the invite is created
+  // (the team invites API route counts members plus live pending
+  // invites), so an invite that exists was already within the limit;
+  // acceptance itself never needs to re-check it.
   const role = existing?.role ?? invite.role;
   await db.$transaction([
     ...(existing

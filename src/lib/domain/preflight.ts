@@ -62,6 +62,17 @@ export interface PreflightInput {
    *  capacity. Enrollment schedules every lead for step one, so the
    *  server passes the enrolled count as the first day estimate. */
   projectedDailyVolume: number;
+  /** Plan quota context (Phase 4). Optional so older callers and tests
+   *  keep working; when present, a campaign whose projected total
+   *  sends would exceed the month's remaining quota fails preflight. */
+  quota?: {
+    planName: string;
+    monthlyLimit: number;
+    sentThisMonth: number;
+    /** Sends this campaign would produce if its sequence ran to
+     *  completion for every enrolled lead. */
+    projectedTotalSends: number;
+  };
 }
 
 export interface PreflightResult {
@@ -222,6 +233,27 @@ export function runPreflight(input: PreflightInput): PreflightResult {
     );
   } else {
     add("identity", "Sender identity", "pass", "Sender display name and postal address are set.");
+  }
+
+  // Plan quota -------------------------------------------------------------
+  if (input.quota) {
+    const { planName, monthlyLimit, sentThisMonth, projectedTotalSends } = input.quota;
+    const remaining = Math.max(0, monthlyLimit - sentThisMonth);
+    if (sentThisMonth + projectedTotalSends > monthlyLimit) {
+      add(
+        "quota",
+        "Plan send quota",
+        "fail",
+        `This campaign would send up to ${projectedTotalSends} messages across its sequence, but the ${planName} plan has ${remaining} of ${monthlyLimit} monthly sends remaining (${sentThisMonth} already sent this month). Reduce the audience or sequence, or upgrade the plan in Billing.`,
+      );
+    } else {
+      add(
+        "quota",
+        "Plan send quota",
+        "pass",
+        `${remaining} of ${monthlyLimit} monthly sends remain on the ${planName} plan; this campaign projects ${projectedTotalSends}.`,
+      );
+    }
   }
 
   const hasFail = checks.some((c) => c.status === "fail");

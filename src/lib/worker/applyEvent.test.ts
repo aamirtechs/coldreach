@@ -172,3 +172,42 @@ describe("applyProviderEvent", () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe("applyProviderEvent variant attribution", () => {
+  it("copies the SENT event's variant onto downstream events", async () => {
+    await db.emailEvent.updateMany({
+      where: { campaignId, type: "SENT" },
+      data: { variant: "B" },
+    });
+    const result = await applyProviderEvent(db, {
+      providerMessageId,
+      type: "DELIVERED",
+    });
+    expect(result.applied).toBe(true);
+    const delivered = await db.emailEvent.findFirst({
+      where: { idempotencyKey: `evt:pmid:${providerMessageId}:DELIVERED` },
+    });
+    expect(delivered?.variant).toBe("B");
+  });
+
+  it("leaves the variant null when the send had none", async () => {
+    await db.emailEvent.updateMany({
+      where: { campaignId, type: "DELIVERED" },
+      data: { variant: null },
+    });
+    await db.emailEvent.deleteMany({ where: { campaignId, type: "BOUNCED" } });
+    await db.emailEvent.updateMany({
+      where: { campaignId, type: "SENT" },
+      data: { variant: null },
+    });
+    const result = await applyProviderEvent(db, {
+      providerMessageId,
+      type: "BOUNCED",
+    });
+    expect(result.applied).toBe(true);
+    const bounced = await db.emailEvent.findFirst({
+      where: { idempotencyKey: `evt:pmid:${providerMessageId}:BOUNCED` },
+    });
+    expect(bounced?.variant).toBeNull();
+  });
+});

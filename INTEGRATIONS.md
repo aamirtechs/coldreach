@@ -1,9 +1,12 @@
-# ColdReach Integrations: Gmail and Microsoft 365
+# ColdReach Integrations
 
-This guide is for the workspace owner who deploys ColdReach. It covers
-the one-time console work that lets users connect real Gmail and
-Microsoft 365 mailboxes: creating the OAuth apps, setting the
-environment variables, and what switches on when they are in place.
+This guide is for the workspace owner who deploys ColdReach. Sections
+1 to 5 cover the one-time console work that lets users connect real
+Gmail and Microsoft 365 mailboxes: creating the OAuth apps, setting
+the environment variables, and what switches on when they are in
+place. Sections 6 to 8 cover the Phase 4 integration surfaces:
+outbound webhooks with Zapier and Make recipes, the CRM note, AI
+assistance, and Stripe billing.
 
 Nothing here is needed to run everything else. Until these credentials
 exist, the Sending Accounts page shows each provider as "Not
@@ -105,6 +108,9 @@ sufficient.
 | Gmail / Graph sending | Accounts resolve to a plain "not connected" error | Real sends with automatic token refresh |
 | Reply sync (automatic in the tick, or per account button) | Nothing to sync | Runs for every connected OAuth account |
 | Unified inbox | Shows threads created from recorded events and DEMO flows | Fills with synced replies |
+| Public API (`/api/v1`) and outbound webhooks | Work (keys and endpoints are created in the app; no credentials needed) | Work |
+| AI assistance (subject ideas, rewrite, icebreakers) | "AI is not configured" naming `OPENAI_API_KEY` | Live, with the model from `AI_MODEL` (default `gpt-4o-mini`) |
+| Stripe checkout and customer portal | Billing page shows plan and usage with a manual owner override | Checkout and portal buttons go live |
 
 ## 5. Local development
 
@@ -113,3 +119,109 @@ register the localhost redirect URIs from the steps above, generate a
 local `ENCRYPTION_KEY`, and the connect flow runs end to end against
 real mailboxes you own. Never use a production mailbox for testing
 sends you would not want delivered.
+
+## 6. Outbound webhooks, Zapier, and Make (Phase 4)
+
+Outbound webhooks push campaign outcomes to any HTTPS endpoint the
+moment they are applied. Configure them in the app under
+**Integrations, Outbound webhooks**:
+
+- The endpoint URL must be HTTPS (plain HTTP is accepted only for
+  `localhost`, for development). Pick any of DELIVERED, REPLIED,
+  BOUNCED, UNSUBSCRIBED, COMPLAINED. SENT is never pushed; it is
+  high volume and available through the API and analytics instead.
+- The endpoint secret is shown exactly once at creation and stored
+  encrypted (same AES-256-GCM helper as OAuth tokens, so webhook
+  endpoints need `ENCRYPTION_KEY` set).
+- Every delivery is a POST with a JSON body
+  (`{ event, workspaceId, occurredAt, data: { enrollmentId, leadId,
+  campaignId, sendingAccountId, stepIndex, providerMessageId,
+  classification } }`) and two headers: `X-ColdReach-Event` and
+  `X-ColdReach-Signature`, the hex HMAC-SHA256 of the raw body keyed
+  by the endpoint secret. Verify the signature before acting on a
+  delivery.
+- A 2xx response marks the delivery DELIVERED. Anything else retries
+  after 1 minute, 5 minutes, 30 minutes, and 2 hours, then stops at
+  5 attempts. The worker tick processes due deliveries, and the
+  settings page shows the recent delivery log. The **Send test**
+  button pushes a `{ "event": "test", ... }` payload through the
+  exact same path so you can verify an endpoint before real events
+  flow.
+
+**Zapier recipe (reply alerts and CRM updates).** Create a Zap with
+the *Webhooks by Zapier* trigger, "Catch Hook", and paste its URL
+into a ColdReach webhook endpoint subscribed to REPLIED. Add a
+Filter step on `event` equals `REPLIED` if the endpoint receives
+other types too, then attach any action Zapier supports: post to
+Slack, create or update a HubSpot or Salesforce contact, append a
+row to Google Sheets. To write back into ColdReach (for example,
+adding leads captured by a form tool), use a Webhooks by Zapier POST
+action against the public API with an `Authorization: Bearer`
+header and a key holding `leads:write` (see API.md).
+
+**Make recipe.** Create a scenario starting with a *Webhooks, Custom
+webhook* module, paste its URL into a ColdReach endpoint, and route
+on the `event` field with Make's router. For outbound calls into
+ColdReach, use the *HTTP, Make a request* module with the same
+Bearer key header.
+
+## 7. CRM note (HubSpot, Salesforce)
+
+ColdReach has **no native HubSpot or Salesforce connector**, and
+does not claim one. CRM sync runs through the surfaces above:
+outbound webhooks into Zapier or Make (which maintain their own
+HubSpot and Salesforce connectors), or direct calls to the public
+API from your own integration code. That keeps the sync logic, field
+mapping, and credentials in the tool built for it instead of a
+half-maintained clone inside ColdReach.
+
+## 8. AI assistance (Phase 4, credential gated)
+
+Subject ideas in the sequence builder, body rewrites (shorter, more
+direct, friendlier presets or a custom instruction), and per-lead
+icebreakers run through an `AiProvider` interface. The bundled
+provider is OpenAI over plain HTTPS calls:
+
+| Variable | Value |
+| --- | --- |
+| `OPENAI_API_KEY` | An OpenAI API key with chat completions access |
+| `AI_MODEL` | Optional. Defaults to `gpt-4o-mini` |
+
+Without `OPENAI_API_KEY`, every AI endpoint returns `501` naming the
+missing variable and the UI panels show "AI is not configured",
+exactly like the OAuth pattern above. AI output is never applied
+automatically: subject ideas and rewrites land only when the user
+clicks Apply, and icebreakers are stored on the lead visibly marked
+as AI generated for review. The prompts forbid invented facts about
+the recipient, fake familiarity, and any spam-filter evasion content.
+
+## 9. Stripe billing (Phase 4, credential gated)
+
+Plans and quotas work without Stripe: every workspace starts on the
+FREE plan, usage is counted from real send events, and the workspace
+OWNER can set a manual plan override on the Billing page (labelled
+as the pre-Stripe override and written to the audit log). Stripe
+turns on self-serve checkout and the customer portal:
+
+1. In the Stripe dashboard, create one **Product** per paid plan
+   (Starter, Pro, Agency) each with a recurring monthly **Price**.
+   The amounts are yours to set; the prices in the app's plan catalog
+   are placeholders until you do.
+2. Copy the three price IDs into the deployment environment as
+   `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, and
+   `STRIPE_PRICE_AGENCY`, and the secret key as `STRIPE_SECRET_KEY`.
+3. Add a webhook endpoint in Stripe (Developers, Webhooks) pointing
+   at `{APP_URL}/api/billing/webhook`, subscribed to exactly:
+   `checkout.session.completed`, `customer.subscription.updated`,
+   `customer.subscription.deleted`. Copy its signing secret into
+   `STRIPE_WEBHOOK_SECRET`.
+4. Redeploy. The Billing page now shows checkout buttons per plan
+   and a "Manage subscription" portal button for paying workspaces.
+   Checkout completion applies the purchased plan, subscription
+   updates sync status, period end, and `cancel_at_period_end`, and
+   a deleted subscription returns the workspace to FREE, all on the
+   workspace's Subscription row from the webhook.
+
+Without these variables the billing endpoints return `501` naming
+what is missing, and the Billing page says so plainly while still
+showing the current plan and real usage.
