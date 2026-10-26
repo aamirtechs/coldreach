@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  ColdReach design tokens.
+  Identity: deep slate surfaces, a single indigo accent, quiet borders.
+  Values are RGB triplets so Tailwind can apply alpha modifiers.
+*/
+:root {
+  --color-bg: 248 250 252;
+  --color-surface: 255 255 255;
+  --color-elevated: 241 245 249;
+  --color-border: 226 232 240;
+  --color-fg: 15 23 42;
+  --color-muted: 100 116 139;
+  --color-accent: 79 70 229;
+  --color-accent-strong: 67 56 202;
+  --color-accent-soft: 238 242 255;
+  --color-danger: 220 38 38;
+  --color-success: 5 150 105;
+  --color-warning: 217 119 6;
+}
+
+.dark {
+  --color-bg: 2 6 23;
+  --color-surface: 15 23 42;
+  --color-elevated: 30 41 59;
+  --color-border: 51 65 85;
+  --color-fg: 226 232 240;
+  --color-muted: 148 163 184;
+  --color-accent: 129 140 248;
+  --color-accent-strong: 165 180 252;
+  --color-accent-soft: 30 27 75;
+  --color-danger: 248 113 113;
+  --color-success: 52 211 153;
+  --color-warning: 251 191 36;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-bg text-fg font-sans antialiased;
+}
+
+::selection {
+  background: rgb(var(--color-accent) / 0.25);
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-strong;
+  }
+  .btn-secondary {
+    @apply btn border border-line bg-surface text-fg hover:bg-elevated;
+  }
+  .btn-ghost {
+    @apply btn text-muted hover:bg-elevated hover:text-fg;
+  }
+  .input {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-fg;
+  }
+  .card {
+    @apply rounded-xl2 border border-line bg-surface shadow-card;
+  }
+  .nav-link {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-elevated hover:text-fg;
+  }
+  .nav-link-active {
+    @apply bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent;
+  }
+}
