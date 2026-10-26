@@ -4,15 +4,23 @@ import { prisma } from "@/lib/prisma";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { AccountForm } from "@/components/accounts/AccountForm";
 import { AccountActions } from "@/components/accounts/AccountActions";
+import { OAuthConnect } from "@/components/accounts/OAuthConnect";
+import { SyncButton } from "@/components/accounts/SyncButton";
+import { DeliverabilityPanel } from "@/components/accounts/DeliverabilityPanel";
 import { DemoBadge, EmptyState, StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function AccountsPage() {
+export default async function AccountsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ oauth?: string; detail?: string }>;
+}) {
   const session = await getSessionWorkspace();
   if (!session) {
     redirect("/login");
   }
+  const { oauth, detail } = await searchParams;
   const workspaceId = session.workspace.id;
   const accounts = await prisma.sendingAccount.findMany({
     where: { workspaceId },
@@ -52,10 +60,14 @@ export default async function AccountsPage() {
         <AccountForm />
       </div>
 
+      <OAuthConnect
+        oauthResult={oauth ? { outcome: oauth, detail } : undefined}
+      />
+
       {accounts.length === 0 ? (
         <EmptyState
           title="No sending accounts yet"
-          body="Add a simulation account to exercise campaigns end to end in DEMO mode, or an SMTP account whose credentials live in the server environment. Gmail and Microsoft 365 OAuth connections arrive in Phase 3."
+          body="Add a simulation account to exercise campaigns end to end in DEMO mode, an SMTP account whose credentials live in the server environment, or connect a Gmail or Microsoft 365 mailbox above."
         />
       ) : (
         <div className="card mt-6 overflow-hidden">
@@ -92,7 +104,20 @@ export default async function AccountsPage() {
                     <td className="px-4 py-3"><StatusBadge status={account.status} /></td>
                     <td className="px-4 py-3">{sentToday.get(account.id) ?? 0} / {effective}</td>
                     <td className="px-4 py-3">{account.dailyLimit}</td>
-                    <td className="px-4 py-3"><AccountActions accountId={account.id} status={account.status} /></td>
+                    <td className="px-4 py-3">
+                      <span className="flex items-start justify-end gap-2">
+                        {(account.provider === "GMAIL" || account.provider === "MS365") &&
+                        account.encryptedCredentials ? (
+                          <SyncButton accountId={account.id} />
+                        ) : null}
+                        <AccountActions accountId={account.id} status={account.status} />
+                      </span>
+                      {account.lastSyncAt ? (
+                        <p className="mt-1 text-right text-[11px] text-muted">
+                          Last reply sync {account.lastSyncAt.toLocaleString()}
+                        </p>
+                      ) : null}
+                    </td>
                   </tr>
                 );
               })}
@@ -105,6 +130,8 @@ export default async function AccountsPage() {
         linearly to the full cap over 14 days. Sent today counts recorded SENT events since
         midnight UTC.
       </p>
+
+      <DeliverabilityPanel />
     </div>
   );
 }

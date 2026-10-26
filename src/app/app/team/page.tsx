@@ -1,17 +1,18 @@
-import { PhasePlaceholder } from "@/components/PhasePlaceholder";
+import { TeamPanel } from "@/components/team/TeamPanel";
+
+export const dynamic = "force-dynamic";
 
 export default function TeamPage() {
   return (
-    <PhasePlaceholder
-      title="Team"
-      phase="Phase 3"
-      description="Team management builds on the tenancy foundation in Phase 1: workspaces, memberships, and the OWNER, ADMIN, MEMBER, and VIEWER roles already exist and are enforced by a role helper."
-      bullets={[
-        "Invite members by email and assign workspace roles.",
-        "Agency friendly client workspaces, each with its own accounts, campaigns, leads, and reporting.",
-        "Thread assignment and activity history per member.",
-        "Audit log viewer for sensitive operations, backed by the audit records written since Phase 1.",
-      ]}
-    />
+    <div className="mx-auto max-w-6xl">
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Team</h1>
+      <p className="mt-1 text-sm text-muted">
+        Members, roles, and invitations for this workspace, plus the activity feed from the
+        audit log. Switch between your workspaces any time from the top bar.
+      </p>
+      <div className="mt-6">
+        <TeamPanel />
+      </div>
+    </div>
   );
 }

@@ -1,15 +1,17 @@
 import { redirect } from "next/navigation";
-import { Building2 } from "lucide-react";
 import { getSessionWorkspace } from "@/lib/auth/session";
+import { listUserWorkspaces } from "@/lib/auth/workspaces";
 import { Sidebar } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/components/UserMenu";
+import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSessionWorkspace();
   if (!session) {
     redirect("/login");
   }
+  const workspaces = await listUserWorkspaces(session.user.id);
 
   return (
     <div className="flex min-h-screen">
@@ -20,23 +22,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent font-display text-xs font-bold text-white md:hidden">
               CR
             </span>
-            {/*
-              Workspace switcher placeholder. Multi-workspace switching lands
-              in Phase 3; until then this shows the active workspace and is
-              deliberately not interactive.
-            */}
-            <div
-              className="flex items-center gap-2 rounded-lg border border-line bg-elevated px-3 py-1.5"
-              title="Workspace switching arrives in Phase 3"
-            >
-              <Building2 className="h-4 w-4 text-muted" />
-              <span className="max-w-48 truncate text-sm font-medium">
-                {session.workspace.name}
-              </span>
-              <span className="hidden rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted lg:inline">
-                Active workspace
-              </span>
-            </div>
+            <WorkspaceSwitcher
+              workspaces={workspaces}
+              activeId={session.workspace.id}
+              activeName={session.workspace.name}
+            />
           </div>
           <div className="flex items-center gap-1">
             <ThemeToggle />

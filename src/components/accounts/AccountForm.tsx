@@ -66,9 +66,16 @@ export function AccountForm() {
       <select id="acc-provider" className="input" value={provider} onChange={(e) => setProvider(e.target.value)}>
         <option value="SIMULATION">Simulation (DEMO, no real email)</option>
         <option value="SMTP">SMTP (credentialRef to server environment)</option>
-        <option value="GMAIL">Gmail (OAuth in Phase 3)</option>
-        <option value="MS365">Microsoft 365 (OAuth in Phase 3)</option>
+        <option value="GMAIL">Gmail (connect via OAuth above)</option>
+        <option value="MS365">Microsoft 365 (connect via OAuth above)</option>
       </select>
+      {provider === "GMAIL" || provider === "MS365" ? (
+        <p className="mt-2 text-xs text-muted">
+          Real sending needs the OAuth connection: use the Connect card at the top of this page,
+          which stores the tokens encrypted. Adding the account here only creates the record;
+          it stays DISCONNECTED and cannot send until the OAuth flow completes.
+        </p>
+      ) : null}
       {provider === "SIMULATION" ? (
         <p className="mt-2 text-xs text-muted">
           Simulation accounts exercise the whole campaign lifecycle without sending anything.

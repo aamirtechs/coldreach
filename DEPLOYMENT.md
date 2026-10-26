@@ -58,6 +58,16 @@ Preview at the production database).
 | `WORKER_SECRET` | A long random value. Authenticates POST /api/worker/tick via the `x-worker-secret` header. |
 | `WEBHOOK_SECRET` | A long random value. Authenticates POST /api/webhooks/events via the `x-webhook-secret` header. |
 | `APP_URL` | The production URL, for example `https://coldreach.example.com`. Used in links and email footers. |
+| `ENCRYPTION_KEY` | Phase 3. Base64 encoded 32 random bytes. Generate with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`. Encrypts OAuth tokens at rest; without it Gmail and Microsoft 365 accounts cannot be connected. Never rotate casually: tokens encrypted with the old key become unreadable and accounts must reconnect. |
+| `CRON_SECRET` | Phase 3. A long random value. Vercel Cron sends it automatically as `Authorization: Bearer` to GET /api/cron/tick when set (see section 6). |
+
+Phase 3 OAuth, set only when connecting real mailboxes (full console
+steps in INTEGRATIONS.md):
+
+| Variable | Value |
+| --- | --- |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | From the Google Cloud OAuth client whose redirect URI is `{APP_URL}/api/accounts/oauth/google/callback` |
+| `MS_CLIENT_ID` / `MS_CLIENT_SECRET` | From the Microsoft app registration whose redirect URI is `{APP_URL}/api/accounts/oauth/microsoft/callback` |
 
 Optional, per SMTP sending account: an account stores only a
 `credentialRef` in the database. For a ref of `ACME_SMTP`, set
@@ -76,10 +86,11 @@ prisma migrate deploy --schema prisma/prod/schema.prisma
 next build
 ```
 
-`migrate deploy` applies `prisma/prod/migrations/0001_init` to the Neon
-database, creating all 16 tables, 11 enum types, indexes, and foreign
-keys. If a migration fails, the build fails and nothing ships. That is
-deliberate: there is no fallback that hides a migration failure.
+`migrate deploy` applies the folders in `prisma/prod/migrations/` in
+order (`0001_init`, then `0002_phase3_professional_workflows`, and so
+on) to the Neon database. If a migration fails, the build fails and
+nothing ships. That is deliberate: there is no fallback that hides a
+migration failure.
 
 ## 5. Post-deploy checks
 
@@ -97,34 +108,41 @@ Run these against the production URL before announcing anything:
 
 ## 6. Running the sending worker in production
 
-Sending happens in ticks. Something must call the tick on a schedule;
-the deployed Next.js app does not run a background loop by itself.
+Sending and reply sync happen in ticks. Something must call the tick
+on a schedule; the deployed Next.js app does not run a background loop
+by itself. A tick first syncs replies for connected Gmail and
+Microsoft 365 accounts (so a fresh reply stops its follow-up), then
+sends everything that is due (campaign RUNNING, enrollment ACTIVE,
+send time reached) under the per-account daily limits. The cadence
+controls latency, not volume.
+
+**Option A, Vercel Cron (Phase 3).** `vercel.json` declares a cron for
+`GET /api/cron/tick` every 5 minutes (`*/5 * * * *`). Vercel invokes
+it with `Authorization: Bearer {CRON_SECRET}` automatically when the
+`CRON_SECRET` environment variable is set (see section 3), and the
+route answers 401 to anything else. Plan caveat: the Hobby plan
+restricts cron jobs to once per day, so a 5 minute schedule requires
+the Pro plan; on Hobby, either upgrade or use Option B for the
+frequent ticks and let the daily Vercel cron act as a backstop.
+
+**Option B, external scheduler.** Any scheduler that can send a custom
+header can drive the original endpoint, for example cron-job.org, a
+GitHub Actions scheduled workflow with a `curl` step, or a small
+always-on job on any server:
 
 - Endpoint: `POST /api/worker/tick`
 - Auth: header `x-worker-secret` set to `WORKER_SECRET`
-- Suggested cadence: every 5 minutes. A tick sends everything that is
-  due (campaign RUNNING, enrollment ACTIVE, send time reached) under
-  the per-account daily limits, so the cadence controls latency, not
-  volume.
-
-Use any external scheduler that can send a custom header, for example
-cron-job.org, a GitHub Actions scheduled workflow with a `curl` step,
-or a small always-on job on any server:
+- Suggested cadence: every 5 minutes.
 
 ```bash
 curl -X POST https://<your-domain>/api/worker/tick \
   -H "x-worker-secret: $WORKER_SECRET"
 ```
 
-**Vercel Cron cannot be used as-is.** Vercel Cron invokes a route with
-an `Authorization: Bearer` header derived from its own `CRON_SECRET`
-and does not let you set arbitrary custom headers, so it cannot present
-the `x-worker-secret` this route requires. The known future improvement
-is a dedicated cron route (for example `/api/cron/tick`) that accepts
-Vercel's `CRON_SECRET` bearer token and then runs the same tick. That
-route does not exist yet; until it does, use an external scheduler as
-above. For local development and one-off runs, `npm run worker:once`
-runs a single tick from the CLI.
+The same external scheduler can also call `GET /api/cron/tick` with
+the bearer secret instead; both routes run the identical tick. For
+local development and one-off runs, `npm run worker:once` runs a
+single tick from the CLI.
 
 ## 7. Future schema changes
 
@@ -132,6 +150,12 @@ runs a single tick from the CLI.
    `prisma/prod/schema.prisma`. The models in the two files must stay
    identical; only the datasource blocks differ.
 2. Develop and test against SQLite with `npx prisma migrate dev`.
+   Note: `prisma generate` writes one shared client, so generating
+   from the production schema locally (to verify `build:vercel`)
+   swaps the client to PostgreSQL and SQLite tests then fail
+   validation until a plain `npx prisma generate` (dev schema)
+   restores it. On Vercel this never matters: the build generates
+   from the production schema in its own environment.
 3. Generate the production migration against a staging PostgreSQL
    database with `npx prisma migrate dev --schema prisma/prod/schema.prisma`,
    or offline with

@@ -114,7 +114,11 @@ One tick, per due enrollment, in order:
    and a signed unsubscribe link, mirrored in a List-Unsubscribe
    header.
 4. The send goes through the provider interface in `src/lib/providers`
-   (simulation or SMTP today). On success a SENT EmailEvent is
+   (simulation, SMTP, and, once connected through OAuth, Gmail and
+   Microsoft Graph). Before sends, the tick runs a reply sync pass for
+   connected OAuth accounts, so a reply that just landed stops its
+   follow-up in the same run; sync failures are recorded per account
+   and never block sending. On success a SENT EmailEvent is
    recorded with the idempotency key send:{enrollmentId}:{stepIndex},
    and the enrollment advances: the next step is scheduled through
    `scheduling.ts`, or the enrollment completes after the last step.
@@ -160,28 +164,83 @@ whose email carried the link.
 Users, Workspaces, Memberships; SendingAccounts; LeadLists and Leads;
 Campaigns, SequenceSteps, Enrollments (unique on campaign and lead, the
 structural guarantee against duplicate enrollment); EmailEvents (unique
-idempotency key); Suppressions; Threads and ThreadMessages for the unified
-inbox; AuditLogs; ApiKeys. See `prisma/schema.prisma` for the full model
-and `prisma/migrations` for the committed initial migration.
+idempotency key); Suppressions; Threads, ThreadMessages, and ThreadNotes
+for the unified inbox; Invites (token hashes only); AuditLogs; ApiKeys.
+SendingAccount carries the Phase 3 OAuth fields (encryptedCredentials,
+tokenExpiresAt, lastSyncAt, syncCursor, providerAccountId). See
+`prisma/schema.prisma` for the full model and `prisma/migrations` for
+the committed migrations.
 
-## Known limitations after Phase 2
+## Professional workflows (Phase 3, implemented)
+
+- **Credential security.** OAuth tokens for Gmail and Microsoft 365 are
+  stored only as AES-256-GCM ciphertext (`src/lib/security/crypto.ts`,
+  key from `ENCRYPTION_KEY`). The OAuth connect flow
+  (`src/lib/oauth/`) uses signed, short-lived state tokens bound to the
+  session's user and workspace; providers refresh access tokens
+  transparently and mark the account ERROR with the provider's message
+  when a refresh fails. A provider whose client credentials are not
+  configured reports "Not configured" with the missing variable names
+  in the API and the UI, never a dead connect button. SMTP keeps the
+  Phase 2 credentialRef discipline: no plaintext secrets anywhere.
+- **Reply sync and the unified inbox.** `src/lib/sync/` defines a
+  MessageSource interface with Gmail (history feed), Microsoft Graph
+  (receivedDateTime filter), and an in-memory fake for tests. The sync
+  service matches inbound mail to enrollments by In-Reply-To and
+  References against SENT events' providerMessageIds, falls back to
+  the sender's lead record, applies REPLIED through the same
+  `applyProviderEvent` path webhooks use, classifies with the rule
+  based heuristics in `src/lib/domain/classify.ts` (documented rules,
+  not AI), and files messages into Threads and ThreadMessages with
+  dedupe on the inbound Message-ID. Thread.unread is set by sync and
+  cleared when a member opens the conversation. The inbox UI adds
+  filters, assignment, status controls, classification override,
+  internal ThreadNotes (never sent anywhere), and a reply composer
+  that sends through the thread's account provider.
+- **Deliverability diagnostics.** A pure evaluator
+  (`src/lib/domain/dnsCheck.ts`) grades SPF, DKIM, and DMARC from
+  lookup results with plain-language fixes; a service
+  (`src/lib/deliverability/dnsService.ts`) performs live DNS TXT
+  lookups and converts failures into "unable to verify" findings.
+  Per account health cards aggregate real EmailEvents with the
+  formula published in `src/lib/domain/health.ts` and quoted in the
+  UI. Nothing is estimated or invented: no sends, no score.
+- **Team.** Invites are random tokens stored as SHA-256 hashes with a
+  7 day expiry; accepting requires signing in with the invited email
+  and joins with the invited role. Role changes and removals enforce
+  the last OWNER guards in `src/lib/team/invites.ts`. The Team page
+  reads the AuditLog for its Activity tab, and invite, role, removal,
+  account connect, and campaign launch actions all write audit rows.
+- **Workspace switching.** The session JWT carries one active
+  workspace claim. The topbar switcher lists the user's memberships
+  and re-issues the token after a membership check
+  (`src/lib/auth/workspaces.ts`), so tenant scoping follows the claim
+  everywhere with no parallel state.
+- **Production cron.** GET /api/cron/tick authorizes the
+  `CRON_SECRET` bearer token (Vercel Cron's native mechanism), runs
+  the reply sync pass plus the send tick, and returns a JSON summary;
+  `vercel.json` schedules it every 5 minutes, subject to the Vercel
+  plan's cron frequency rules (see DEPLOYMENT.md section 6).
+
+## Known limitations after Phase 3
 
 - SQLite is a development database. Production should run PostgreSQL; the
   schema avoids SQLite specific constructs, with one documented exception:
   JSON fields on Lead carry no database level default, because SQLite
   cannot express a JSON literal default portably. Application code
   supplies the defaults on every lead creation path.
-- The workspace switcher shows the active workspace; switching between
-  multiple memberships lands in Phase 3.
-- SMTP is the only real transport. Gmail and Microsoft 365 accounts are
-  stored but cannot send until OAuth lands in Phase 3, and provider
-  resolution says so plainly instead of failing silently.
-- SMTP credentials are resolved from server environment variables named
-  by the account's credentialRef. Encrypted vault storage is Phase 5
-  hardening; no credential of any kind is in the database today.
-- There is no reply synchronisation yet: replies enter through the
-  event ingestion endpoint, which Phase 3 provider webhooks and the
-  unified inbox will feed.
+- Gmail and Microsoft 365 transports are implemented against the
+  providers' documented APIs but activate only when the owner creates
+  the OAuth apps and sets the client credentials (INTEGRATIONS.md);
+  they have not been exercised against live provider accounts here.
+  Google additionally requires verification for the restricted Gmail
+  scopes before production use beyond test users.
+- Reply classification is keyword rules by design; it will misread
+  sarcasm, mixed sentiment, and terse replies. The thread UI makes
+  overriding it one click, and the copy says what it is.
+- DKIM checking probes four common selectors. A domain signing with a
+  different selector reports "unknown", not a failure, with copy that
+  explains how to check the real selector.
 - Sent-today accounting uses UTC day boundaries, matching the limits
   engine's day definition. Campaign windows remain timezone aware.
 - Tag filtering on leads runs in application code because tags are a

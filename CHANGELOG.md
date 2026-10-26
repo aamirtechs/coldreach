@@ -1,5 +1,54 @@
 # Changelog
 
+## Phase 3, Professional Workflows (2026-10-26)
+
+Real sending identities, a working inbox, and team workflows.
+
+- **Credential security and OAuth.** AES-256-GCM encryption for
+  provider tokens (`src/lib/security/crypto.ts`, key from
+  `ENCRYPTION_KEY`), with tamper detection tests. SendingAccount gains
+  encryptedCredentials, tokenExpiresAt, lastSyncAt, syncCursor, and
+  providerAccountId (dev migration
+  `20261026165125_phase3_professional_workflows`, production migration
+  `prisma/prod/migrations/0002_phase3_professional_workflows`).
+  Google and Microsoft connect flows (signed state token bound to the
+  session, profile lookup, encrypted token storage, transparent
+  refresh) with Gmail and Microsoft Graph transports implementing the
+  existing MailProvider interface. Unconfigured providers report "Not
+  configured" with the missing environment variables named, in the API
+  and the UI. INTEGRATIONS.md documents the owner console steps and
+  the honest activation table.
+- **Reply sync and unified inbox.** MessageSource interface with
+  Gmail (history feed), Graph (receivedDateTime filter), and fake
+  implementations. Sync matches replies by Message-ID headers, applies
+  REPLIED through the existing applyProviderEvent path, classifies
+  with documented keyword rules (`src/lib/domain/classify.ts`), and
+  threads messages with Message-ID dedupe. The Inbox page replaces
+  the placeholder: filters, conversation view, reply composer through
+  the account provider, assignment, status controls, classification
+  override, internal ThreadNotes, and sync maintained unread state.
+- **Deliverability diagnostics.** Pure SPF, DKIM, and DMARC evaluator
+  with plain-language fixes and fixture tests, a live DNS checker
+  service that degrades to "unable to verify", and per account health
+  cards computed from real events with the formula printed in the UI.
+- **Team collaboration.** Invite model (SHA-256 token hashes, 7 day
+  expiry), accept page that works logged out and logged in, SMTP
+  invite email when a connected SMTP account exists (link returned
+  otherwise), resend and revoke, role changes and member removal with
+  last OWNER guards, a Team page with members, invites, and an
+  Activity tab over the AuditLog, and a functional workspace switcher
+  in the topbar (session re-issue after membership check).
+- **Onboarding and production cron.** Dashboard getting started
+  checklist computed from live workspace state. GET /api/cron/tick
+  accepts the Vercel Cron CRON_SECRET bearer token, runs reply sync
+  plus the send tick, and returns a JSON summary; `vercel.json`
+  schedules it every 5 minutes, with the plan caveat documented in
+  DEPLOYMENT.md. The worker tick itself now syncs replies before
+  sending as well.
+- Tests: 125 passing (46 new across crypto, classification, DNS
+  fixtures, sync with FakeSource, invites and owner guards, workspace
+  switching, and cron route auth). Typecheck and production build pass.
+
 ## Deployment preparation (2026-10-26)
 
 The repository is ready to deploy to Vercel with PostgreSQL.

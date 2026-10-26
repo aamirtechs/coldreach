@@ -1,18 +1,20 @@
-import { PhasePlaceholder } from "@/components/PhasePlaceholder";
+import { InboxList } from "@/components/inbox/InboxList";
+
+export const dynamic = "force-dynamic";
 
 export default function InboxPage() {
   return (
-    <PhasePlaceholder
-      title="Inbox"
-      phase="Phase 3"
-      description="The unified inbox arrives in Phase 3, once provider synchronisation exists. The Thread and ThreadMessage models it will read from are already in the Phase 1 schema."
-      bullets={[
-        "Replies from every connected sending account in one conversation list.",
-        "Filtering by campaign, sender account, contact, and thread status.",
-        "Assignment to team members, internal notes, and follow-up tracking.",
-        "Reply detection that pauses the matching campaign enrollment immediately.",
-        "Optional AI reply classification and suggested responses, always reviewed by a human before sending.",
-      ]}
-    />
+    <div className="mx-auto max-w-6xl">
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Inbox</h1>
+      <p className="mt-1 text-sm text-muted">
+        Every reply from every connected sending account in one place. Reply sync runs before
+        each worker tick and from the Sync replies button on the Sending Accounts page; a reply
+        stops its campaign sequence the moment it is imported. Classifications are rule based
+        keyword heuristics, not AI, and can be overridden on any conversation.
+      </p>
+      <div className="mt-6">
+        <InboxList />
+      </div>
+    </div>
   );
 }

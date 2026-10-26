@@ -26,9 +26,10 @@ provider event handling, and analytics computed from recorded events.
 - Audit log rows for sensitive actions across auth, leads, campaigns,
   accounts, suppressions, and workspace settings.
 - Full Prisma schema for the core product, with committed migrations.
-- Domain engine in `src/lib/domain`, covered by unit tests (79 tests
+- Domain engine in `src/lib/domain`, covered by unit tests (125 tests
   passing in total, including integration tests for the worker, the
-  import service, event application, and unsubscribe handling).
+  import service, event application, unsubscribe handling, reply sync,
+  invites, and the cron route).
 - Leads: lists, CSV import wizard with mapping, dedupe, suppression
   checks and a downloadable error report, manual add, filters, bulk
   actions, and CSV export.
@@ -47,6 +48,16 @@ provider event handling, and analytics computed from recorded events.
   unreliable signal.
 - Dashboard showing real per-workspace counts, with an honest empty state.
 - Landing page, light and dark themes. No fake data anywhere.
+- Phase 3: OAuth credential security (AES-256-GCM token storage),
+  Gmail and Microsoft 365 connect flows with honest "Not configured"
+  states, reply sync with a unified inbox (filters, conversation view,
+  reply composer, assignment, internal notes, rule based reply
+  classification), a deliverability diagnostics center (live SPF,
+  DKIM, and DMARC grading plus per account health from real events),
+  team collaboration (invites with hashed tokens, roles, last owner
+  guards, activity feed), a functional workspace switcher, a
+  getting started checklist computed from live state, and a Vercel
+  Cron endpoint (GET /api/cron/tick) that runs reply sync and sends.
 
 **Demo mode**
 
@@ -58,13 +69,15 @@ provider event handling, and analytics computed from recorded events.
 - SMTP sending works when the server environment carries the variables
   named by an account's credentialRef (see `.env.example`). No SMTP
   credentials are stored in the database.
-- Gmail and Microsoft 365 sending needs OAuth connections, Phase 3.
-  Accounts of those types can be saved today but cannot send.
-- Reply synchronisation and the unified inbox arrive in Phase 3. The
-  event ingestion endpoint is the seam they will feed.
+- Gmail and Microsoft 365 sending and reply sync activate the moment
+  the owner sets the OAuth client credentials and ENCRYPTION_KEY (see
+  INTEGRATIONS.md). Until then those providers report "Not
+  configured" by name. Google additionally gates the restricted Gmail
+  scopes behind its verification process; INTEGRATIONS.md states
+  exactly what that means.
 - AI assistance, CRM integrations, the public API, and billing arrive
-  in Phase 4. Team and Integrations pages remain described
-  placeholders until then.
+  in Phase 4. The Integrations page remains a described placeholder
+  until then.
 
 ## Stack
 
@@ -150,8 +163,13 @@ src/lib/auth             Session tokens, session/workspace resolution, roles
 src/lib/domain           Pure TypeScript engines, each with Vitest tests
 src/lib/leads            CSV import service
 src/lib/campaigns        Enrollment and preflight assembly services
-src/lib/providers        Mail provider interface, simulation and SMTP transports
-src/lib/worker           Sending tick, provider event application, unsubscribe
+src/lib/providers        Mail provider interface, simulation, SMTP, Gmail, and Graph transports
+src/lib/oauth            OAuth provider config, signed state tokens, token storage and refresh
+src/lib/security         AES-256-GCM encryption for provider tokens at rest
+src/lib/sync             Reply sync engine: Gmail, Graph, and fake sources feeding the inbox
+src/lib/deliverability   Live DNS lookups behind the deliverability diagnostics
+src/lib/team             Invitation service and the last owner guards
+src/lib/worker           Sending tick, reply sync pass, cron tick, provider event application, unsubscribe
 src/lib/prisma.ts        Prisma client singleton
 src/lib/audit.ts         Audit log writer
 scripts/worker-once.ts   CLI entry for one sending tick
@@ -179,9 +197,9 @@ and security notes.
 - Phase 2 (done): lead import, campaign creation, sequence builder,
   preflight, provider connections (simulation and SMTP), the sending
   worker, unsubscribe handling, event ingestion, basic analytics.
-- Phase 3: unified inbox and reply sync, Gmail and Microsoft 365 OAuth,
-  sender health and DNS checks, team collaboration, full reporting,
-  onboarding.
+- Phase 3 (done): unified inbox and reply sync, Gmail and Microsoft 365
+  OAuth with encrypted token storage, sender health and DNS checks,
+  team collaboration, onboarding checklist, production cron.
 - Phase 4: AI assistance, A/B testing, agency features, CRM integrations,
   public API and webhooks, billing.
 - Phase 5: production hardening, credential vaulting, monitoring,

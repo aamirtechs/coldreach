@@ -36,6 +36,8 @@ model User {
   memberships  Membership[]
   auditLogs    AuditLog[]
   assignedThreads Thread[]  @relation("ThreadAssignee")
+  threadNotes  ThreadNote[]
+  invitesSent  Invite[]     @relation("InviteSender")
 }
 
 model Workspace {
@@ -59,6 +61,8 @@ model Workspace {
   auditLogs       AuditLog[]
   apiKeys         ApiKey[]
   emailEvents     EmailEvent[]
+  invites         Invite[]
+  threadNotes     ThreadNote[]
 }
 
 model Membership {
@@ -110,10 +114,24 @@ model SendingAccount {
   status         SendingAccountStatus @default(DISCONNECTED)
   dailyLimit     Int                  @default(50)
   warmupStatus   WarmupStatus         @default(OFF)
-  // Credentials are never stored in plain text. OAuth tokens and SMTP
-  // passwords belong in encrypted storage; this field holds an opaque
-  // reference only, and stays null until a provider is connected.
+  // Credentials are never stored in plain text. For SMTP this field
+  // holds an opaque reference to server environment variables. OAuth
+  // tokens (Phase 3) live in encryptedCredentials below, encrypted at
+  // rest with AES-256-GCM; the plaintext never touches the database.
   credentialRef  String?
+  // AES-256-GCM encrypted JSON blob holding OAuth access and refresh
+  // tokens for GMAIL and MS365 accounts. Null until the account is
+  // connected through the OAuth flow.
+  encryptedCredentials String?
+  // When the current OAuth access token expires. The provider layer
+  // refreshes and rewrites encryptedCredentials before this passes.
+  tokenExpiresAt DateTime?
+  // Last successful reply sync for this account, and the opaque cursor
+  // the sync source resumes from (Gmail history id, Graph timestamp).
+  lastSyncAt     DateTime?
+  syncCursor     String?
+  // The account's id at the provider (Google sub, Microsoft account id).
+  providerAccountId String?
   lastError      String?
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
@@ -364,6 +382,13 @@ model Thread {
   assigneeId       String?
   subject          String
   status           ThreadStatus   @default(OPEN)
+  // Maintained by reply sync: set when a new inbound message lands,
+  // cleared when a member opens the conversation.
+  unread           Boolean        @default(false)
+  // Latest reply classification from the rules engine in
+  // src/lib/domain/classify.ts (POSITIVE, NEGATIVE, OUT_OF_OFFICE,
+  // REFERRAL, NEUTRAL), or a member's manual override.
+  classification   String?
   lastMessageAt    DateTime       @default(now())
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
@@ -373,6 +398,7 @@ model Thread {
   sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
   assignee         User?          @relation("ThreadAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   messages         ThreadMessage[]
+  notes            ThreadNote[]
 
   @@index([workspaceId, status])
 }
@@ -385,11 +411,34 @@ model ThreadMessage {
   toEmail   String
   subject   String?
   body      String
+  // The provider's id for this message, when known. Reply sync uses it
+  // to stay idempotent: a message already imported is never appended
+  // twice, however often sync runs.
+  providerMessageId String?
   occurredAt DateTime        @default(now())
   createdAt DateTime         @default(now())
   thread    Thread           @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@index([threadId, occurredAt])
+  @@index([providerMessageId])
+}
+
+// Internal note on a conversation. Notes are visible only inside the
+// workspace and are never sent to the contact or the provider.
+model ThreadNote {
+  id          String   @id @default(cuid())
+  workspaceId String
+  threadId    String
+  authorId    String
+  body        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  thread      Thread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author      User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@index([workspaceId])
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +456,28 @@ model AuditLog {
   user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, createdAt])
+}
+
+// A pending invitation to join a workspace with a preset role. Only the
+// SHA-256 hash of the accept token is stored; the plaintext token exists
+// only in the accept link the workspace owner shares (and optionally in
+// the invitation email, when an SMTP account sends one).
+model Invite {
+  id          String    @id @default(cuid())
+  workspaceId String
+  email       String
+  role        Role      @default(MEMBER)
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  invitedById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy   User      @relation("InviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([email])
 }
 
 model ApiKey {

@@ -6,6 +6,7 @@ import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { resolveProvider as defaultResolveProvider, type MailProvider } from "@/lib/providers";
 import { loadSuppressions } from "@/lib/suppressions";
+import { syncAllConnectedAccounts, type AccountSyncSummary } from "@/lib/sync/syncService";
 import { createUnsubscribeToken } from "./unsubscribe";
 
 /**
@@ -27,10 +28,17 @@ import { createUnsubscribeToken } from "./unsubscribe";
 
 export interface SendTickDeps {
   db?: PrismaClient;
-  resolveProvider?: (account: SendingAccount) => MailProvider;
+  resolveProvider?: (
+    account: SendingAccount,
+    db: PrismaClient,
+  ) => MailProvider | Promise<MailProvider>;
   now?: Date;
   appUrl?: string;
   batchLimit?: number;
+  /** Set false in tests that exercise sending in isolation. The tick
+   *  syncs replies for connected OAuth accounts before sending, so a
+   *  reply that just landed stops its follow-up in the same run. */
+  skipSync?: boolean;
 }
 
 export interface SendTickSummary {
@@ -41,6 +49,8 @@ export interface SendTickSummary {
   skippedSuppressed: number;
   deferredNoCapacity: number;
   failed: number;
+  /** Reply sync pass that runs before sends (empty when skipped). */
+  sync: AccountSyncSummary[];
 }
 
 const TERMINAL_LEAD_STATUSES = new Set(["UNSUBSCRIBED", "BOUNCED", "SUPPRESSED", "INVALID"]);
@@ -64,6 +74,19 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   const db = deps.db ?? prisma;
   const resolve = deps.resolveProvider ?? defaultResolveProvider;
   const now = deps.now ?? new Date();
+
+  let syncSummaries: AccountSyncSummary[] = [];
+  if (!deps.skipSync) {
+    // Reply sync first: a reply sitting in a mailbox must stop its
+    // follow-up before this tick considers sending it. Sync failures
+    // are recorded per account inside the sync service and never block
+    // the send pass.
+    try {
+      syncSummaries = await syncAllConnectedAccounts(db);
+    } catch (error) {
+      console.error("Reply sync pass failed before send tick", error);
+    }
+  }
   const appUrl = (deps.appUrl ?? process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const summary: SendTickSummary = {
     processed: 0,
@@ -73,6 +96,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     skippedSuppressed: 0,
     deferredNoCapacity: 0,
     failed: 0,
+    sync: syncSummaries,
   };
 
   const due = await db.enrollment.findMany({
@@ -236,7 +260,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     let provider = providerCache.get(chosen.id);
     if (!provider) {
       try {
-        provider = resolve(chosen);
+        provider = await resolve(chosen, db);
       } catch (error) {
         summary.failed += 1;
         await db.enrollment.update({
