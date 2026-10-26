@@ -219,8 +219,9 @@ the committed migrations.
 - **Production cron.** GET /api/cron/tick authorizes the
   `CRON_SECRET` bearer token (Vercel Cron's native mechanism), runs
   the reply sync pass plus the send tick, and returns a JSON summary;
-  `vercel.json` schedules it every 5 minutes, subject to the Vercel
-  plan's cron frequency rules (see DEPLOYMENT.md section 6).
+  `vercel.json` schedules it once daily at 05:00 UTC on the current
+  Vercel Hobby plan, with sub-daily options documented in
+  DEPLOYMENT.md section 6.
 
 ## Known limitations after Phase 3
 

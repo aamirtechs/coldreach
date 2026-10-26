@@ -116,13 +116,16 @@ sends everything that is due (campaign RUNNING, enrollment ACTIVE,
 send time reached) under the per-account daily limits. The cadence
 controls latency, not volume.
 
-**Option A, Vercel Cron (Phase 3).** `vercel.json` declares a cron for
-`GET /api/cron/tick` every 5 minutes (`*/5 * * * *`). Vercel invokes
-it with `Authorization: Bearer {CRON_SECRET}` automatically when the
-`CRON_SECRET` environment variable is set (see section 3), and the
-route answers 401 to anything else. Plan caveat: the Hobby plan
-restricts cron jobs to once per day, so a 5 minute schedule requires
-the Pro plan; on Hobby, either upgrade or use Option B for the
+**Option A, Vercel Cron (Phase 3).** `vercel.json` declares a cron
+for `GET /api/cron/tick` on a daily schedule (`0 5 * * *`, 05:00
+UTC). Vercel invokes it with `Authorization: Bearer {CRON_SECRET}`
+automatically when the `CRON_SECRET` environment variable is set
+(see section 3), and the route answers 401 to anything else. The
+daily schedule is what the current Hobby plan allows: Hobby limits
+cron jobs to once per day, and Vercel rejects the whole deployment
+if the schedule runs more often. For sub-daily cadence, either
+upgrade to the Pro plan (restoring a `*/5 * * * *` schedule in
+`vercel.json` is a one-line change) or use Option B below for the
 frequent ticks and let the daily Vercel cron act as a backstop.
 
 **Option B, external scheduler.** Any scheduler that can send a custom
@@ -133,6 +136,10 @@ always-on job on any server:
 - Endpoint: `POST /api/worker/tick`
 - Auth: header `x-worker-secret` set to `WORKER_SECRET`
 - Suggested cadence: every 5 minutes.
+
+The owner provisions the `WORKER_SECRET` value in the scheduler at
+setup time. The secret lives only in Vercel's environment variables
+and the scheduler's own configuration, never in this repository.
 
 ```bash
 curl -X POST https://<your-domain>/api/worker/tick \
