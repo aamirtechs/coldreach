@@ -38,6 +38,11 @@ model Workspace {
   id              String          @id @default(cuid())
   name            String
   slug            String          @unique
+  // Sender identity used in the compliance footer of every campaign email.
+  // senderAddress is the postal address CAN-SPAM style rules require; the
+  // campaign preflight refuses to launch while it is missing.
+  senderName      String?
+  senderAddress   String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   memberships     Membership[]
@@ -73,6 +78,10 @@ enum SendingProvider {
   GMAIL
   MS365
   SMTP
+  // Demo provider. Never touches the network; every surface that shows its
+  // results labels them DEMO. Lets the product be evaluated end to end
+  // without real mail credentials.
+  SIMULATION
 }
 
 enum SendingAccountStatus {
@@ -107,6 +116,7 @@ model SendingAccount {
   workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   threads        Thread[]
   emailEvents    EmailEvent[]
+  campaigns      CampaignAccount[]
 
   @@unique([workspaceId, email])
   @@index([workspaceId])
@@ -134,6 +144,7 @@ model LeadList {
   updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leads       Lead[]
+  campaigns   Campaign[]
 
   @@index([workspaceId])
 }
@@ -180,6 +191,8 @@ model Campaign {
   workspaceId      String
   name             String
   status           CampaignStatus @default(DRAFT)
+  // The lead list this campaign sends to. Enrollment reads from this list.
+  leadListId       String?
   timezone         String         @default("UTC")
   // Local sending window, "HH:MM" 24 hour values in the campaign timezone.
   windowStart      String         @default("09:00")
@@ -188,12 +201,28 @@ model Campaign {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leadList         LeadList?      @relation(fields: [leadListId], references: [id], onDelete: SetNull)
+  accounts         CampaignAccount[]
   steps            SequenceStep[]
   enrollments      Enrollment[]
   threads          Thread[]
   emailEvents      EmailEvent[]
 
   @@index([workspaceId, status])
+}
+
+// Join between a campaign and the sending accounts it may send from.
+// The worker rotates across these accounts in createdAt order.
+model CampaignAccount {
+  id               String         @id @default(cuid())
+  campaignId       String
+  sendingAccountId String
+  createdAt        DateTime       @default(now())
+  campaign         Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sendingAccount   SendingAccount @relation(fields: [sendingAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, sendingAccountId])
+  @@index([campaignId])
 }
 
 model SequenceStep {
@@ -229,6 +258,8 @@ model Enrollment {
   currentStep Int              @default(0)
   status      EnrollmentStatus @default(ACTIVE)
   nextSendAt  DateTime?
+  // Last provider error for a failed send attempt, shown to the user.
+  lastError   String?
   enrolledAt  DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   campaign    Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -246,6 +277,9 @@ model Enrollment {
 
 enum EmailEventType {
   SENT
+  // A send attempt that the provider rejected or could not complete.
+  // Recorded so failures are visible and auditable; never counted as sent.
+  FAILED
   DELIVERED
   OPENED
   CLICKED

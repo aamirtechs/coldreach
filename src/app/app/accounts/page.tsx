@@ -1,18 +1,110 @@
-import { PhasePlaceholder } from "@/components/PhasePlaceholder";
+import { redirect } from "next/navigation";
+import { getSessionWorkspace } from "@/lib/auth/session";
+import { prisma } from "@/lib/prisma";
+import { effectiveDailyLimit } from "@/lib/domain/limits";
+import { AccountForm } from "@/components/accounts/AccountForm";
+import { AccountActions } from "@/components/accounts/AccountActions";
+import { DemoBadge, EmptyState, StatusBadge } from "@/components/ui";
 
-export default function AccountsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function AccountsPage() {
+  const session = await getSessionWorkspace();
+  if (!session) {
+    redirect("/login");
+  }
+  const workspaceId = session.workspace.id;
+  const accounts = await prisma.sendingAccount.findMany({
+    where: { workspaceId },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const dayStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+  const sentToday = new Map<string, number>();
+  if (accounts.length > 0) {
+    const grouped = await prisma.emailEvent.groupBy({
+      by: ["sendingAccountId"],
+      where: {
+        workspaceId,
+        type: "SENT",
+        occurredAt: { gte: dayStart },
+        sendingAccountId: { in: accounts.map((a) => a.id) },
+      },
+      _count: true,
+    });
+    for (const row of grouped) {
+      if (row.sendingAccountId) sentToday.set(row.sendingAccountId, row._count);
+    }
+  }
+
+  const now = Date.now();
+
   return (
-    <PhasePlaceholder
-      title="Sending Accounts"
-      phase="Phase 2"
-      description="Connecting mailboxes lands in Phase 2 with OAuth for Gmail and Microsoft 365 and credential based SMTP. The account model, daily limits, and ramp rules are already defined and tested."
-      bullets={[
-        "Connect Gmail, Microsoft 365, or SMTP accounts, scoped per workspace.",
-        "Per-account daily limits with a gradual ramp for new accounts, computed by the limits engine already in the codebase.",
-        "Connection health, last error reporting, and inbox rotation across accounts in a campaign.",
-        "SPF, DKIM, and DMARC guidance with DNS record verification for sending domains.",
-        "Warm-up only through a legitimate external provider integration, or clearly labelled simulation in demo contexts. No deliverability guarantees, ever.",
-      ]}
-    />
+    <div className="mx-auto max-w-6xl">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Sending Accounts</h1>
+          <p className="mt-1 text-sm text-muted">
+            Mailboxes campaigns send from. Limits ramp gradually for new accounts, and the
+            worker never exceeds an account's effective daily limit.
+          </p>
+        </div>
+        <AccountForm />
+      </div>
+
+      {accounts.length === 0 ? (
+        <EmptyState
+          title="No sending accounts yet"
+          body="Add a simulation account to exercise campaigns end to end in DEMO mode, or an SMTP account whose credentials live in the server environment. Gmail and Microsoft 365 OAuth connections arrive in Phase 3."
+        />
+      ) : (
+        <div className="card mt-6 overflow-hidden">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
+              <tr>
+                <th className="px-4 py-3 font-medium">Account</th>
+                <th className="px-4 py-3 font-medium">Provider</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Sent today / effective limit</th>
+                <th className="px-4 py-3 font-medium">Hard cap</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map((account) => {
+                const effective = effectiveDailyLimit({
+                  dailyLimit: account.dailyLimit,
+                  ageInDays: Math.max(0, Math.floor((now - account.createdAt.getTime()) / 86400000)),
+                });
+                return (
+                  <tr key={account.id} className="border-b border-line last:border-0 hover:bg-elevated/60">
+                    <td className="px-4 py-3">
+                      <span className="font-medium">{account.email}</span>
+                      {account.displayName ? <p className="text-xs text-muted">{account.displayName}</p> : null}
+                      {account.lastError ? <p className="mt-0.5 text-xs text-warning">{account.lastError}</p> : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="flex items-center gap-2">
+                        {account.provider}
+                        {account.provider === "SIMULATION" ? <DemoBadge /> : null}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3"><StatusBadge status={account.status} /></td>
+                    <td className="px-4 py-3">{sentToday.get(account.id) ?? 0} / {effective}</td>
+                    <td className="px-4 py-3">{account.dailyLimit}</td>
+                    <td className="px-4 py-3"><AccountActions accountId={account.id} status={account.status} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-4 text-xs text-muted">
+        Effective limits come from the limits engine: 20 percent of the cap on day one, rising
+        linearly to the full cap over 14 days. Sent today counts recorded SENT events since
+        midnight UTC.
+      </p>
+    </div>
   );
 }

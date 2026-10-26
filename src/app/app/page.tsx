@@ -97,17 +97,15 @@ export default async function DashboardPage() {
             </Link>
           </div>
           <p className="mt-4 text-xs text-muted">
-            Campaign creation and lead import are being built in Phase 2. The links show
-            exactly what is planned for each area.
+            Start by importing leads and adding a sending account, then create a campaign.
           </p>
         </section>
       ) : (
         <section className="card mt-6 p-6">
-          <h2 className="font-display text-lg font-semibold">Activity charts</h2>
+          <h2 className="font-display text-lg font-semibold">Activity</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            Charts are drawn from recorded email events only. They appear here once sending
-            starts in Phase 2 and events exist to chart. ColdReach never backfills a chart
-            with plausible looking invented data.
+            Per-campaign results computed from recorded email events live on the Analytics
+            page. ColdReach never backfills a chart with plausible looking invented data.
           </p>
         </section>
       )}
