@@ -1,0 +1,53 @@
+name: CI
+
+# Continuous integration (Phase 6, Stage B). Runs on every push to
+# main and on every pull request: install, generate the Prisma
+# client, typecheck, run the full test suite, build, and audit
+# dependencies. The audit is its own step and fails the job on high
+# or critical findings, which closes the "npm audit cannot run from
+# the dev VM" gap recorded in SECURITY.md.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values so Prisma generate and the Next.js build can run
+      # without real secrets. Tests create their own throwaway SQLite
+      # databases. Never put real credentials in this file.
+      DATABASE_URL: "file:./ci.db"
+      DIRECT_URL: "file:./ci.db"
+      SESSION_SECRET: "ci-only-session-secret-not-used-in-production"
+      WORKER_SECRET: "ci-only-worker-secret"
+      WEBHOOK_SECRET: "ci-only-webhook-secret"
+      APP_URL: "http://localhost:3000"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client (dev schema)
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Audit dependencies (fails on high or critical findings)
+        run: npm audit --audit-level=high
