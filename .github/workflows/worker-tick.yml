@@ -1,0 +1,22 @@
+name: Worker tick
+
+# Free external scheduler for the ColdReach production worker, needed
+# because Vercel Hobby cron runs only once a day. Every five minutes
+# this calls the production cron endpoint, which runs the full tick:
+# reply sync first, then due sends, then webhook deliveries. It uses
+# the repo secret CRON_SECRET, whose value is the same CRON_SECRET set
+# in the Vercel project's Production environment variables. GitHub may
+# delay scheduled runs under load; workflow_dispatch is the manual
+# trigger used to test the wiring.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the ColdReach worker tick
+        run: curl --fail --silent --show-error -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://coldreach-blue.vercel.app/api/cron/tick
