@@ -2,13 +2,25 @@ import type { PrismaClient, SendingAccount } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { MailProvider } from "./types";
 import { SimulationProvider } from "./simulation";
-import { SmtpProvider, resolveSmtpConfig } from "./smtp";
+import { SmtpProvider, resolveMailboxCredentials } from "./smtp";
 import { GmailProvider } from "./gmail";
 import { GraphProvider } from "./graph";
 
 export type { MailProvider, SendInput, SendResult } from "./types";
 export { SimulationProvider } from "./simulation";
-export { SmtpProvider, resolveSmtpConfig } from "./smtp";
+export {
+  SmtpProvider,
+  resolveSmtpConfig,
+  resolveMailboxCredentials,
+  resolveMailboxFromEnv,
+  resolveStoredMailboxCredentials,
+  encryptMailboxCredentials,
+  decryptMailboxCredentials,
+  validateMailboxCredentials,
+  mailboxSmtpConfig,
+  mailboxImapConfig,
+} from "./smtp";
+export type { MailboxCredentials, MailboxEndpoint, SmtpConfig } from "./smtp";
 export { GmailProvider } from "./gmail";
 export { GraphProvider } from "./graph";
 
@@ -29,8 +41,18 @@ export async function resolveProvider(
   switch (account.provider) {
     case "SIMULATION":
       return new SimulationProvider();
-    case "SMTP":
-      return new SmtpProvider(resolveSmtpConfig(account.credentialRef));
+    case "SMTP": {
+      // Stored encrypted mailbox credentials first, the legacy
+      // credentialRef environment second. Neither means the account
+      // cannot send, and the error says exactly how to fix it.
+      const mailbox = resolveMailboxCredentials(account);
+      if (!mailbox) {
+        throw new Error(
+          "SMTP is not configured for this account. Add the mailbox password in Sending Accounts, or set the credentialRef environment variables on the server, then reconnect the account.",
+        );
+      }
+      return new SmtpProvider(mailbox);
+    }
     case "GMAIL":
       if (!account.encryptedCredentials) {
         throw new Error(

@@ -350,7 +350,12 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         subject,
         text: fullText,
         html: fullHtml,
-        headers: { "List-Unsubscribe": `<${unsubscribeUrl}>` },
+        headers: {
+          "List-Unsubscribe": `<${unsubscribeUrl}>`,
+          // RFC 8058 one-click unsubscribe, required by the Gmail and
+          // Yahoo bulk sender rules alongside List-Unsubscribe.
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
       });
       await db.emailEvent.create({
         data: {

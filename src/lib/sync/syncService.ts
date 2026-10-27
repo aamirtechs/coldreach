@@ -5,6 +5,8 @@ import { classifyReply } from "@/lib/domain/classify";
 import { applyProviderEvent } from "@/lib/worker/applyEvent";
 import { GmailSource } from "./gmailSource";
 import { GraphSource } from "./graphSource";
+import { ImapSource } from "./imapSource";
+import { resolveMailboxCredentials } from "@/lib/providers/smtp";
 import type { AccountSyncSummary, MessageSource, NormalizedInboundMessage } from "./types";
 
 export { FakeSource } from "./fakeSource";
@@ -34,6 +36,14 @@ function buildSource(db: PrismaClient, account: SendingAccount): MessageSource |
       return new GmailSource(db, account);
     case "MS365":
       return new GraphSource(db, account);
+    case "SMTP": {
+      // cPanel and other self hosted mailboxes sync replies over
+      // IMAP when mailbox credentials resolve (stored encrypted, or
+      // the credentialRef environment). Without them there is no
+      // mailbox to read and the account keeps the existing skip.
+      const mailbox = resolveMailboxCredentials(account);
+      return mailbox?.imap ? new ImapSource(mailbox) : null;
+    }
     default:
       return null;
   }
@@ -240,19 +250,28 @@ async function importMessage(
 }
 
 /**
- * Syncs every connected OAuth account across all workspaces. Used by
- * the worker tick and the cron route. Per account failures are
- * captured in that account's summary (and on its lastError); this
- * function never throws, so a broken mailbox cannot block sending.
+ * Syncs every connected mailbox account across all workspaces: the
+ * OAuth providers (which must hold stored tokens) and SMTP accounts
+ * (whose credentials resolve from the stored encrypted blob or the
+ * credentialRef environment; buildSource skips the ones with
+ * neither). Used by the worker tick and the cron route. Per account
+ * failures are captured in that account's summary (and on its
+ * lastError); this function never throws, so a broken mailbox cannot
+ * block sending.
  */
 export async function syncAllConnectedAccounts(
   db: PrismaClient = prisma,
 ): Promise<AccountSyncSummary[]> {
   const accounts = await db.sendingAccount.findMany({
     where: {
-      provider: { in: ["GMAIL", "MS365"] },
       status: "CONNECTED",
-      encryptedCredentials: { not: null },
+      OR: [
+        {
+          provider: { in: ["GMAIL", "MS365"] },
+          encryptedCredentials: { not: null },
+        },
+        { provider: "SMTP" },
+      ],
     },
   });
   const summaries: AccountSyncSummary[] = [];

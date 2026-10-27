@@ -57,6 +57,8 @@ export async function POST(
     if (thread.lead) {
       const token = createUnsubscribeToken(ctx.workspace.id, thread.lead.id);
       headers["List-Unsubscribe"] = `<${appUrl}/u/${token}>`;
+      // RFC 8058 one-click unsubscribe, matching campaign sends.
+      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
     }
 
     const provider = await resolveProvider(account, prisma);

@@ -133,8 +133,9 @@ export default async function AccountsPage({
                     </td>
                     <td className="px-4 py-3">
                       <span className="flex items-start justify-end gap-2">
-                        {(account.provider === "GMAIL" || account.provider === "MS365") &&
-                        account.encryptedCredentials ? (
+                        {((account.provider === "GMAIL" || account.provider === "MS365") &&
+                          account.encryptedCredentials) ||
+                        account.provider === "SMTP" ? (
                           <SyncButton accountId={account.id} />
                         ) : null}
                         <AccountActions accountId={account.id} status={account.status} />

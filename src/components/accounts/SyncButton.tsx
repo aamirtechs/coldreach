@@ -4,8 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Manual reply sync for one OAuth account: runs the same sync the
- * worker tick runs automatically and reports what it found.
+ * Manual reply sync for one mailbox account (OAuth or SMTP / IMAP):
+ * runs the same sync the worker tick runs automatically and reports
+ * what it found.
  */
 export function SyncButton({ accountId }: { accountId: string }) {
   const router = useRouter();

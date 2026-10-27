@@ -305,3 +305,49 @@ connected (env present) instead of Not configured. Click Connect,
 approve in HubSpot, and the card shows the portal ID. Click Sync
 now: the summary reports pushed, created, updated, and failed
 counts. Open HubSpot, Contacts, and find your leads there.
+
+## 9. cPanel mailbox (your own domain)
+
+Goal: send and sync replies from a mailbox hosted on cPanel (or
+any SMTP / IMAP mail server). No environment variables are needed
+for the mailbox itself; the one prerequisite is `ENCRYPTION_KEY`
+from section 1, because the mailbox password is stored encrypted.
+
+1. In cPanel, create the mailbox under **Email Accounts** if it
+   does not exist yet, and set a strong password.
+2. Still in cPanel, open **Email Accounts**, pick the mailbox, and
+   open **Connect Devices**. Note the exact mail server name and
+   ports it lists; use those values in step 4 whenever they differ
+   from the defaults below.
+3. In the same cPanel session, open **Email Deliverability** and
+   confirm SPF, DKIM, and DMARC all read valid for the domain. Fix
+   anything it flags before sending a single campaign; sending from
+   an unauthenticated domain is the fastest route to the spam
+   folder.
+4. In ColdReach, open Sending Accounts, Add account: sender email
+   is the mailbox address, provider **SMTP / IMAP (cPanel or any
+   mail server)**, credential style "Enter mailbox password
+   (stored encrypted)". Click **Fill cPanel defaults from email**:
+   server `mail.<your-domain>`, SMTP port 465 with TLS on, IMAP
+   port 993 with TLS on, username the full email address. The
+   STARTTLS alternatives are SMTP 587 and IMAP 143 with the TLS
+   boxes off. Replace the server name with the Connect Devices
+   value from step 2 if it differs.
+5. Enter the mailbox password and click **Test connection**. Both
+   SMTP and IMAP should report connected; the messages name the
+   failure plainly (authentication failed, host unreachable or
+   timed out, TLS or certificate problem, port closed). Do not
+   save until both pass: SMTP alone sends but never sees replies,
+   and without replies the sequences cannot stop.
+6. Save the account. It lands as CONNECTED, and replies sync over
+   IMAP inside the worker tick. On the current Vercel Hobby plan
+   the tick is the daily 05:00 UTC cron, so replies appear on that
+   cadence; the account's "Sync replies" button runs one on
+   demand.
+
+Verify: build a one-lead list containing only your own address, a
+one-step campaign on the cPanel account, run preflight, launch,
+and send a worker tick. The email arrives; reply to it, run Sync
+replies on the account, and confirm the reply is in the Inbox and
+the enrollment stopped. Then check the Deliverability panel: the
+domain's SPF, DKIM, and DMARC grades should all pass.

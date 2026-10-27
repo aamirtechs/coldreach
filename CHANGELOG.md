@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.2.0 (2026-10-27)
+
+cPanel and custom mail server support, plus RFC 8058 one-click
+unsubscribe. 275 automated tests (32 added), typecheck and build
+green.
+
+- **User entered mailbox credentials.** SMTP accounts now accept
+  mailbox fields (SMTP and IMAP host, ports, TLS flags, username,
+  password) as an alternative to the legacy credentialRef
+  environment path. Credentials are stored as an AES-256-GCM
+  encrypted blob in `SendingAccount.encryptedCredentials` (no
+  schema change), the password never appears in any API response,
+  and resolution everywhere is stored first, environment second.
+  The account form labels the provider "SMTP / IMAP (cPanel or any
+  mail server)", offers one-click cPanel defaults derived from the
+  mailbox address (mail.<domain>, SMTP 465, IMAP 993, username the
+  full address), and STARTTLS alternatives on 587 and 143.
+- **IMAP reply sync.** A new ImapSource (imapflow plus mailparser)
+  reads cPanel and other self hosted inboxes: UID cursor with
+  UIDVALIDITY checking and re-baselining, a first sync limited to
+  the last 7 days and the newest 100 messages, and normalization
+  into the same reply pipeline as Gmail and Microsoft 365, so
+  replies reach the unified inbox and stop sequences. The sync
+  pass and the per account Sync replies button now cover SMTP
+  accounts, and the legacy environment path gained optional
+  `<PREFIX>_IMAP_HOST`, `<PREFIX>_IMAP_PORT`, and
+  `<PREFIX>_IMAP_SECURE` variables.
+- **Connection test.** POST /api/accounts/test-connection verifies
+  unsaved mailbox settings live (SMTP transport verify, IMAP login
+  plus INBOX open) and reports each protocol separately with plain
+  language errors; the form runs it before saving.
+- **One-click unsubscribe (RFC 8058).** Campaign sends and inbox
+  replies now carry the List-Unsubscribe-Post header alongside
+  List-Unsubscribe, and POST /u/[token] applies the unsubscribe
+  with JSON responses (200 on success, idempotent; 400 on an
+  invalid token). The GET confirmation page moved into the same
+  route handler, because Next.js does not allow a page and a route
+  handler in one segment.
+- **Docs.** INTEGRATIONS.md section 12 and ACTIVATION.md section 9
+  cover cPanel setup end to end (Connect Devices settings,
+  Email Deliverability SPF, DKIM, and DMARC first), including an
+  honest deliverability note: placement also depends on the
+  sending server's IP reputation and list quality, which no app
+  can guarantee.
+
 ## 1.1.0 (2026-10-27)
 
 Phase 6: launch and growth, in three stages. 243 automated tests

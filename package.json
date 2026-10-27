@@ -2,8 +2,10 @@
   "dependencies": {
     "@prisma/client": "^6.16.0",
     "bcryptjs": "^2.4.3",
+    "imapflow": "^2.9.1",
     "jose": "^6.1.0",
     "lucide-react": "^0.544.0",
+    "mailparser": "^3.12.4",
     "next": "^15.5.0",
     "nodemailer": "^10.2.1",
     "react": "^19.1.1",
@@ -12,6 +14,7 @@
   "description": "ColdReach, a cold email outreach platform for sales teams and lead generation agencies.",
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/mailparser": "^3.9.0",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.0.0",
@@ -42,5 +45,5 @@
     "typecheck": "tsc --noEmit",
     "worker:once": "tsx scripts/worker-once.ts"
   },
-  "version": "1.1.0"
+  "version": "1.2.0"
 }

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, intField, readJson, requireSession, stringField } from "@/lib/api";
 import { isValidEmail, normalizeEmail } from "@/lib/domain/dedupe";
-import { resolveSmtpConfig } from "@/lib/providers";
+import { encryptMailboxCredentials, resolveSmtpConfig } from "@/lib/providers";
+import { hasMailboxInput, parseMailboxInput } from "@/lib/accounts/mailboxInput";
+import { toPublicSendingAccount } from "@/lib/accounts/serialize";
 import { withinAccountLimit } from "@/lib/domain/plans";
 import { getPlanForWorkspace, getWorkspaceUsage } from "@/lib/billing/subscription";
 import { writeAuditLog } from "@/lib/audit";
@@ -29,6 +31,7 @@ export async function GET() {
         warmupStatus: account.warmupStatus,
         credentialRef: account.credentialRef,
         hasOAuthTokens: account.encryptedCredentials !== null,
+        hasStoredCredentials: account.encryptedCredentials !== null,
         tokenExpiresAt: account.tokenExpiresAt,
         lastSyncAt: account.lastSyncAt,
         providerAccountId: account.providerAccountId,
@@ -52,6 +55,14 @@ export async function POST(request: Request) {
     provider?: unknown;
     dailyLimit?: unknown;
     credentialRef?: unknown;
+    smtpHost?: unknown;
+    smtpPort?: unknown;
+    smtpSecure?: unknown;
+    imapHost?: unknown;
+    imapPort?: unknown;
+    imapSecure?: unknown;
+    username?: unknown;
+    password?: unknown;
   }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
 
@@ -94,26 +105,54 @@ export async function POST(request: Request) {
     let status: "CONNECTED" | "DISCONNECTED" = "DISCONNECTED";
     let warmupStatus: "OFF" | "SIMULATED" = "OFF";
     let lastError: string | null = null;
+    let storedCredentialRef: string | null = credentialRef;
+    let encryptedCredentials: string | null = null;
     if (provider === "SIMULATION") {
       // Demo accounts are immediately usable and their every result is
       // labelled DEMO in the product.
       status = "CONNECTED";
       warmupStatus = "SIMULATED";
     } else if (provider === "SMTP") {
-      if (!credentialRef) {
-        return NextResponse.json(
-          { error: "SMTP accounts require a credentialRef naming the server environment prefix" },
-          { status: 400 },
-        );
-      }
-      if (resolveSmtpConfig(credentialRef)) {
+      if (hasMailboxInput(body)) {
+        // User managed mailbox (cPanel or any mail server): the owner
+        // typed the settings and password, which are stored only as
+        // an AES-256-GCM encrypted blob. This path and the legacy
+        // credentialRef path are alternatives, never both.
+        if (credentialRef) {
+          return NextResponse.json(
+            {
+              error:
+                "Choose one credential style for an SMTP account: mailbox fields or a credentialRef, not both.",
+            },
+            { status: 400 },
+          );
+        }
+        const parsed = parseMailboxInput(body, normalizeEmail(rawEmail));
+        if (!parsed.ok) {
+          return NextResponse.json({ error: parsed.error }, { status: 400 });
+        }
+        encryptedCredentials = encryptMailboxCredentials(parsed.credentials);
+        storedCredentialRef = null;
         status = "CONNECTED";
       } else {
-        lastError =
-          "SMTP environment variables for this credentialRef are not set on the server yet.";
+        if (!credentialRef) {
+          return NextResponse.json(
+            {
+              error:
+                "SMTP accounts require either the mailbox fields (host, username, password) or a credentialRef naming the server environment prefix",
+            },
+            { status: 400 },
+          );
+        }
+        if (resolveSmtpConfig(credentialRef)) {
+          status = "CONNECTED";
+        } else {
+          lastError =
+            "SMTP environment variables for this credentialRef are not set on the server yet.";
+        }
       }
     } else {
-      lastError = `${provider} OAuth connection arrives in Phase 3. The account is saved but cannot send yet.`;
+      lastError = `${provider} accounts connect through the OAuth flow. The account is saved but cannot send until that flow completes.`;
     }
 
     const account = await prisma.sendingAccount.create({
@@ -125,7 +164,8 @@ export async function POST(request: Request) {
         status,
         dailyLimit,
         warmupStatus,
-        credentialRef,
+        credentialRef: storedCredentialRef,
+        encryptedCredentials,
         lastError,
       },
     });
@@ -135,7 +175,9 @@ export async function POST(request: Request) {
       workspaceId: ctx.workspace.id,
       metadata: { accountId: account.id, provider: account.provider },
     });
-    return NextResponse.json({ account }, { status: 201 });
+    // The response goes through the serializer: the encrypted blob
+    // and any password never leave the server.
+    return NextResponse.json({ account: toPublicSendingAccount(account) }, { status: 201 });
   } catch (error) {
     return apiError(error);
   }

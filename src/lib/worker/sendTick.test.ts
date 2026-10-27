@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { runSendTick } from "./sendTick";
+import type { MailProvider, SendInput } from "@/lib/providers/types";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 
 const DB_NAME = "test-sendtick";
@@ -212,5 +213,37 @@ describe("runSendTick", () => {
     const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
     expect(after?.status).toBe("SUPPRESSED");
     expect(after?.nextSendAt).toBeNull();
+  });
+
+  it("sets both List-Unsubscribe and the RFC 8058 one-click post header on sends", async () => {
+    const account = await makeAccount(100, "headers");
+    const { list, leads } = await makeListWithLeads("headers", ["headers@example.com"]);
+    const campaign = await makeCampaign({
+      suffix: "headers",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    await enroll(campaign.id, leads[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-headers-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const ours = captured.filter((input) => input.toEmail === "headers@example.com");
+    expect(ours).toHaveLength(1);
+    expect(ours[0].headers?.["List-Unsubscribe"]).toMatch(/^<http:\/\/localhost:3000\/u\/.+>$/);
+    expect(ours[0].headers?.["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
   });
 });

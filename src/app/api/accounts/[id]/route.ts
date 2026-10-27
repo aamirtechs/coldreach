@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, intField, readJson, requireSession, stringField } from "@/lib/api";
+import { toPublicSendingAccount } from "@/lib/accounts/serialize";
 import { writeAuditLog } from "@/lib/audit";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -50,7 +51,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       data.warmupStartedAt = new Date();
     }
     const updated = await prisma.sendingAccount.update({ where: { id: account.id }, data });
-    return NextResponse.json({ account: updated });
+    return NextResponse.json({ account: toPublicSendingAccount(updated) });
   } catch (error) {
     return apiError(error);
   }

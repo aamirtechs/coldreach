@@ -102,6 +102,7 @@ sufficient.
 | Lead lists, CSV import, campaigns, sequences, preflight | Works | Works |
 | Simulation accounts and campaigns (DEMO labelled) | Works | Works |
 | SMTP sending via credentialRef environment variables | Works | Works |
+| SMTP / IMAP mailbox accounts (cPanel or any mail server, section 12) | Works: the owner enters the mailbox password in the app, stored encrypted | Works |
 | Webhook event ingestion, unsubscribe enforcement, analytics | Works | Works |
 | Deliverability DNS checker and account health cards | Works | Works |
 | Gmail / Microsoft 365 connect buttons | Shown as "Not configured" with the missing env vars named | Live connect flow |
@@ -282,3 +283,68 @@ the key, verification still works and the summary says "Built-in
 checks only." Provider outages never fail a verification run; the
 error is recorded in the detail and the built-in verdict stands.
 See ACTIVATION.md section 6 for signup steps.
+
+## 12. cPanel and custom mail servers (SMTP / IMAP)
+
+Any mailbox that speaks SMTP and IMAP can send and sync replies in
+ColdReach, including mailboxes hosted on cPanel on your own domain.
+No OAuth app and no server environment variables are needed on this
+path: a workspace admin adds the account under Sending Accounts,
+chooses the SMTP / IMAP provider and "Enter mailbox password
+(stored encrypted)", and fills in the mailbox settings. The
+password is stored only as an AES-256-GCM encrypted blob (the
+`ENCRYPTION_KEY` from section 1 must be set), is never shown again,
+and never appears in API responses or logs.
+
+**Getting the exact settings.** In cPanel, open **Email Accounts**,
+pick the mailbox, and open **Connect Devices**: it lists the exact
+mail server name and ports for that hosting account. The standard
+cPanel layout is:
+
+| Setting | Secure SSL/TLS | STARTTLS alternative |
+| --- | --- | --- |
+| Server | `mail.<your-domain>` | `mail.<your-domain>` |
+| SMTP port | 465 (implicit TLS) | 587 |
+| IMAP port | 993 (implicit TLS) | 143 |
+| Username | The full email address | The full email address |
+| Password | The mailbox password | The mailbox password |
+
+Use the Connect Devices values over these defaults when they
+differ, for example when the hosting provider uses the server's own
+hostname instead of `mail.<domain>`; the TLS certificate must match
+the name you enter. The account form's "Fill cPanel defaults from
+email" button fills the standard layout from the sender address,
+and **Test connection** verifies SMTP and IMAP separately (login
+plus an INBOX open) before anything is saved, with a plain language
+result per protocol: authentication failed, host unreachable or
+timed out, TLS or certificate problem, or port closed.
+
+**Reply sync.** Replies are read over IMAP by the same sync service
+that handles Gmail and Microsoft 365: a first sync imports the last
+7 days (newest 100 at most), later syncs resume from a UID cursor,
+replies stop the sender's sequence through the shared event path,
+and everything lands in the unified inbox. Sync runs inside the
+worker tick, which on the current Vercel Hobby plan is the daily
+05:00 UTC cron, so cPanel replies arrive on that cadence; the
+per account "Sync replies" button runs one on demand. The legacy
+credentialRef path also syncs when the environment carries the
+optional `<PREFIX>_IMAP_HOST`, `<PREFIX>_IMAP_PORT` (default 993),
+and `<PREFIX>_IMAP_SECURE` (default true) variables alongside the
+SMTP ones.
+
+**Deliverability, what is covered and what is not.** Before sending
+from a cPanel domain, open cPanel **Email Deliverability** and make
+sure SPF, DKIM, and DMARC are valid for the domain; ColdReach's
+diagnostics center grades all three per sending domain. Every
+campaign send and inbox reply carries a List-Unsubscribe header
+plus the RFC 8058 List-Unsubscribe-Post one-click header, and the
+one-click endpoint applies the unsubscribe, suppression, and
+sequence stop immediately. Suppressions are re-checked before
+every send, provider bounce and complaint events stop sequences
+and feed the account health cards, per account warm-up schedules
+and age ramps cap new mailboxes, and lead list verification skips
+invalid addresses at enrollment. The honest limit: inbox placement
+also depends on the sending server's IP reputation and on list
+quality, which no application can control or guarantee. A shared
+hosting IP with a poor history, or a purchased list, will land in
+spam no matter how correct the headers and authentication are.
