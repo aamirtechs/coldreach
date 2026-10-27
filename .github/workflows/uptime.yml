@@ -1,0 +1,32 @@
+name: Uptime
+
+# Production health check (Phase 6, Stage B). Every 30 minutes,
+# and on manual dispatch, this curls the production health endpoint
+# and fails the run unless the app reports status ok and database
+# ok. A failed run makes GitHub notify the repository owner, which
+# is the alerting channel: no third-party monitoring service is
+# involved.
+#
+# The target URL comes from the APP_URL repository variable when it
+# is set (Settings, Secrets and variables, Actions, Variables) and
+# falls back to the current production URL below.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the production health endpoint
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          BASE_URL="${APP_URL:-https://coldreach-blue.vercel.app}"
+          echo "Checking $BASE_URL/api/health"
+          BODY="$(curl -fsS --max-time 30 "$BASE_URL/api/health")"
+          echo "Response: $BODY"
+          echo "$BODY" | grep -q '"status":"ok"'
+          echo "$BODY" | grep -q '"db":"ok"'
+          echo "Health check passed."
