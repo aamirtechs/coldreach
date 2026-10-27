@@ -62,66 +62,120 @@ function rate(numerator: number, denominator: number): number {
   return numerator / denominator;
 }
 
-export function computeCampaignMetrics(events: MetricEvent[]): CampaignMetrics {
-  let sent = 0;
-  let delivered = 0;
-  let bounced = 0;
-  let replies = 0;
-  let positiveReplies = 0;
-  let unsubscribes = 0;
-  let complaints = 0;
-  let clicks = 0;
-  let opens = 0;
+interface Tallies {
+  sent: number;
+  delivered: number;
+  bounced: number;
+  replies: number;
+  positiveReplies: number;
+  unsubscribes: number;
+  complaints: number;
+  clicks: number;
+  opens: number;
+}
 
-  for (const event of events) {
-    switch (event.type) {
-      case "SENT":
-        sent += 1;
-        break;
-      case "DELIVERED":
-        delivered += 1;
-        break;
-      case "BOUNCED":
-        bounced += 1;
-        break;
-      case "REPLIED":
-        replies += 1;
-        if (event.classification?.toUpperCase() === "POSITIVE") {
-          positiveReplies += 1;
-        }
-        break;
-      case "UNSUBSCRIBED":
-        unsubscribes += 1;
-        break;
-      case "COMPLAINED":
-        complaints += 1;
-        break;
-      case "CLICKED":
-        clicks += 1;
-        break;
-      case "OPENED":
-        opens += 1;
-        break;
-    }
-  }
-
+function emptyTallies(): Tallies {
   return {
-    sent,
-    delivered,
-    bounced,
-    replies,
-    positiveReplies,
-    unsubscribes,
-    complaints,
-    clicks,
-    opens: { count: opens, reliable: false },
+    sent: 0,
+    delivered: 0,
+    bounced: 0,
+    replies: 0,
+    positiveReplies: 0,
+    unsubscribes: 0,
+    complaints: 0,
+    clicks: 0,
+    opens: 0,
+  };
+}
+
+function addToTallies(
+  tallies: Tallies,
+  type: string,
+  classification: string | null | undefined,
+  count: number,
+): void {
+  switch (type) {
+    case "SENT":
+      tallies.sent += count;
+      break;
+    case "DELIVERED":
+      tallies.delivered += count;
+      break;
+    case "BOUNCED":
+      tallies.bounced += count;
+      break;
+    case "REPLIED":
+      tallies.replies += count;
+      if (classification?.toUpperCase() === "POSITIVE") {
+        tallies.positiveReplies += count;
+      }
+      break;
+    case "UNSUBSCRIBED":
+      tallies.unsubscribes += count;
+      break;
+    case "COMPLAINED":
+      tallies.complaints += count;
+      break;
+    case "CLICKED":
+      tallies.clicks += count;
+      break;
+    case "OPENED":
+      tallies.opens += count;
+      break;
+    default:
+      break;
+  }
+}
+
+function finalizeTallies(t: Tallies): CampaignMetrics {
+  return {
+    sent: t.sent,
+    delivered: t.delivered,
+    bounced: t.bounced,
+    replies: t.replies,
+    positiveReplies: t.positiveReplies,
+    unsubscribes: t.unsubscribes,
+    complaints: t.complaints,
+    clicks: t.clicks,
+    opens: { count: t.opens, reliable: false },
     rates: {
-      deliveryRate: rate(delivered, sent),
-      bounceRate: rate(bounced, sent),
-      replyRate: rate(replies, delivered),
-      positiveReplyRate: rate(positiveReplies, delivered),
-      unsubscribeRate: rate(unsubscribes, delivered),
-      complaintRate: rate(complaints, delivered),
+      deliveryRate: rate(t.delivered, t.sent),
+      bounceRate: rate(t.bounced, t.sent),
+      replyRate: rate(t.replies, t.delivered),
+      positiveReplyRate: rate(t.positiveReplies, t.delivered),
+      unsubscribeRate: rate(t.unsubscribes, t.delivered),
+      complaintRate: rate(t.complaints, t.delivered),
     },
   };
+}
+
+export function computeCampaignMetrics(events: MetricEvent[]): CampaignMetrics {
+  const tallies = emptyTallies();
+  for (const event of events) {
+    addToTallies(tallies, event.type, event.classification, 1);
+  }
+  return finalizeTallies(tallies);
+}
+
+/** One aggregated event group, as produced by a database GROUP BY. */
+export interface MetricEventCount {
+  type: string;
+  classification?: string | null;
+  count: number;
+}
+
+/**
+ * The same metrics computed from pre-aggregated counts instead of
+ * raw event rows. Callers with large event volumes (the analytics
+ * page and the stats API routes) aggregate in the database with
+ * groupBy and pass the handful of resulting groups here, so memory
+ * stays flat no matter how many events a campaign has recorded.
+ * Results are identical to computeCampaignMetrics on the same data.
+ */
+export function computeCampaignMetricsFromCounts(groups: MetricEventCount[]): CampaignMetrics {
+  const tallies = emptyTallies();
+  for (const group of groups) {
+    addToTallies(tallies, group.type, group.classification, group.count);
+  }
+  return finalizeTallies(tallies);
 }

@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.0.0 (2026-10-26)
+
+First production-ready release: Phases 1 to 5 complete, verified
+end to end by the final QA pass in QA.md (195 automated tests, a
+54-check live smoke, a recovery drill, and a load smoke).
+
+- **Phase 1, Foundation.** Design system and app shell, bcrypt and
+  JWT cookie auth, multi-tenant workspaces with roles, audit log,
+  the full core data model, and the tested domain engine
+  (scheduling, suppression, dedupe, personalization, metrics,
+  limits).
+- **Phase 2, Functional MVP.** Lead lists and CSV import, campaign
+  and sequence builder, preflight launch gating, a sending worker
+  behind a provider interface (simulation and SMTP), signed
+  unsubscribe flow, idempotent provider event ingestion, and
+  analytics from real events.
+- **Phase 3, Professional Workflows.** Gmail and Microsoft 365
+  OAuth with AES-256-GCM token storage, reply sync with a unified
+  inbox, deliverability diagnostics (SPF, DKIM, DMARC grading and
+  per-account health), team invites and roles, onboarding
+  checklist, and the production cron endpoint.
+- **Phase 4, Competitive Capabilities.** A/B testing with a
+  z-test winner rule, AI assistance behind an interface, a public
+  API with scoped hashed keys, signed outbound webhooks with
+  retries, plan quotas with Stripe billing, and the Agency
+  Command Center.
+- **Phase 5, Production Readiness.** Security headers and a CSP on
+  every response, rate limiting on the credential endpoints, a
+  structured JSON logger with an optional Sentry forwarder, a
+  public health endpoint, branded error and 404 surfaces, a
+  redacted OWNER-only workspace export with a restore script and
+  a proven recovery drill, database indexes for the hot query
+  shapes, database-level aggregation for metrics (no more
+  unbounded event loads), an accessibility pass, and the final
+  QA in QA.md. SECURITY.md records the review, the tradeoffs, and
+  the residual risks.
+
 ## Phase 4, Competitive Capabilities (2026-10-26)
 
 A/B testing, AI assistance, a public API, outbound webhooks,

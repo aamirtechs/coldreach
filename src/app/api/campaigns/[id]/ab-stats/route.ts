@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, intField, requireSession } from "@/lib/api";
-import { DEFAULT_MIN_WINNER_SAMPLE, pickWinner, variantStats } from "@/lib/domain/abtest";
+import { DEFAULT_MIN_WINNER_SAMPLE, pickWinner, variantStatsFromCounts } from "@/lib/domain/abtest";
 
 /**
  * Per-campaign A/B breakdown: variant statistics from recorded
@@ -23,11 +23,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       select: { id: true, name: true },
     });
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
-    const events = await prisma.emailEvent.findMany({
+    const groups = await prisma.emailEvent.groupBy({
+      by: ["type", "variant"],
       where: { workspaceId: ctx.workspace.id, campaignId: campaign.id },
-      select: { type: true, variant: true },
+      _count: { _all: true },
     });
-    const variants = variantStats(events);
+    const variants = variantStatsFromCounts(
+      groups.map((group) => ({ type: group.type, variant: group.variant, count: group._count._all })),
+    );
     return NextResponse.json({
       campaignId: campaign.id,
       variants,

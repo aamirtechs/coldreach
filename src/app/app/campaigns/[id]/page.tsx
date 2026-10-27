@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
-import { computeCampaignMetrics, type MetricEvent } from "@/lib/domain/metrics";
+import { computeCampaignMetricsFromCounts } from "@/lib/domain/metrics";
 import { listTokens } from "@/lib/domain/personalize";
 import { CampaignActions } from "@/components/campaigns/CampaignActions";
 import { CampaignSettingsForm } from "@/components/campaigns/CampaignSettingsForm";
@@ -33,12 +33,13 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     notFound();
   }
 
-  const [lists, allAccounts, events, enrollmentGroups, sampleLead, totalLeadsInList] = await Promise.all([
+  const [lists, allAccounts, eventGroups, enrollmentGroups, sampleLead, totalLeadsInList] = await Promise.all([
     prisma.leadList.findMany({ where: { workspaceId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.sendingAccount.findMany({ where: { workspaceId }, orderBy: { createdAt: "asc" } }),
-    prisma.emailEvent.findMany({
+    prisma.emailEvent.groupBy({
+      by: ["type", "classification"],
       where: { workspaceId, campaignId: campaign.id },
-      select: { type: true, classification: true },
+      _count: { _all: true },
     }),
     prisma.enrollment.groupBy({
       by: ["status"],
@@ -56,7 +57,13 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       : Promise.resolve(0),
   ]);
 
-  const metrics = computeCampaignMetrics(events as MetricEvent[]);
+  const metrics = computeCampaignMetricsFromCounts(
+    eventGroups.map((group) => ({
+      type: group.type,
+      classification: group.classification,
+      count: group._count._all,
+    })),
+  );
   const hasSimulatedSends = await prisma.emailEvent.findFirst({
     where: {
       workspaceId,

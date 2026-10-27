@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionWorkspace, requireRole, type RoleValue, type SessionContext } from "@/lib/auth/session";
+import { logger } from "@/lib/log";
 
 /**
  * Shared helpers for product API routes. Every handler starts by
@@ -33,10 +34,10 @@ export function apiError(error: unknown): NextResponse {
     if (typeof status === "number") {
       return NextResponse.json({ error: error.message }, { status });
     }
-    console.error("API error", error);
+    logger.error("API error", { error });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  console.error("API error", error);
+  logger.error("API error", { error });
   return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 }
 

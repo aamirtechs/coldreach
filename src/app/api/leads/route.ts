@@ -27,20 +27,36 @@ export async function GET(request: Request) {
   if (search) where.email = { contains: search.toLowerCase() };
 
   try {
-    let leads = await prisma.lead.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-    });
-    // Tags live in a JSON array, so tag filtering happens after the
-    // database query. Lists in this product are workspace sized; the
-    // filter is exact and documented rather than approximate.
+    // Pagination happens in the database. The tag filter is the one
+    // exception: tags live in a JSON array, so a tag query scans a
+    // bounded window (TAG_SCAN_LIMIT newest leads) and filters in
+    // memory; scanLimited in the response says when the window cut
+    // the scan short, so the total is then a lower bound.
+    const TAG_SCAN_LIMIT = 5000;
+    let total: number;
+    let pageItems: Awaited<ReturnType<typeof prisma.lead.findMany>>;
+    let scanLimited = false;
     if (tag) {
-      leads = leads.filter(
+      const scanned = await prisma.lead.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: TAG_SCAN_LIMIT,
+      });
+      scanLimited = scanned.length >= TAG_SCAN_LIMIT;
+      const filtered = scanned.filter(
         (lead) => Array.isArray(lead.tags) && lead.tags.map(String).includes(tag),
       );
+      total = filtered.length;
+      pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
+    } else {
+      total = await prisma.lead.count({ where });
+      pageItems = await prisma.lead.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      });
     }
-    const total = leads.length;
-    const pageItems = leads.slice((page - 1) * pageSize, page * pageSize);
 
     const suppressions = await loadSuppressions(prisma, ctx.workspace.id);
     return NextResponse.json({
@@ -58,6 +74,7 @@ export async function GET(request: Request) {
       page,
       pageSize,
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      scanLimited,
     });
   } catch (error) {
     return apiError(error);

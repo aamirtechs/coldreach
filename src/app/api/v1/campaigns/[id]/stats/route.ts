@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { requireApiKey } from "@/lib/apiKeys/auth";
-import { computeCampaignMetrics, type MetricEvent } from "@/lib/domain/metrics";
-import { pickWinner, variantStats } from "@/lib/domain/abtest";
+import { computeCampaignMetricsFromCounts } from "@/lib/domain/metrics";
+import { pickWinner, variantStatsFromCounts } from "@/lib/domain/abtest";
 
 /**
  * Public API: campaign statistics from the real metrics engine, plus
@@ -21,12 +21,21 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       select: { id: true, name: true, status: true },
     });
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
-    const events = await prisma.emailEvent.findMany({
+    const groups = await prisma.emailEvent.groupBy({
+      by: ["type", "classification", "variant"],
       where: { workspaceId: ctx.workspaceId, campaignId: campaign.id },
-      select: { type: true, classification: true, variant: true },
+      _count: { _all: true },
     });
-    const metrics = computeCampaignMetrics(events as MetricEvent[]);
-    const variants = variantStats(events);
+    const metrics = computeCampaignMetricsFromCounts(
+      groups.map((group) => ({
+        type: group.type,
+        classification: group.classification,
+        count: group._count._all,
+      })),
+    );
+    const variants = variantStatsFromCounts(
+      groups.map((group) => ({ type: group.type, variant: group.variant, count: group._count._all })),
+    );
     return NextResponse.json({
       campaign: { id: campaign.id, name: campaign.name, status: campaign.status },
       metrics,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken, setSessionCookie } from "@/lib/auth/session";
+import { authRateLimitKey, checkAuthRateLimit, rateLimitedResponse } from "@/lib/auth/rateLimit";
 import { writeAuditLog } from "@/lib/audit";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -36,6 +37,10 @@ export async function POST(request: Request) {
   }
   if (!EMAIL_PATTERN.test(email)) {
     return NextResponse.json({ error: "A valid email address is required" }, { status: 400 });
+  }
+  const limit = checkAuthRateLimit(authRateLimitKey("signup", request, email));
+  if (!limit.allowed) {
+    return rateLimitedResponse(limit);
   }
   if (password.length < 10) {
     return NextResponse.json(

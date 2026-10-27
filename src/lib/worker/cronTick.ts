@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/log";
 import { runSendTick, type SendTickSummary } from "./sendTick";
 
 /**
@@ -29,10 +30,17 @@ export interface CronTickSummary {
 
 export async function runCronTick(db: PrismaClient = prisma): Promise<CronTickSummary> {
   const sends = await runSendTick({ db });
-  return {
+  const summary: CronTickSummary = {
     sends,
     syncedAccounts: sends.sync.length,
     repliesImported: sends.sync.reduce((total, entry) => total + entry.imported, 0),
     syncErrors: sends.sync.filter((entry) => entry.error).length,
   };
+  logger.info("Cron tick complete", {
+    sent: sends.sent,
+    syncedAccounts: summary.syncedAccounts,
+    repliesImported: summary.repliesImported,
+    syncErrors: summary.syncErrors,
+  });
+  return summary;
 }

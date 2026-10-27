@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken, setSessionCookie } from "@/lib/auth/session";
+import { authRateLimitKey, checkAuthRateLimit, rateLimitedResponse } from "@/lib/auth/rateLimit";
 import { writeAuditLog } from "@/lib/audit";
 
 export async function POST(request: Request) {
@@ -17,6 +18,11 @@ export async function POST(request: Request) {
 
   if (!email || !password) {
     return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+  }
+
+  const limit = checkAuthRateLimit(authRateLimitKey("login", request, email));
+  if (!limit.allowed) {
+    return rateLimitedResponse(limit);
   }
 
   const user = await prisma.user.findUnique({

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireSession } from "@/lib/api";
-import { computeCampaignMetrics, type MetricEvent } from "@/lib/domain/metrics";
+import { computeCampaignMetricsFromCounts } from "@/lib/domain/metrics";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession("VIEWER");
@@ -14,11 +14,20 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       select: { id: true },
     });
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
-    const events = await prisma.emailEvent.findMany({
+    // Aggregated in the database: the counts helper returns exactly
+    // what computeCampaignMetrics would on the raw rows, at any volume.
+    const groups = await prisma.emailEvent.groupBy({
+      by: ["type", "classification"],
       where: { workspaceId: ctx.workspace.id, campaignId: campaign.id },
-      select: { type: true, classification: true },
+      _count: { _all: true },
     });
-    const metrics = computeCampaignMetrics(events as MetricEvent[]);
+    const metrics = computeCampaignMetricsFromCounts(
+      groups.map((group) => ({
+        type: group.type,
+        classification: group.classification,
+        count: group._count._all,
+      })),
+    );
     return NextResponse.json({ metrics });
   } catch (error) {
     return apiError(error);

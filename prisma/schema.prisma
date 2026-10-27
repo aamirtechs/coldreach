@@ -314,6 +314,8 @@ model Enrollment {
   // Hard guarantee against duplicate enrollment of the same lead.
   @@unique([campaignId, leadId])
   @@index([status, nextSendAt])
+  // Phase 5: campaign-scoped due-send scans (worker + list views).
+  @@index([campaignId, status, nextSendAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +364,9 @@ model EmailEvent {
 
   @@index([workspaceId, type])
   @@index([campaignId, type])
+  // Phase 5: time-ordered workspace event reads (usage windows,
+  // recent activity) without scanning by type first.
+  @@index([workspaceId, createdAt])
 }
 
 enum SuppressionScope {
@@ -429,6 +434,8 @@ model Thread {
   notes            ThreadNote[]
 
   @@index([workspaceId, status])
+  // Phase 5: inbox lists sort by recency inside a status filter.
+  @@index([workspaceId, status, updatedAt])
 }
 
 model ThreadMessage {

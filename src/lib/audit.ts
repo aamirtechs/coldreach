@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/log";
 
 interface AuditEntry {
   action: string;
@@ -20,6 +21,6 @@ export async function writeAuditLog(entry: AuditEntry): Promise<void> {
       },
     });
   } catch (error) {
-    console.error("Failed to write audit log", entry.action, error);
+    logger.error("Failed to write audit log", { error, action: entry.action });
   }
 }

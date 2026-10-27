@@ -98,41 +98,76 @@ export function pickVariant(
   return candidates[candidates.length - 1].label;
 }
 
-export function variantStats(events: VariantEvent[]): VariantStat[] {
-  const byLabel = new Map<string, VariantStat>();
-  const ensure = (label: string): VariantStat => {
-    let stat = byLabel.get(label);
-    if (!stat) {
-      stat = { label, sent: 0, delivered: 0, replied: 0, bounced: 0, replyRate: 0 };
-      byLabel.set(label, stat);
-    }
-    return stat;
-  };
-  for (const event of events) {
-    const stat = ensure(event.variant ?? BASE_LABEL);
-    switch (event.type) {
-      case "SENT":
-        stat.sent += 1;
-        break;
-      case "DELIVERED":
-        stat.delivered += 1;
-        break;
-      case "REPLIED":
-        stat.replied += 1;
-        break;
-      case "BOUNCED":
-        stat.bounced += 1;
-        break;
-      default:
-        break;
-    }
+function ensureVariantStat(byLabel: Map<string, VariantStat>, label: string): VariantStat {
+  let stat = byLabel.get(label);
+  if (!stat) {
+    stat = { label, sent: 0, delivered: 0, replied: 0, bounced: 0, replyRate: 0 };
+    byLabel.set(label, stat);
   }
+  return stat;
+}
+
+function addVariantEvent(
+  byLabel: Map<string, VariantStat>,
+  type: string,
+  variant: string | null | undefined,
+  count: number,
+): void {
+  const stat = ensureVariantStat(byLabel, variant ?? BASE_LABEL);
+  switch (type) {
+    case "SENT":
+      stat.sent += count;
+      break;
+    case "DELIVERED":
+      stat.delivered += count;
+      break;
+    case "REPLIED":
+      stat.replied += count;
+      break;
+    case "BOUNCED":
+      stat.bounced += count;
+      break;
+    default:
+      break;
+  }
+}
+
+function finalizeVariantStats(byLabel: Map<string, VariantStat>): VariantStat[] {
   const stats = [...byLabel.values()];
   for (const stat of stats) {
     stat.replyRate = stat.delivered > 0 ? stat.replied / stat.delivered : 0;
   }
   stats.sort((a, b) => a.label.localeCompare(b.label));
   return stats;
+}
+
+export function variantStats(events: VariantEvent[]): VariantStat[] {
+  const byLabel = new Map<string, VariantStat>();
+  for (const event of events) {
+    addVariantEvent(byLabel, event.type, event.variant, 1);
+  }
+  return finalizeVariantStats(byLabel);
+}
+
+/** One aggregated event group, as produced by a database GROUP BY. */
+export interface VariantEventCount {
+  type: string;
+  variant?: string | null;
+  count: number;
+}
+
+/**
+ * variantStats computed from pre-aggregated counts instead of raw
+ * event rows, for the same reason as computeCampaignMetricsFromCounts
+ * in the metrics engine: high-volume callers aggregate in the
+ * database and keep memory flat. Results are identical.
+ */
+export function variantStatsFromCounts(groups: VariantEventCount[]): VariantStat[] {
+  const byLabel = new Map<string, VariantStat>();
+  for (const group of groups) {
+    addVariantEvent(byLabel, group.type, group.variant, group.count);
+  }
+  return finalizeVariantStats(byLabel);
 }
 
 /** Standard normal CDF, Abramowitz and Stegun 7.1.26 approximation. */

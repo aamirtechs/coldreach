@@ -3,6 +3,7 @@ import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { WorkspaceSettingsForm } from "@/components/settings/WorkspaceSettingsForm";
 import { SuppressionManager } from "@/components/settings/SuppressionManager";
+import { ExportPanel } from "@/components/settings/ExportPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ export default async function SettingsPage() {
           }}
         />
       </div>
+      {session.role === "OWNER" ? <ExportPanel /> : null}
       <SuppressionManager
         canEdit={canEdit || session.role === "MEMBER"}
         initial={suppressions.map((row) => ({

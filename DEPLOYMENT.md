@@ -84,6 +84,13 @@ from the required table above.
 | `STRIPE_WEBHOOK_SECRET` | Phase 4 billing. Signing secret of the Stripe webhook endpoint at `{APP_URL}/api/billing/webhook`; required for subscription sync (see INTEGRATIONS.md section 9 for the dashboard steps and the exact events to subscribe). |
 | `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_AGENCY` | Phase 4 billing. The recurring Price IDs for the three paid plans, created in the Stripe dashboard. |
 
+Phase 5 optional variables:
+
+| Variable | Value |
+| --- | --- |
+| `SENTRY_DSN` | Optional error tracking. When set, error level entries from the structured logger (src/lib/log.ts) are also forwarded to Sentry's envelope endpoint. Unset means logs go to stdout and stderr only, which Vercel captures as runtime logs. |
+| `LOG_LEVEL` | Optional. One of debug, info, warn, error; defaults to info. |
+
 Optional, per SMTP sending account: an account stores only a
 `credentialRef` in the database. For a ref of `ACME_SMTP`, set
 `ACME_SMTP_HOST`, `ACME_SMTP_PORT`, `ACME_SMTP_USER`, `ACME_SMTP_PASS`,
@@ -185,3 +192,76 @@ single tick from the CLI.
    written into a new numbered folder under `prisma/prod/migrations/`.
 4. Commit both migration folders. The next Vercel deploy applies the
    new production migration during the build.
+
+## 8. Monitoring and health checks
+
+`GET /api/health` is public and returns 200 with
+`{ status: "ok", db: "ok", version, time }` when the app and the
+database respond, and 503 with `db: "error"` when the database
+check fails. It exposes nothing else. Point an external uptime
+monitor (UptimeRobot, Better Uptime, a cron job with curl, or
+similar) at `https://<your-domain>/api/health` on a one to five
+minute interval and alert on non-200 responses. Application logs
+are structured JSON lines on stdout and stderr (worker ticks,
+webhook deliveries, cron runs, API errors), visible in Vercel's
+runtime logs; set `SENTRY_DSN` (section 3) to also forward errors
+to Sentry.
+
+## 9. Backups and recovery
+
+Three layers, in the order you would reach for them:
+
+1. **Neon point-in-time restore.** Neon retains a restore window
+   for the project and can branch or restore the database to an
+   earlier point in time from the console. The retention window
+   and the restore mechanics are plan dependent: confirm what
+   your Neon plan includes in the console before you rely on a
+   specific window, and rehearse a restore to a branch once so
+   the steps are familiar before an incident.
+2. **Tenant export (in the product).** Any workspace OWNER can
+   download a full JSON export in Settings. It contains the
+   tenant's data with credential material structurally excluded
+   (see SECURITY.md). `scripts/restore-workspace.ts` rebuilds a
+   workspace from that file: accounts come back DISCONNECTED and
+   campaigns come back as DRAFT, so a restore can never start
+   sending on its own. The path is proven by
+   `scripts/drill-recovery.ts`; run it after any change to the
+   export shape. The export is the per-tenant safety net, not a
+   full database backup: enrollments are counts only, and API
+   keys, webhook endpoints, and mailbox connections must be
+   recreated.
+3. **Source control.** The application is fully described by the
+   git repository plus the environment variables in section 3.
+   Keep the env values in a password manager; the repo alone
+   cannot rebuild production without them.
+
+## 10. Rollback
+
+- **Code and deployment:** in the Vercel dashboard, Deployments,
+  pick the last known-good deployment and choose Promote to
+  Production (instant rollback). The same effect from git: revert
+  the offending commit and push; the build redeploys the previous
+  code.
+- **Database:** migrations are forward-only in this project.
+  Rolling the code back does not undo a migration. Additive
+  migrations (new tables, new columns, new indexes, like every
+  migration so far) are safe to leave in place under older code.
+  If a migration itself is the problem, restore the database with
+  Neon's point-in-time restore (section 9) to just before the
+  deploy, accepting the data written in between as lost, or write
+  a corrective forward migration. Decide deliberately; do not
+  hand-edit the `_prisma_migrations` table.
+- **After any rollback:** re-run the post-deploy checks in
+  section 5 and confirm `GET /api/health` is 200.
+
+## 11. Secret rotation
+
+The full procedure, including the `ENCRYPTION_KEY` caveats and
+the per-secret steps, lives in SECURITY.md under "Secret rotation
+procedure". The short version: `SESSION_SECRET` rotation logs
+everyone out; worker, webhook, and cron secrets must be rotated
+together with the schedulers that present them; database
+credentials rotate in the Neon console and then in Vercel;
+`ENCRYPTION_KEY` rotation forces mailbox reconnections and
+webhook recreation, so plan it as maintenance, not a quick env
+edit.

@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { PrismaClient, WebhookDelivery, WebhookEndpoint } from "@prisma/client";
 import { decryptSecret, encryptSecret } from "@/lib/security/crypto";
+import { logger } from "@/lib/log";
 
 /**
  * Outbound webhooks.
@@ -243,6 +244,11 @@ export async function processDueDeliveries(
       // A broken endpoint (for example an undecryptable secret after a
       // key rotation) must not stall the rest of the queue. Count it
       // as a failed attempt so it follows the same retry path.
+      logger.error("Webhook delivery attempt failed", {
+        error,
+        deliveryId: delivery.id,
+        endpointId: delivery.endpointId,
+      });
       summary.retrying += 1;
       const attempts = delivery.attempts + 1;
       const exhausted = attempts >= MAX_DELIVERY_ATTEMPTS;

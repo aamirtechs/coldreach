@@ -2,11 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
-import { computeCampaignMetrics, type MetricEvent } from "@/lib/domain/metrics";
+import { computeCampaignMetricsFromCounts, type CampaignMetrics } from "@/lib/domain/metrics";
 import {
   DEFAULT_MIN_WINNER_SAMPLE,
   pickWinner,
-  variantStats,
+  variantStatsFromCounts,
   type VariantStat,
 } from "@/lib/domain/abtest";
 import { EmptyState, StatusBadge, formatPercent } from "@/components/ui";
@@ -35,7 +35,7 @@ export default async function AnalyticsPage() {
     select: { id: true, name: true, status: true },
   });
 
-  const rows: { id: string; name: string; status: string; metrics: ReturnType<typeof computeCampaignMetrics> }[] = [];
+  const rows: { id: string; name: string; status: string; metrics: CampaignMetrics }[] = [];
   const abRows: {
     id: string;
     name: string;
@@ -44,13 +44,28 @@ export default async function AnalyticsPage() {
   }[] = [];
   let anyEvents = false;
   for (const campaign of campaigns) {
-    const events = await prisma.emailEvent.findMany({
+    // Events are aggregated in the database (groupBy) rather than
+    // loaded row by row: the counts helpers return exactly what the
+    // row-based engines return, at any event volume.
+    const groups = await prisma.emailEvent.groupBy({
+      by: ["type", "classification", "variant"],
       where: { workspaceId, campaignId: campaign.id },
-      select: { type: true, classification: true, variant: true },
+      _count: { _all: true },
     });
-    if (events.length > 0) anyEvents = true;
-    rows.push({ ...campaign, metrics: computeCampaignMetrics(events as MetricEvent[]) });
-    const variants = variantStats(events);
+    if (groups.length > 0) anyEvents = true;
+    rows.push({
+      ...campaign,
+      metrics: computeCampaignMetricsFromCounts(
+        groups.map((group) => ({
+          type: group.type,
+          classification: group.classification,
+          count: group._count._all,
+        })),
+      ),
+    });
+    const variants = variantStatsFromCounts(
+      groups.map((group) => ({ type: group.type, variant: group.variant, count: group._count._all })),
+    );
     // An A/B section is meaningful only when more than one variant
     // actually sent.
     if (variants.filter((variant) => variant.sent > 0).length > 1) {

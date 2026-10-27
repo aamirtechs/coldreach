@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { ensureSuppression } from "@/lib/suppressions";
 import { enqueueEventDeliveries } from "@/lib/webhooks/service";
+import { logger } from "@/lib/log";
 
 /**
  * Provider event application.
@@ -174,7 +175,7 @@ export async function applyProviderEvent(
       },
     });
   } catch (error) {
-    console.error("Failed to enqueue webhook deliveries for applied event", error);
+    logger.error("Failed to enqueue webhook deliveries for applied event", { error });
   }
 
   return { applied: true, duplicate: false, enrollmentId };

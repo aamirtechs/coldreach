@@ -60,7 +60,7 @@ export function Sidebar() {
               className={`nav-link ${active ? "nav-link-active" : ""}`}
               aria-current={active ? "page" : undefined}
             >
-              <Icon className="h-5 w-5 shrink-0" />
+              <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
               {item.label}
             </Link>
           );

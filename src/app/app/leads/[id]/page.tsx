@@ -44,20 +44,44 @@ export default async function LeadListDetailPage({
   if (status) where.status = status as Prisma.EnumLeadStatusFilter["equals"];
   if (search) where.email = { contains: search.toLowerCase() };
 
-  let leads = await prisma.lead.findMany({ where, orderBy: { createdAt: "desc" } });
+  // Pagination happens in the database. A tag filter cannot (tags
+  // are a JSON array), so it scans a bounded window of the newest
+  // TAG_SCAN_LIMIT leads, matching the session leads API.
+  const TAG_SCAN_LIMIT = 5000;
+  let total: number;
+  let pageLeads: Awaited<ReturnType<typeof prisma.lead.findMany>>;
   if (tag) {
-    leads = leads.filter((lead) => Array.isArray(lead.tags) && lead.tags.map(String).includes(tag));
+    const scanned = await prisma.lead.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: TAG_SCAN_LIMIT,
+    });
+    const filtered = scanned.filter(
+      (lead) => Array.isArray(lead.tags) && lead.tags.map(String).includes(tag),
+    );
+    total = filtered.length;
+    pageLeads = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  } else {
+    total = await prisma.lead.count({ where });
+    pageLeads = await prisma.lead.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    });
   }
-  const total = leads.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const pageLeads = leads.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
+  // Tag discovery for the filter dropdown: bounded to the newest
+  // TAG_SCAN_LIMIT leads, the same window the tag filter scans.
   const allTags = [
     ...new Set(
       (
         await prisma.lead.findMany({
           where: { workspaceId, listId: list.id },
           select: { tags: true },
+          orderBy: { createdAt: "desc" },
+          take: TAG_SCAN_LIMIT,
         })
       ).flatMap((lead) => (Array.isArray(lead.tags) ? lead.tags.map(String) : [])),
     ),

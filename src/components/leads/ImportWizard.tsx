@@ -115,7 +115,16 @@ export function ImportWizard({ listId }: { listId: string }) {
       </p>
 
       <div className="mt-4">
-        <input type="file" accept=".csv,text/csv" onChange={onFile} className="text-sm" />
+        <label className="label" htmlFor="import-csv-file">
+          Choose a CSV file
+        </label>
+        <input
+          id="import-csv-file"
+          type="file"
+          accept=".csv,text/csv"
+          onChange={onFile}
+          className="text-sm"
+        />
         {fileName ? <p className="mt-2 text-xs text-muted">Selected: {fileName}</p> : null}
       </div>
 

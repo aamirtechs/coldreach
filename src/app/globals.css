@@ -22,6 +22,19 @@
   --color-warning: 217 119 6;
 }
 
+/*
+  Dark theme contrast fix (Phase 5 accessibility pass): the dark
+  accent is a light indigo (129 140 248), so white text on it only
+  reaches about 3:1. Text on accent fills in dark mode uses the ink
+  color instead (about 6.8:1 on the accent, 10:1 on accent-strong).
+  This one rule covers primary buttons and every bg-accent badge,
+  avatar, and active tab that pairs with text-white.
+*/
+.dark .btn-primary,
+.dark .bg-accent.text-white {
+  color: rgb(2 6 23);
+}
+
 .dark {
   --color-bg: 2 6 23;
   --color-surface: 15 23 42;

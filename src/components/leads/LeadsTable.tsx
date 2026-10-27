@@ -158,6 +158,7 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
           <input
             className="input w-40"
             placeholder="Tag name"
+            aria-label="Tag name for the selected leads"
             value={tagValue}
             onChange={(e) => setTagValue(e.target.value)}
           />

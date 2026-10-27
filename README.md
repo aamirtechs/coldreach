@@ -6,18 +6,22 @@ scheduling controls, suppression enforcement before every send, honest
 analytics computed from real events, and a clear line that no tool can
 guarantee inbox placement.
 
-This repository currently contains **Phases 1 to 4**: the design
-system and application shell, working authentication with
-multi-tenant workspaces, the complete core data model, a tested
-domain engine, the full campaign lifecycle (lead import, campaign
-and sequence building, preflight launch checks, a sending worker
-behind a provider interface, unsubscribe enforcement, provider event
-handling, and analytics computed from recorded events), Phase 3
-professional workflows (OAuth mailbox connections, reply sync with a
-unified inbox, deliverability diagnostics, team collaboration), and
-Phase 4 competitive capabilities (A/B testing, AI assistance, a
-public API with keys, outbound webhooks, plan quotas with Stripe
-billing, and an agency command center).
+This repository contains **Phases 1 to 5**, the complete 1.0.0
+product: the design system and application shell, working
+authentication with multi-tenant workspaces, the complete core
+data model, a tested domain engine, the full campaign lifecycle
+(lead import, campaign and sequence building, preflight launch
+checks, a sending worker behind a provider interface, unsubscribe
+enforcement, provider event handling, and analytics computed from
+recorded events), Phase 3 professional workflows (OAuth mailbox
+connections, reply sync with a unified inbox, deliverability
+diagnostics, team collaboration), Phase 4 competitive capabilities
+(A/B testing, AI assistance, a public API with keys, outbound
+webhooks, plan quotas with Stripe billing, and an agency command
+center), and Phase 5 production readiness (security headers and
+rate limiting, structured logging and a health endpoint, a
+redacted workspace export with a proven restore path, performance
+and accessibility passes, and a final executed QA, see QA.md).
 
 ## Status, honestly
 
@@ -31,11 +35,12 @@ billing, and an agency command center).
 - Audit log rows for sensitive actions across auth, leads, campaigns,
   accounts, suppressions, and workspace settings.
 - Full Prisma schema for the core product, with committed migrations.
-- Domain engine in `src/lib/domain`, covered by unit tests (172 tests
+- Domain engine in `src/lib/domain`, covered by unit tests (195 tests
   passing in total, including integration tests for the worker, the
   import service, event application, unsubscribe handling, reply sync,
-  invites, the cron route, A/B statistics, API keys, webhooks, and
-  the agency rollup).
+  invites, the cron route, A/B statistics, API keys, webhooks, the
+  agency rollup, the auth rate limiter, the logger, security headers,
+  the health check, and the export redaction rules).
 - Leads: lists, CSV import wizard with mapping, dedupe, suppression
   checks and a downloadable error report, manual add, filters, bulk
   actions, and CSV export.
@@ -76,6 +81,14 @@ billing, and an agency command center).
   (Preflight gate, worker hard stop, account and seat limits) with
   Stripe checkout, portal, and webhook sync behind env vars, and an
   Agency Command Center rolling up every workspace the user owns.
+- Phase 5: security headers with a CSP on every response, rate
+  limiting on the login and signup endpoints, a structured JSON
+  logger with an optional Sentry forwarder, `GET /api/health`,
+  branded error and 404 pages, an OWNER-only workspace data export
+  with structural credential redaction plus a restore script and a
+  proven recovery drill, hot-path database indexes, database-level
+  aggregation for metrics and stats (no unbounded event loads), and
+  an accessibility pass over the main flows.
 
 **Demo mode**
 
@@ -206,10 +219,42 @@ src/lib/billing          Subscriptions, usage accounting, Stripe client (Phase 4
 src/lib/agency           Cross-workspace rollup for owners (Phase 4)
 src/lib/prisma.ts        Prisma client singleton
 src/lib/audit.ts         Audit log writer
+src/lib/log.ts           Structured JSON logger with optional Sentry forwarding (Phase 5)
+src/lib/health.ts        Database ping behind GET /api/health (Phase 5)
+src/lib/security/        AES-256-GCM crypto, and the response header definitions (Phase 5)
+src/lib/settings/        Workspace export builder with credential redaction (Phase 5)
 scripts/worker-once.ts   CLI entry for one sending tick
 scripts/smoke-phase4.ts  Live HTTP smoke test for the Phase 4 surfaces
+scripts/smoke-phase5.ts  Live HTTP smoke for the final QA checklist (QA.md)
+scripts/drill-recovery.ts  Export, wipe, restore, compare recovery drill
+scripts/restore-workspace.ts  Restores a workspace from an export file
+scripts/load-smoke.ts    Local load smoke with latency percentiles
 src/middleware.ts        Route protection for /app
 ```
+
+## Production readiness
+
+Phase 5 hardened the product for real operation:
+
+- **Security.** Response headers and a content security policy on
+  every route, rate limiting on the credential endpoints, and a
+  reviewed session and password posture. SECURITY.md records the
+  full review, the CSP tradeoff, the residual risks, and the
+  secret rotation procedure.
+- **Observability.** Structured JSON logging (`src/lib/log.ts`)
+  across the worker, webhook delivery, cron, and API error paths,
+  with an optional Sentry forwarder behind `SENTRY_DSN`, and a
+  public health endpoint at `GET /api/health` for uptime monitors.
+- **Backup and recovery.** Neon point-in-time restore at the
+  platform layer, and in the product an OWNER-only workspace
+  export (`scripts/restore-workspace.ts` restores it; campaigns
+  return as DRAFT and accounts DISCONNECTED). DEPLOYMENT.md
+  sections 8 to 11 are the runbook: monitoring, backups, rollback,
+  and rotation.
+- **Final QA.** QA.md is the executed checklist for 1.0.0: every
+  top journey run against the production build, with the recovery
+  drill counts and the load smoke numbers recorded, and the known
+  limitations stated rather than hidden.
 
 ## Compliance stance
 
@@ -238,5 +283,7 @@ and security notes.
 - Phase 4 (done): AI assistance, A/B testing, agency command center,
   CRM integration through Zapier and Make, public API and outbound
   webhooks, plan quotas and billing.
-- Phase 5: production hardening, credential vaulting, monitoring,
-  deployment automation.
+- Phase 5 (done): security headers and credential rate limiting,
+  structured logging with a health endpoint, workspace export and
+  restore, performance indexes and aggregation, accessibility,
+  and the final QA in QA.md.

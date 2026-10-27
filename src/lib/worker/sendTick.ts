@@ -11,6 +11,7 @@ import { pickVariant } from "@/lib/domain/abtest";
 import { canSend, type Plan } from "@/lib/domain/plans";
 import { countMonthlySends, getPlanForWorkspace } from "@/lib/billing/subscription";
 import { processDueDeliveries, type ProcessDueSummary } from "@/lib/webhooks/service";
+import { logger, newRequestId } from "@/lib/log";
 import { createUnsubscribeToken } from "./unsubscribe";
 
 /**
@@ -82,6 +83,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   const db = deps.db ?? prisma;
   const resolve = deps.resolveProvider ?? defaultResolveProvider;
   const now = deps.now ?? new Date();
+  const requestId = newRequestId();
 
   let syncSummaries: AccountSyncSummary[] = [];
   if (!deps.skipSync) {
@@ -92,7 +94,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     try {
       syncSummaries = await syncAllConnectedAccounts(db);
     } catch (error) {
-      console.error("Reply sync pass failed before send tick", error);
+      logger.error("Reply sync pass failed before send tick", { error, requestId });
     }
   }
   const appUrl = (deps.appUrl ?? process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -390,8 +392,20 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   try {
     summary.webhooks = await processDueDeliveries(db, { now });
   } catch (error) {
-    console.error("Webhook delivery pass failed during send tick", error);
+    logger.error("Webhook delivery pass failed during send tick", { error, requestId });
   }
+
+  logger.info("Send tick complete", {
+    requestId,
+    processed: summary.processed,
+    sent: summary.sent,
+    simulated: summary.simulated,
+    completed: summary.completed,
+    failed: summary.failed,
+    quotaBlocked: summary.quotaBlocked,
+    webhooksAttempted: summary.webhooks.attempted,
+    webhooksDelivered: summary.webhooks.delivered,
+  });
 
   return summary;
 }
