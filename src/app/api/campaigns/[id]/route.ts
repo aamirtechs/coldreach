@@ -33,6 +33,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         windowStart: campaign.windowStart,
         windowEnd: campaign.windowEnd,
         businessDaysOnly: campaign.businessDaysOnly,
+        signatureText: campaign.signatureText,
         leadList: campaign.leadList,
         enrollmentCount: campaign._count.enrollments,
         createdAt: campaign.createdAt,
@@ -60,6 +61,7 @@ interface PatchBody {
   windowStart?: unknown;
   windowEnd?: unknown;
   businessDaysOnly?: unknown;
+  signatureText?: unknown;
   accountIds?: unknown;
   status?: unknown;
 }
@@ -154,6 +156,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     if (body.businessDaysOnly !== undefined) {
       data.businessDaysOnly = body.businessDaysOnly === true;
+    }
+    if (body.signatureText !== undefined) {
+      // Signature is free text printed under every email this
+      // campaign sends. An empty value clears it back to no
+      // signature (the compliance footer always remains).
+      const signature = typeof body.signatureText === "string" ? body.signatureText.trim() : "";
+      if (signature.length > 2000) {
+        return NextResponse.json({ error: "signatureText must be 2000 characters or fewer" }, { status: 400 });
+      }
+      data.signatureText = signature === "" ? null : signature;
     }
     let listChanged = false;
     if (body.leadListId !== undefined) {

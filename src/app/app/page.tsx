@@ -1,6 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, ListChecks, Mail, Send, ShieldCheck, type LucideIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Eye,
+  Flame,
+  ListChecks,
+  Mail,
+  Play,
+  Reply,
+  Send,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { getOnboardingState } from "@/lib/onboarding";
@@ -27,6 +39,65 @@ export default async function DashboardPage() {
     prisma.sendingAccount.count({ where: { workspaceId } }),
     prisma.suppression.count({ where: { OR: [{ workspaceId }, { scope: "GLOBAL" }] } }),
   ]);
+
+  const [runningCampaignCount, sentCount, openedCount, repliedCount, suspendedAccountCount, warmupAccounts] =
+    await Promise.all([
+      prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
+      prisma.emailEvent.count({ where: { workspaceId, type: "SENT" } }),
+      prisma.emailEvent.count({ where: { workspaceId, type: "OPENED" } }),
+      prisma.emailEvent.count({ where: { workspaceId, type: "REPLIED" } }),
+      prisma.sendingAccount.count({ where: { workspaceId, status: { in: ["PAUSED", "ERROR"] } } }),
+      prisma.sendingAccount.findMany({
+        where: { workspaceId, warmupEnabled: true },
+        select: { warmupStartedAt: true },
+      }),
+    ]);
+  // An account counts as warmed once its 4-week warmup curve (see
+  // src/lib/domain/warmup.ts) has fully elapsed since warmupStartedAt.
+  const warmedAccountCount = warmupAccounts.filter(
+    (account) =>
+      account.warmupStartedAt !== null &&
+      account.warmupStartedAt.getTime() <= Date.now() - 28 * 24 * 60 * 60 * 1000,
+  ).length;
+
+  const liveStats: Stat[] = [
+    {
+      label: "Running campaigns",
+      value: runningCampaignCount,
+      icon: Play,
+      note: "Campaigns currently sending",
+    },
+    {
+      label: "Emails sent",
+      value: sentCount,
+      icon: Send,
+      note: "Recorded SENT events, all time",
+    },
+    {
+      label: "Opened",
+      value: openedCount,
+      icon: Eye,
+      note: "Recorded OPENED events, all time",
+    },
+    {
+      label: "Replied",
+      value: repliedCount,
+      icon: Reply,
+      note: "Recorded REPLIED events, all time",
+    },
+    {
+      label: "Suspended accounts",
+      value: suspendedAccountCount,
+      icon: AlertTriangle,
+      note: "Mailboxes paused or in error state",
+    },
+    {
+      label: "Warmed accounts",
+      value: warmedAccountCount,
+      icon: Flame,
+      note: "Mailboxes past the 4-week warmup curve",
+    },
+  ];
 
   const stats: Stat[] = [
     {
@@ -72,6 +143,23 @@ export default async function DashboardPage() {
             <section key={stat.label} className="card p-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-medium text-muted">{stat.label}</h2>
+                <Icon className="h-5 w-5 text-accent" />
+              </div>
+              <p className="mt-2 font-display text-3xl font-semibold">{stat.value}</p>
+              <p className="mt-1 text-xs text-muted">{stat.note}</p>
+            </section>
+          );
+        })}
+      </div>
+
+      <h2 className="mt-8 font-display text-lg font-semibold">Live sending</h2>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {liveStats.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <section key={stat.label} className="card p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-muted">{stat.label}</h3>
                 <Icon className="h-5 w-5 text-accent" />
               </div>
               <p className="mt-2 font-display text-3xl font-semibold">{stat.value}</p>

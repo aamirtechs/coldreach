@@ -186,8 +186,10 @@ provider is OpenAI over plain HTTPS calls:
 | --- | --- |
 | `OPENAI_API_KEY` | An OpenAI API key with chat completions access |
 | `AI_MODEL` | Optional. Defaults to `gpt-4o-mini` |
+| `GROQ_API_KEY` | Optional fallback. A Groq API key, used only when `OPENAI_API_KEY` is absent |
+| `GROQ_MODEL` | Optional. Defaults to `llama-3.3-70b-versatile` |
 
-Without `OPENAI_API_KEY`, every AI endpoint returns `501` naming the
+Without either AI key, every AI endpoint returns `501` naming the
 missing variable and the UI panels show "AI is not configured",
 exactly like the OAuth pattern above. AI output is never applied
 automatically: subject ideas and rewrites land only when the user

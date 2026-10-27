@@ -128,11 +128,18 @@ Verify: Settings, Integrations status, "Microsoft OAuth (Microsoft
 Microsoft 365: consent opens and the account lands as CONNECTED.
 Complete the checklist in section 7 before calling this done.
 
-## 4. OpenAI API key
+## 4. OpenAI API key (or Groq)
 
 Goal: AI subject lines, sequence drafts, icebreakers, and reply
 suggestions. Variable: `OPENAI_API_KEY` (required), `AI_MODEL`
 (optional, defaults to `gpt-4o-mini`).
+
+Groq alternative (v1.4.0): if you would rather use Groq, skip the
+OpenAI steps below and instead create a key at console.groq.com,
+then add `GROQ_API_KEY` in Vercel (Production) and redeploy.
+Optionally add `GROQ_MODEL` (defaults to `llama-3.3-70b-versatile`).
+When both keys exist, OpenAI wins; the Integrations status row
+names the provider and model actually in effect.
 
 1. Go to platform.openai.com and sign in. Confirm the account has
    billing set up (Settings, Billing); API usage is billed

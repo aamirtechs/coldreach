@@ -249,6 +249,11 @@ model Campaign {
   windowStart      String         @default("09:00")
   windowEnd        String         @default("17:00")
   businessDaysOnly Boolean        @default(true)
+  // Optional per-campaign email signature (plain text, may use the
+  // lead personalisation tokens). The worker renders it between the
+  // step body and the compliance footer on every send, so editing it
+  // never rewrites sequence steps and applies from the next send on.
+  signatureText    String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

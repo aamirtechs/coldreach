@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { oauthProviderStatuses } from "@/lib/oauth/config";
-import { aiConfigured, aiMissingEnv, AI_MODEL_DEFAULT } from "@/lib/ai/openai";
+import { aiConfigured, aiMissingEnv, activeAiModel, activeAiProviderId } from "@/lib/ai/openai";
 import { stripeMissingEnv } from "@/lib/billing/stripe";
 import { hubspotConfigured, hubspotMissingEnv, HUBSPOT_PROVIDER } from "@/lib/crm/hubspot";
 import { verifyProviderConfigured, verifyProviderMissingEnv } from "@/lib/verify/provider";
@@ -67,12 +67,12 @@ export async function getIntegrationStatuses(
 
   rows.push({
     id: "openai",
-    label: "AI assistance (OpenAI)",
+    label: "AI assistance (OpenAI or Groq)",
     configured: aiConfigured(),
     missingEnv: aiMissingEnv(),
     detail: aiConfigured()
-      ? `Live with model ${process.env.AI_MODEL || AI_MODEL_DEFAULT}.`
-      : 'AI panels show "AI is not configured" until OPENAI_API_KEY is set.',
+      ? `Live with ${activeAiProviderId() === "groq" ? "Groq" : "OpenAI"} model ${activeAiModel()}.`
+      : 'AI panels show "AI is not configured" until OPENAI_API_KEY or GROQ_API_KEY is set.',
     activationAnchor: "4-openai-api-key",
   });
 

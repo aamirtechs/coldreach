@@ -246,4 +246,44 @@ describe("runSendTick", () => {
     expect(ours[0].headers?.["List-Unsubscribe"]).toMatch(/^<http:\/\/localhost:3000\/u\/.+>$/);
     expect(ours[0].headers?.["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
   });
+
+  it("renders the campaign signature between the body and the compliance footer", async () => {
+    const account = await makeAccount(100, "sig");
+    const { list, leads } = await makeListWithLeads("sig", ["sig@example.com"]);
+    const campaign = await makeCampaign({
+      suffix: "sig",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    await db.campaign.update({
+      where: { id: campaign.id },
+      data: { signatureText: "Best regards,\nAmir Hussain\nAamirTechs" },
+    });
+    await enroll(campaign.id, leads[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-sig-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const ours = captured.filter((input) => input.toEmail === "sig@example.com");
+    expect(ours).toHaveLength(1);
+    // Text: body, then signature, then the "--" compliance footer.
+    expect(ours[0].text).toContain("Body 1 for Acme\n\nBest regards,\nAmir Hussain\nAamirTechs\n\n--");
+    // HTML: signature paragraphs appear before the footer rule.
+    const html = ours[0].html ?? "";
+    expect(html.indexOf("Best regards")).toBeGreaterThan(-1);
+    expect(html.indexOf("Best regards")).toBeLessThan(html.indexOf("<hr />"));
+  });
 });

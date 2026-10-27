@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.4.0 (2026-10-27)
+
+Outbox, campaign signatures, Groq AI fallback, richer dashboard.
+
+- **Outbox.** New /app/outbox page listing every sent email from the
+  recorded outbound messages, newest first, with filters for campaign,
+  sending account, status (opened, replied, not opened) and order.
+  Opened and replied badges derive from recorded EmailEvents and
+  inbound thread messages, never estimates.
+- **Per-campaign email signatures.** Campaigns gain a signatureText
+  field (production migration 0006), editable in campaign Settings.
+  The worker renders it between the step body and the compliance
+  footer on every send, steps and A/B variants alike, so a signature
+  change applies from the next send onward without rewriting any
+  sequence step. Empty means no signature.
+- **Groq AI fallback.** AI assistance now works with either key:
+  OPENAI_API_KEY when set (AI_MODEL override), otherwise GROQ_API_KEY
+  against Groq's OpenAI-compatible endpoint (GROQ_MODEL override,
+  default llama-3.3-70b-versatile). The AI status route and the
+  integrations panel report which provider and model are live.
+- **Dashboard live sending row.** Running campaigns, emails sent,
+  opened, replied, suspended accounts (paused or error state), and
+  warmed accounts (past the 4-week warmup curve), all computed from
+  live workspace records.
+- **Favicon.** New indigo paper-plane app icon (src/app/icon.svg).
+
 ## 1.3.0 (2026-10-27)
 
 Lead import can now update existing leads.

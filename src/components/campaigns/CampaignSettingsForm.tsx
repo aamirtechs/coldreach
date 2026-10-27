@@ -19,6 +19,7 @@ interface CampaignSettingsFormProps {
     windowStart: string;
     windowEnd: string;
     businessDaysOnly: boolean;
+    signatureText: string;
     accountIds: string[];
   };
   lists: { id: string; name: string }[];
@@ -48,6 +49,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
   const [windowStart, setWindowStart] = useState(initial.windowStart);
   const [windowEnd, setWindowEnd] = useState(initial.windowEnd);
   const [businessDaysOnly, setBusinessDaysOnly] = useState(initial.businessDaysOnly);
+  const [signatureText, setSignatureText] = useState(initial.signatureText);
   const [accountIds, setAccountIds] = useState<string[]>(initial.accountIds);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -70,6 +72,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
         windowStart,
         windowEnd,
         businessDaysOnly,
+        signatureText,
         accountIds,
       }),
     });
@@ -130,6 +133,25 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
           <input type="checkbox" checked={businessDaysOnly} disabled={!editable} onChange={(e) => setBusinessDaysOnly(e.target.checked)} />
           Business days only (skip weekends in the campaign timezone)
         </label>
+      </div>
+
+      <div className="mt-4">
+        <label className="label" htmlFor="cs-signature">Email signature</label>
+        <textarea
+          id="cs-signature"
+          className="input min-h-28"
+          value={signatureText}
+          disabled={!editable}
+          maxLength={2000}
+          placeholder={"Best regards,\nAmir Hussain\nAamirTechs | Operations Management\nhttps://aamirtechs.com"}
+          onChange={(e) => setSignatureText(e.target.value)}
+        />
+        <p className="mt-1 text-xs text-muted">
+          Printed under the body of every email this campaign sends, above the unsubscribe
+          footer. Personalisation tokens such as {"{{firstName}}"} render per lead. Leave
+          empty for no signature. Changes apply from the next send onward and never rewrite
+          sequence steps.
+        </p>
       </div>
 
       <h3 className="mt-6 text-sm font-semibold">Sending accounts</h3>

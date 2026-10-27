@@ -18,10 +18,19 @@ import {
 export const AI_MODEL_DEFAULT = "gpt-4o-mini";
 const CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
+/**
+ * Groq runs the same chat completions shape at an OpenAI-compatible
+ * endpoint, so it reuses this provider class with a different URL and
+ * model default. It is the fallback when OPENAI_API_KEY is absent:
+ * set GROQ_API_KEY (and optionally GROQ_MODEL) instead.
+ */
+export const GROQ_MODEL_DEFAULT = "llama-3.3-70b-versatile";
+const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+
 type FetchImpl = typeof fetch;
 
 export function aiMissingEnv(env: NodeJS.ProcessEnv = process.env): string[] {
-  return env.OPENAI_API_KEY ? [] : ["OPENAI_API_KEY"];
+  return env.OPENAI_API_KEY || env.GROQ_API_KEY ? [] : ["OPENAI_API_KEY or GROQ_API_KEY"];
 }
 
 export function aiConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -34,19 +43,31 @@ interface ChatMessage {
 }
 
 export class OpenAiProvider implements AiProvider {
-  readonly id = "openai";
+  readonly id: string;
+  private readonly label: string;
+  private readonly chatUrl: string;
   private readonly apiKey: string;
   private readonly model: string;
   private readonly fetchImpl: FetchImpl;
 
-  constructor(options: { apiKey: string; model?: string; fetchImpl?: FetchImpl }) {
+  constructor(options: {
+    apiKey: string;
+    model?: string;
+    fetchImpl?: FetchImpl;
+    id?: string;
+    label?: string;
+    chatUrl?: string;
+  }) {
+    this.id = options.id ?? "openai";
+    this.label = options.label ?? "OpenAI";
+    this.chatUrl = options.chatUrl ?? CHAT_URL;
     this.apiKey = options.apiKey;
     this.model = options.model ?? AI_MODEL_DEFAULT;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   private async chat(messages: ChatMessage[]): Promise<string> {
-    const response = await this.fetchImpl(CHAT_URL, {
+    const response = await this.fetchImpl(this.chatUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -60,13 +81,13 @@ export class OpenAiProvider implements AiProvider {
     } | null;
     if (!response.ok) {
       throw Object.assign(
-        new Error(`OpenAI request failed: ${data?.error?.message ?? response.statusText}`),
+        new Error(`${this.label} request failed: ${data?.error?.message ?? response.statusText}`),
         { status: 502 },
       );
     }
     const content = data?.choices?.[0]?.message?.content;
     if (!content) {
-      throw Object.assign(new Error("OpenAI returned an empty response"), { status: 502 });
+      throw Object.assign(new Error(`${this.label} returned an empty response`), { status: 502 });
     }
     return content.trim();
   }
@@ -144,13 +165,44 @@ export class OpenAiProvider implements AiProvider {
   }
 }
 
-/** The configured provider, or null when OPENAI_API_KEY is absent. */
+/**
+ * The configured provider, or null when no AI key exists. OpenAI wins
+ * when both keys are set; Groq is the fallback (OPENAI_API_KEY keeps
+ * the AI_MODEL override, Groq reads GROQ_MODEL).
+ */
 export function getAiProvider(env: NodeJS.ProcessEnv = process.env): AiProvider | null {
-  if (!env.OPENAI_API_KEY) {
-    return null;
+  if (env.OPENAI_API_KEY) {
+    return new OpenAiProvider({
+      apiKey: env.OPENAI_API_KEY,
+      model: env.AI_MODEL || AI_MODEL_DEFAULT,
+    });
   }
-  return new OpenAiProvider({
-    apiKey: env.OPENAI_API_KEY,
-    model: env.AI_MODEL || AI_MODEL_DEFAULT,
-  });
+  if (env.GROQ_API_KEY) {
+    return new OpenAiProvider({
+      apiKey: env.GROQ_API_KEY,
+      model: env.GROQ_MODEL || GROQ_MODEL_DEFAULT,
+      id: "groq",
+      label: "Groq",
+      chatUrl: GROQ_CHAT_URL,
+    });
+  }
+  return null;
+}
+
+/** The model the configured provider will use, for status surfaces. */
+export function activeAiModel(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.OPENAI_API_KEY) {
+    return env.AI_MODEL || AI_MODEL_DEFAULT;
+  }
+  if (env.GROQ_API_KEY) {
+    return env.GROQ_MODEL || GROQ_MODEL_DEFAULT;
+  }
+  return env.AI_MODEL || AI_MODEL_DEFAULT;
+}
+
+/** The configured provider's id ("openai" or "groq"), or null. */
+export function activeAiProviderId(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.OPENAI_API_KEY) return "openai";
+  if (env.GROQ_API_KEY) return "groq";
+  return null;
 }

@@ -319,13 +319,23 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       ...(campaign.workspace.senderAddress ? [campaign.workspace.senderAddress] : []),
       `Unsubscribe: ${unsubscribeUrl}`,
     ].join("\n");
-    const fullText = `${bodyText}\n${footerText}`;
+    // Per-campaign signature (v1.4.0): rendered with the same lead
+    // fields and placed between the body and the compliance footer,
+    // so it applies to every step and A/B variant without editing
+    // any step copy, and takes effect from the next send onward.
+    const signatureText = campaign.signatureText
+      ? renderTemplate(campaign.signatureText, leadFields).trim()
+      : "";
+    const fullText = signatureText
+      ? `${bodyText}\n\n${signatureText}\n${footerText}`
+      : `${bodyText}\n${footerText}`;
     const footerHtml = `<hr /><p style="font-size:12px;color:#666">${senderLine}${
       campaign.workspace.senderAddress ? `<br />${campaign.workspace.senderAddress}` : ""
     }<br /><a href="${unsubscribeUrl}">Unsubscribe</a></p>`;
+    const signatureHtml = signatureText ? `\n${textToHtml(signatureText)}` : "";
     const fullHtml = variant?.bodyHtml
-      ? `${renderTemplate(variant.bodyHtml, leadFields)}\n${footerHtml}`
-      : `${textToHtml(bodyText)}\n${footerHtml}`;
+      ? `${renderTemplate(variant.bodyHtml, leadFields)}${signatureHtml}\n${footerHtml}`
+      : `${textToHtml(bodyText)}${signatureHtml}\n${footerHtml}`;
 
     let provider = providerCache.get(chosen.id);
     if (!provider) {

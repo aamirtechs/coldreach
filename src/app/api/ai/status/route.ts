@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/api";
-import { AI_MODEL_DEFAULT, aiConfigured, aiMissingEnv } from "@/lib/ai/openai";
+import { activeAiModel, activeAiProviderId, aiConfigured, aiMissingEnv } from "@/lib/ai/openai";
 
 /**
  * Reports whether AI assistance can actually run on this server.
  * The campaign builder and leads UI render "AI is not configured"
  * with the missing variable names from this payload instead of
- * offering controls that would fail.
+ * offering controls that would fail. OpenAI is used when its key is
+ * set; Groq is the fallback when only GROQ_API_KEY exists.
  */
 export async function GET() {
   const session = await requireSession("VIEWER");
@@ -14,6 +15,7 @@ export async function GET() {
   return NextResponse.json({
     configured: aiConfigured(),
     missingEnv: aiMissingEnv(),
-    model: process.env.AI_MODEL || AI_MODEL_DEFAULT,
+    provider: activeAiProviderId(),
+    model: activeAiModel(),
   });
 }

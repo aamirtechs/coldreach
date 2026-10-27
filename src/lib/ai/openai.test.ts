@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { OpenAiProvider, aiConfigured, aiMissingEnv, getAiProvider } from "./openai";
 
 describe("AI configuration gating", () => {
-  it("reports OPENAI_API_KEY as missing and yields no provider without it", () => {
+  it("reports the AI key as missing and yields no provider without one", () => {
     const env = {} as NodeJS.ProcessEnv;
-    expect(aiMissingEnv(env)).toEqual(["OPENAI_API_KEY"]);
+    expect(aiMissingEnv(env)).toEqual(["OPENAI_API_KEY or GROQ_API_KEY"]);
     expect(aiConfigured(env)).toBe(false);
     expect(getAiProvider(env)).toBeNull();
   });
