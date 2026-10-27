@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0 (2026-10-27)
+
+Lead import can now update existing leads.
+
+- **Update-existing import mode.** The CSV importer gains an opt-in
+  updateExisting flag (import wizard checkbox, API body field). When
+  set, a row whose email already exists in the target list merges its
+  mapped fields into the existing lead instead of being skipped as a
+  duplicate, and the import summary reports an updated count. Leads
+  that exist in a different list are never touched and keep the usual
+  already-exists skip. Default behavior is unchanged. This makes
+  re-importing an enriched file (for example one carrying a new
+  personalisation field such as an icebreaker) update the enrolled
+  leads in place.
+
 ## 1.2.0 (2026-10-27)
 
 cPanel and custom mail server support, plus RFC 8058 one-click

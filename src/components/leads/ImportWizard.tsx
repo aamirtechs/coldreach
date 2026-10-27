@@ -11,6 +11,7 @@ interface ImportSummary {
   invalid: number;
   suppressed: number;
   alreadyExisted: number;
+  updated: number;
 }
 interface ImportErrorRow {
   row: number;
@@ -37,6 +38,7 @@ export function ImportWizard({ listId }: { listId: string }) {
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [updateExisting, setUpdateExisting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ summary: ImportSummary; errors: ImportErrorRow[] } | null>(null);
@@ -67,7 +69,7 @@ export function ImportWizard({ listId }: { listId: string }) {
     const response = await fetch(`/api/lead-lists/${listId}/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ csvText, mapping }),
+      body: JSON.stringify({ csvText, mapping, updateExisting }),
     });
     const data = await response.json();
     setBusy(false);
@@ -180,6 +182,19 @@ export function ImportWizard({ listId }: { listId: string }) {
             </div>
           ) : null}
           {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
+          <label className="mt-5 flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={updateExisting}
+              onChange={(e) => setUpdateExisting(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Update existing leads in this list with the file&apos;s values instead of skipping
+              them. Use this when re-importing an enriched file, for example one carrying a new
+              personalisation field.
+            </span>
+          </label>
           <div className="mt-5">
             <button type="button" className="btn-primary" disabled={busy || !emailMapped} onClick={runImport}>
               {busy ? "Importing..." : "Run import"}
@@ -204,6 +219,12 @@ export function ImportWizard({ listId }: { listId: string }) {
           {result.summary.alreadyExisted > 0 ? (
             <p className="mt-2 text-xs text-muted">
               {result.summary.alreadyExisted} of the duplicates already existed in this workspace.
+            </p>
+          ) : null}
+          {result.summary.updated > 0 ? (
+            <p className="mt-2 text-xs text-muted">
+              {result.summary.updated} existing leads in this list were updated with the
+              file&apos;s values.
             </p>
           ) : null}
           {result.errors.length > 0 ? (

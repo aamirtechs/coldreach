@@ -13,6 +13,12 @@ import { loadSuppressions } from "@/lib/suppressions";
  * every check has run, and every rejected row is reported with its
  * original 1-based file row number and a reason, which the UI offers as
  * a downloadable error report.
+ *
+ * When updateExisting is set, a row whose email already exists in this
+ * list is not skipped: its mapped fields are merged into the existing
+ * lead (new values win per field) and the row is counted as updated.
+ * Leads that exist in a different list are never touched by an update
+ * import; they keep the usual already-exists skip.
  */
 
 export interface ColumnMapping {
@@ -35,6 +41,7 @@ export interface ImportSummary {
   invalid: number;
   suppressed: number;
   alreadyExisted: number;
+  updated: number;
 }
 
 export interface ImportResult {
@@ -56,6 +63,7 @@ export async function importLeadsFromCsv(
     csvText: string;
     mapping: ColumnMapping;
     stripPlusTag?: boolean;
+    updateExisting?: boolean;
   },
 ): Promise<ImportResult> {
   const { workspaceId, listId } = args;
@@ -103,13 +111,14 @@ export async function importLeadsFromCsv(
   const existing = keptEmails.length
     ? await db.lead.findMany({
         where: { workspaceId, email: { in: keptEmails } },
-        select: { email: true },
+        select: { id: true, email: true, listId: true, fields: true },
       })
     : [];
-  const existingSet = new Set(existing.map((lead) => lead.email.toLowerCase()));
+  const existingByEmail = new Map(existing.map((lead) => [lead.email.toLowerCase(), lead]));
 
   let suppressedCount = 0;
   let alreadyExisted = 0;
+  let updatedCount = 0;
   const toInsert: MappedRow[] = [];
   for (const row of deduped.kept) {
     const normalized = normalizeEmail(row.email);
@@ -123,7 +132,28 @@ export async function importLeadsFromCsv(
       });
       continue;
     }
-    if (existingSet.has(normalized)) {
+    const existingLead = existingByEmail.get(normalized);
+    if (existingLead) {
+      if (args.updateExisting && existingLead.listId === listId) {
+        const currentFields: Record<string, string> = {};
+        if (
+          existingLead.fields &&
+          typeof existingLead.fields === "object" &&
+          !Array.isArray(existingLead.fields)
+        ) {
+          for (const [key, value] of Object.entries(existingLead.fields as Record<string, unknown>)) {
+            if (typeof value === "string") {
+              currentFields[key] = value;
+            }
+          }
+        }
+        await db.lead.update({
+          where: { id: existingLead.id },
+          data: { fields: { ...currentFields, ...row.fields } },
+        });
+        updatedCount += 1;
+        continue;
+      }
       alreadyExisted += 1;
       errors.push({
         row: row.rowNumber,
@@ -158,6 +188,7 @@ export async function importLeadsFromCsv(
       invalid: deduped.summary.invalid,
       suppressed: suppressedCount,
       alreadyExisted,
+      updated: updatedCount,
     },
     errors,
   };

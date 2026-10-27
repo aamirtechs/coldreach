@@ -9,7 +9,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if ("error" in session) return session.error;
   const { ctx } = session;
   const { id } = await params;
-  const body = await readJson<{ csvText?: unknown; mapping?: unknown; stripPlusTag?: unknown }>(request);
+  const body = await readJson<{ csvText?: unknown; mapping?: unknown; stripPlusTag?: unknown; updateExisting?: unknown }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   if (typeof body.csvText !== "string" || !body.csvText.trim()) {
     return NextResponse.json({ error: "csvText is required" }, { status: 400 });
@@ -30,6 +30,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       csvText: body.csvText,
       mapping: body.mapping as ColumnMapping,
       stripPlusTag: body.stripPlusTag === true,
+      updateExisting: body.updateExisting === true,
     });
     await writeAuditLog({
       action: "lead.import",

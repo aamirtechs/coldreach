@@ -79,4 +79,76 @@ describe("importLeadsFromCsv", () => {
       }),
     ).rejects.toMatchObject({ status: 400 });
   });
+
+  it("updates existing leads in the same list when updateExisting is set", async () => {
+    const inList = await db.lead.create({
+      data: {
+        workspaceId,
+        listId,
+        email: "update-me@example.com",
+        fields: { firstName: "Old", company: "Old Co" },
+        tags: [],
+        status: "NEW",
+      },
+    });
+    const csv = ["Email,First Name,Icebreaker", "update-me@example.com,New,A personal line"].join("\n");
+
+    const result = await importLeadsFromCsv(db, {
+      workspaceId,
+      listId,
+      csvText: csv,
+      mapping: { Email: "email", "First Name": "firstName", Icebreaker: "icebreaker" },
+      updateExisting: true,
+    });
+
+    expect(result.summary.updated).toBe(1);
+    expect(result.summary.kept).toBe(0);
+    expect(result.summary.alreadyExisted).toBe(0);
+    const after = await db.lead.findUnique({ where: { id: inList.id } });
+    expect(after?.fields).toMatchObject({
+      firstName: "New",
+      company: "Old Co",
+      icebreaker: "A personal line",
+    });
+  });
+
+  it("skips the same existing lead when updateExisting is not set", async () => {
+    const csv = ["Email,Icebreaker", "update-me@example.com,Another line"].join("\n");
+    const result = await importLeadsFromCsv(db, {
+      workspaceId,
+      listId,
+      csvText: csv,
+      mapping: { Email: "email", Icebreaker: "icebreaker" },
+    });
+    expect(result.summary.updated).toBe(0);
+    expect(result.summary.alreadyExisted).toBe(1);
+    const lead = await db.lead.findFirst({ where: { workspaceId, email: "update-me@example.com" } });
+    expect(lead?.fields).toMatchObject({ icebreaker: "A personal line" });
+  });
+
+  it("never updates a lead that exists in a different list", async () => {
+    const otherList = await db.leadList.create({ data: { workspaceId, name: "Other list" } });
+    await db.lead.create({
+      data: {
+        workspaceId,
+        listId: otherList.id,
+        email: "elsewhere@example.com",
+        fields: { firstName: "Stay" },
+        tags: [],
+        status: "NEW",
+      },
+    });
+    const csv = ["Email,First Name", "elsewhere@example.com,Changed"].join("\n");
+    const result = await importLeadsFromCsv(db, {
+      workspaceId,
+      listId,
+      csvText: csv,
+      mapping: { Email: "email", "First Name": "firstName" },
+      updateExisting: true,
+    });
+    expect(result.summary.updated).toBe(0);
+    expect(result.summary.alreadyExisted).toBe(1);
+    const lead = await db.lead.findFirst({ where: { workspaceId, email: "elsewhere@example.com" } });
+    expect(lead?.fields).toMatchObject({ firstName: "Stay" });
+  });
 });
