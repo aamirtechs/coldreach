@@ -6,7 +6,7 @@ scheduling controls, suppression enforcement before every send, honest
 analytics computed from real events, and a clear line that no tool can
 guarantee inbox placement.
 
-This repository contains **Phases 1 to 5**, the complete 1.0.0
+This repository contains **Phases 1 to 6**, the complete 1.1.0
 product: the design system and application shell, working
 authentication with multi-tenant workspaces, the complete core
 data model, a tested domain engine, the full campaign lifecycle
@@ -21,7 +21,12 @@ webhooks, plan quotas with Stripe billing, and an agency command
 center), and Phase 5 production readiness (security headers and
 rate limiting, structured logging and a health endpoint, a
 redacted workspace export with a proven restore path, performance
-and accessibility passes, and a final executed QA, see QA.md).
+and accessibility passes, and a final executed QA, see QA.md), and
+Phase 6 launch and growth (an activation runbook with a live
+integrations status panel in Settings, CI and uptime GitHub
+workflows, a public pricing page rendered from the plan catalog,
+email verification for lead lists, per-account warm-up schedules,
+and a credential-gated HubSpot CRM sync).
 
 ## Status, honestly
 
@@ -35,7 +40,7 @@ and accessibility passes, and a final executed QA, see QA.md).
 - Audit log rows for sensitive actions across auth, leads, campaigns,
   accounts, suppressions, and workspace settings.
 - Full Prisma schema for the core product, with committed migrations.
-- Domain engine in `src/lib/domain`, covered by unit tests (195 tests
+- Domain engine in `src/lib/domain`, covered by unit tests (243 tests
   passing in total, including integration tests for the worker, the
   import service, event application, unsubscribe handling, reply sync,
   invites, the cron route, A/B statistics, API keys, webhooks, the
@@ -89,6 +94,24 @@ and accessibility passes, and a final executed QA, see QA.md).
   proven recovery drill, hot-path database indexes, database-level
   aggregation for metrics and stats (no unbounded event loads), and
   an accessibility pass over the main flows.
+- Phase 6: an Integrations status panel in Settings that reports
+  every integration's live state (Configured, or Not configured
+  with the exact missing environment variable names and a link to
+  the matching ACTIVATION.md section), the ACTIVATION.md owner
+  runbook plus `scripts/activate-smoke.ts`, GitHub Actions CI
+  (typecheck, tests, build, and a failing `npm audit` step) and a
+  30-minute uptime workflow against `/api/health`, a public
+  `/pricing` page rendered from the same plan catalog the quota
+  engine enforces, email verification for lead lists (built-in
+  syntax, disposable, and MX checks, optionally refined by
+  NeverBounce behind `VERIFY_API_KEY`) whose INVALID verdicts are
+  skipped at campaign enrollment and RISKY verdicts flagged, warm-up
+  schedules for sending accounts (20, 50, 100, 200 sends per day by
+  week) enforced by the worker alongside the existing age ramp with
+  a preflight warning, and a HubSpot CRM sync behind
+  `HUBSPOT_CLIENT_ID` and `HUBSPOT_CLIENT_SECRET` that pushes leads
+  as contacts (the contacts scopes expose no unsubscribe or
+  deletion pull; INTEGRATIONS.md section 10 states the limitation).
 
 **Demo mode**
 
@@ -197,6 +220,8 @@ prisma/prod/             Production PostgreSQL schema and its own migrations fol
 vercel.json              Vercel build settings (npm run build:vercel)
 API.md                   Public API reference: auth, scopes, endpoints, error shapes
 DEPLOYMENT.md            Production deployment runbook (Vercel + Neon PostgreSQL)
+ACTIVATION.md            Owner runbook for turning on every credential-gated integration (Phase 6)
+TRADEMARK.md             Working-name status and the real clearance checklist; no clearance performed (Phase 6)
 src/app                  Routes: landing, auth pages, /app shell, /u unsubscribe,
                          /api for auth, leads, campaigns, accounts, worker, webhooks
 src/components           Shell and page components for leads, campaigns,
@@ -223,7 +248,13 @@ src/lib/log.ts           Structured JSON logger with optional Sentry forwarding 
 src/lib/health.ts        Database ping behind GET /api/health (Phase 5)
 src/lib/security/        AES-256-GCM crypto, and the response header definitions (Phase 5)
 src/lib/settings/        Workspace export builder with credential redaction (Phase 5)
+src/lib/verify           Lead email verification: built-in checks, NeverBounce provider, list service (Phase 6)
+src/lib/crm              HubSpot OAuth, connection storage, and contact sync (Phase 6)
+src/lib/marketing        Pricing page data derived from the plan catalog (Phase 6)
+src/lib/integrations     Live integration status rows for the Settings panel (Phase 6)
+src/lib/domain/warmup.ts Warm-up schedule caps layered on the limits engine (Phase 6)
 scripts/worker-once.ts   CLI entry for one sending tick
+scripts/activate-smoke.ts  Activation smoke: per-integration status and opt-in proofs (Phase 6)
 scripts/smoke-phase4.ts  Live HTTP smoke test for the Phase 4 surfaces
 scripts/smoke-phase5.ts  Live HTTP smoke for the final QA checklist (QA.md)
 scripts/drill-recovery.ts  Export, wipe, restore, compare recovery drill
@@ -262,10 +293,12 @@ Phase 5 hardened the product for real operation:
 - Unsubscribes, bounces, and complaints stop follow-up sequences.
 - Sender identity is never concealed, and no feature exists to evade spam
   filters or provider limits.
-- Warm-up, where offered in later phases, will only be a legitimate external
-  integration or a clearly labelled simulation. No deliverability or inbox
-  placement guarantees are made anywhere in the product, because none can
-  honestly be made.
+- Warm-up in this product (Phase 6) is a conservative sending schedule the
+  operator controls per account: daily caps that rise over four weeks,
+  enforced by the worker. It is not an engagement service, it does not
+  manufacture opens or replies, and no deliverability or inbox placement
+  guarantees are made anywhere in the product, because none can honestly
+  be made.
 - Opens are reported as an unreliable signal, because mail privacy features
   distort them.
 
@@ -287,3 +320,8 @@ and security notes.
   structured logging with a health endpoint, workspace export and
   restore, performance indexes and aggregation, accessibility,
   and the final QA in QA.md.
+- Phase 6 (done): activation sprint (Integrations status panel,
+  ACTIVATION.md runbook, activation smoke script), launch readiness
+  (CI and uptime workflows, public pricing page from the plan
+  catalog, trademark checklist), and growth features (email
+  verification, warm-up schedules, HubSpot CRM sync).

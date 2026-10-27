@@ -110,3 +110,45 @@ troubleshooting note.
   environment; those integrations are verified to their
   not-configured boundaries and by unit tests, as in Phases 3
   and 4.
+
+## Phase 6 addendum (1.1.0, 2026-10-27)
+
+Executed against the production build (`next start`) on a pristine
+migrated dev database, with no optional integration variables set:
+
+- **Automated tests.** `npm test`: 243 tests in 37 files, all
+  passing (195 at the 1.0.0 baseline; 48 added in Phase 6: warm-up
+  cap curve and worker integration, verification built-ins,
+  provider gating and mapping, list verification with tenant
+  isolation, enrollment INVALID skip and RISKY flag, HubSpot
+  config gating, payload mapping, and state round-trip, preflight
+  warm-up warning, pricing catalog equality). `npm run typecheck`:
+  clean. `npm run build`: green. The production-schema generate
+  step runs with the README troubleshooting engine variables; the
+  local client was restored to the dev schema afterwards.
+- **Live smoke.** `scripts/smoke-phase6.ts`: 20 checks, all
+  passing. Health reports version 1.1.0; /pricing renders the
+  catalog values ($29, $79, $199 per month, placeholder label
+  intact); the landing page links to /pricing; the Settings
+  Integrations status panel shows every integration Not configured
+  with exact missing variable names and ACTIVATION.md anchor links;
+  the HubSpot sync endpoint refuses with 501 naming
+  HUBSPOT_CLIENT_ID and HUBSPOT_CLIENT_SECRET; a day-3 warm-up
+  account with 25 due enrollments sends exactly 20 in a real worker
+  tick; list verification stores INVALID for a malformed address,
+  flags a disposable domain in its detail, and degrades the MX
+  check to UNKNOWN on this VM where outbound DNS is blocked (the
+  graceful path, not a failure); enrollment over HTTP reports
+  skippedInvalidVerification 1 and enrolledRisky 1.
+- **Activation smoke.** `scripts/activate-smoke.ts` run against the
+  same server with a session cookie: health OK, both OAuth
+  providers NOT CONFIGURED with their missing variables, encryption
+  CONFIGURED, OpenAI and Stripe NOT CONFIGURED with missing names.
+  The opt-in AI and Stripe proofs were not run: no credentials
+  exist in this environment, by design.
+- **Not verified here.** GitHub Actions cannot run from this VM;
+  both workflow files were validated by parsing and follow the
+  documented action versions. No real HubSpot, NeverBounce,
+  Stripe, or mailbox credentials exist here; those integrations
+  are verified to their not-configured boundaries and by unit
+  tests, as in earlier phases.

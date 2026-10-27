@@ -118,6 +118,19 @@ the deployment pipeline: run `npm audit` from an unrestricted
 network (or in CI) before launch and on a recurring schedule, and
 treat high and critical advisories as release blockers.
 
+**Phase 6 update (1.1.0).** That follow-up is now implemented:
+`.github/workflows/ci.yml` runs `npm audit --audit-level=high` as
+its own step on every push to main and every pull request, failing
+the job on high or critical findings, from GitHub-hosted runners
+where the registry is reachable. The local limitation above stands
+as written for this VM; CI is where the audit now lives. Phase 6
+also added two credential surfaces, both following the existing
+patterns: HubSpot OAuth tokens are stored with the same
+AES-256-GCM helper as mailbox tokens, on a workspace-scoped
+connection row, and the Settings Integrations status panel derives
+solely from environment presence and database counts, returning
+variable names only, never values or partial values.
+
 ## Repository secrets scan
 
 Scanned the full repository (excluding node_modules and build

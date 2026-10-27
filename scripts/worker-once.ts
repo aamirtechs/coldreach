@@ -9,6 +9,10 @@
  * an interval, or call POST /api/worker/tick instead.
  */
 
+// Module scope (like every other script in this folder) so the
+// top-level main() below cannot collide with another script's.
+export {};
+
 async function main(): Promise<void> {
   try {
     process.loadEnvFile(".env");

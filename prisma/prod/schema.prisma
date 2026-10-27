@@ -66,6 +66,7 @@ model Workspace {
   threadNotes     ThreadNote[]
   webhookEndpoints WebhookEndpoint[]
   subscription    Subscription?
+  crmConnections  CrmConnection[]
 }
 
 model Membership {
@@ -117,6 +118,14 @@ model SendingAccount {
   status         SendingAccountStatus @default(DISCONNECTED)
   dailyLimit     Int                  @default(50)
   warmupStatus   WarmupStatus         @default(OFF)
+  // Phase 6 warm-up schedule. When warmupEnabled is true, the worker
+  // additionally caps this account at the warm-up curve in
+  // src/lib/domain/warmup.ts, counted from warmupStartedAt: 20 sends
+  // a day in week 1, then 50, 100, 200, and the account's own
+  // dailyLimit from day 29. warmupStatus above is the separate legacy
+  // label for external/simulated warm-up services.
+  warmupEnabled  Boolean              @default(false)
+  warmupStartedAt DateTime?
   // Credentials are never stored in plain text. For SMTP this field
   // holds an opaque reference to server environment variables. OAuth
   // tokens (Phase 3) live in encryptedCredentials below, encrypted at
@@ -160,6 +169,16 @@ enum LeadStatus {
   SUPPRESSED
 }
 
+// Phase 6 email verification outcome, distinct from LeadStatus (which
+// tracks contact state). Set by the verifier in src/lib/verify/ and
+// read at campaign enrollment: INVALID leads never enroll.
+enum LeadVerificationStatus {
+  UNKNOWN
+  VALID
+  RISKY
+  INVALID
+}
+
 model LeadList {
   id          String    @id @default(cuid())
   workspaceId String
@@ -185,6 +204,13 @@ model Lead {
   // avoided because SQLite cannot express a JSON literal default portably.
   fields      Json
   status      LeadStatus   @default(NEW)
+  // Phase 6 verification. verificationDetail is the JSON evidence the
+  // verifier recorded (syntax, disposable, MX, provider result);
+  // verifiedAt is when the check ran. Both are null until the lead is
+  // verified, and verificationStatus starts UNKNOWN.
+  verificationStatus LeadVerificationStatus @default(UNKNOWN)
+  verificationDetail Json?
+  verifiedAt  DateTime?
   // Tag labels, stored as a JSON array of strings. Application code
   // supplies [] on create, for the same portability reason as fields.
   tags        Json
@@ -590,6 +616,34 @@ model WebhookDelivery {
 
   @@index([endpointId, createdAt])
   @@index([status, nextAttemptAt])
+}
+
+// ---------------------------------------------------------------------------
+// CRM connections (Phase 6)
+// ---------------------------------------------------------------------------
+
+// A workspace's connection to an external CRM. Today the only provider
+// is HubSpot ("HUBSPOT"). OAuth tokens live only in
+// encryptedCredentials (AES-256-GCM, same helper and discipline as
+// mailbox OAuth and webhook secrets); the plaintext never touches the
+// database. lastSyncSummary holds the JSON summary of the most recent
+// sync run recorded by src/lib/crm/hubspot.ts.
+model CrmConnection {
+  id                   String    @id @default(cuid())
+  workspaceId          String
+  provider             String
+  status               String    @default("DISCONNECTED")
+  encryptedCredentials String?
+  // The account id at the provider (HubSpot portal id).
+  externalAccountId    String?
+  lastSyncAt           DateTime?
+  lastSyncSummary      Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider])
+  @@index([workspaceId])
 }
 
 // ---------------------------------------------------------------------------

@@ -9,9 +9,12 @@ import { loadSuppressions } from "@/lib/suppressions";
  * Reads the campaign's attached lead list and creates one Enrollment per
  * eligible lead. A lead is eligible when it is not suppressed (workspace
  * or global), its status is not one of the terminal contact states
- * (UNSUBSCRIBED, BOUNCED, SUPPRESSED, INVALID), and it is not already
+ * (UNSUBSCRIBED, BOUNCED, SUPPRESSED, INVALID), its stored verification
+ * status (Phase 6) is not INVALID, and it is not already
  * enrolled, which the unique (campaignId, leadId) constraint also
- * guarantees at the database level.
+ * guarantees at the database level. Leads verified RISKY do enroll;
+ * they are counted in enrolledRisky so the operator sees the
+ * deliverability risk they accepted.
  */
 
 export interface EnrollResult {
@@ -19,6 +22,10 @@ export interface EnrollResult {
   skippedSuppressed: number;
   skippedDuplicate: number;
   skippedIneligible: number;
+  /** Leads skipped because verification marked them INVALID. */
+  skippedInvalidVerification: number;
+  /** Enrolled leads whose verification status is RISKY. */
+  enrolledRisky: number;
   totalInList: number;
 }
 
@@ -44,7 +51,7 @@ export async function enrollCampaign(
 
   const leads = await db.lead.findMany({
     where: { workspaceId: args.workspaceId, listId: campaign.leadListId },
-    select: { id: true, email: true, status: true },
+    select: { id: true, email: true, status: true, verificationStatus: true },
   });
   const suppressions = await loadSuppressions(db, args.workspaceId);
   const existingEnrollments = await db.enrollment.findMany({
@@ -56,11 +63,17 @@ export async function enrollCampaign(
   let skippedSuppressed = 0;
   let skippedDuplicate = 0;
   let skippedIneligible = 0;
+  let skippedInvalidVerification = 0;
+  let enrolledRisky = 0;
   const eligible: { leadId: string }[] = [];
 
   for (const lead of leads) {
     if (enrolledLeadIds.has(lead.id)) {
       skippedDuplicate += 1;
+      continue;
+    }
+    if (lead.verificationStatus === "INVALID") {
+      skippedInvalidVerification += 1;
       continue;
     }
     if (INELIGIBLE_STATUSES.has(lead.status)) {
@@ -70,6 +83,9 @@ export async function enrollCampaign(
     if (findSuppression(lead.email, suppressions)) {
       skippedSuppressed += 1;
       continue;
+    }
+    if (lead.verificationStatus === "RISKY") {
+      enrolledRisky += 1;
     }
     eligible.push({ leadId: lead.id });
   }
@@ -103,6 +119,8 @@ export async function enrollCampaign(
     skippedSuppressed,
     skippedDuplicate,
     skippedIneligible,
+    skippedInvalidVerification,
+    enrolledRisky,
     totalInList: leads.length,
   };
 }

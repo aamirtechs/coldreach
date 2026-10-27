@@ -167,13 +167,12 @@ Bearer key header.
 
 ## 7. CRM note (HubSpot, Salesforce)
 
-ColdReach has **no native HubSpot or Salesforce connector**, and
-does not claim one. CRM sync runs through the surfaces above:
-outbound webhooks into Zapier or Make (which maintain their own
-HubSpot and Salesforce connectors), or direct calls to the public
-API from your own integration code. That keeps the sync logic, field
-mapping, and credentials in the tool built for it instead of a
-half-maintained clone inside ColdReach.
+**Updated in Phase 6:** ColdReach now has a native HubSpot sync,
+documented in section 10 below. There is still **no native
+Salesforce connector**, and ColdReach does not claim one: for
+Salesforce, sync runs through the surfaces above, outbound webhooks
+into Zapier or Make (which maintain their own Salesforce connector),
+or direct calls to the public API from your own integration code.
 
 ## 8. AI assistance (Phase 4, credential gated)
 
@@ -225,3 +224,61 @@ turns on self-serve checkout and the customer portal:
 Without these variables the billing endpoints return `501` naming
 what is missing, and the Billing page says so plainly while still
 showing the current plan and real usage.
+
+## 10. HubSpot CRM sync (Phase 6, credential gated)
+
+ColdReach can push each workspace's leads to HubSpot as contacts,
+through the workspace's own HubSpot connection. The full owner
+runbook (creating the HubSpot app, scopes, redirect URL) is
+ACTIVATION.md section 8; the short version:
+
+1. In a HubSpot developer account, create an app named ColdReach.
+2. On the app's Auth tab, add the redirect URL
+   `{APP_URL}/api/crm/hubspot/callback` and exactly two required
+   scopes: `crm.objects.contacts.read` and
+   `crm.objects.contacts.write`.
+3. Copy the client ID and client secret into the deployment
+   environment as `HUBSPOT_CLIENT_ID` and `HUBSPOT_CLIENT_SECRET`,
+   and redeploy.
+4. In the app, Settings shows a HubSpot card in the Integrations
+   panel. An admin clicks Connect, approves in HubSpot, and the
+   connection is stored on the CRM Connections row for the
+   workspace: tokens encrypted at rest with the same AES-256-GCM
+   helper as mailbox OAuth, plus the HubSpot portal ID.
+
+**What sync does.** Sync now (Settings, HubSpot card) walks the
+workspace's leads in batches of 100 and upserts each one as a
+HubSpot contact by email address: search by email, update when a
+contact exists, create when it does not. Mapped properties are
+email, first name, last name, company, phone, and job title (from
+the lead's fields, including the `first_name`, `organization`, and
+`role` import aliases). The result counts (pushed, created,
+updated, failed, with the first error kept) are stored on the
+connection as the last sync summary and shown on the card.
+
+**What sync does not do, stated plainly.** It does not pull
+unsubscribes, bounces, or contact deletions back from HubSpot into
+ColdReach suppressions. The two contacts scopes granted above do
+not expose subscription status changes, so rather than inventing a
+pull, the limitation is recorded in every sync summary and here.
+Manage suppressions inside ColdReach (they are enforced on every
+send), or in both systems by hand.
+
+Without the two environment variables the HubSpot card and the CRM
+endpoints name them as missing (501), exactly like the mailbox
+providers. There is no Salesforce sync; see section 7.
+
+## 11. Email verification provider (Phase 6, optional)
+
+Lead list verification (Leads, a list, Verify list) always runs the
+built-in checks server side: strict syntax validation, a bundled
+partial disposable-domain list, and an MX lookup over DNS that
+degrades to UNKNOWN when DNS cannot answer. Setting
+`VERIFY_API_KEY` adds the NeverBounce single check API on top: each
+syntactically valid address is refined by the provider's verdict
+(valid, invalid, disposable, catchall, unknown), stored in the
+lead's verification detail alongside the built-in evidence. Without
+the key, verification still works and the summary says "Built-in
+checks only." Provider outages never fail a verification run; the
+error is recorded in the detail and the built-in verdict stands.
+See ACTIVATION.md section 6 for signup steps.

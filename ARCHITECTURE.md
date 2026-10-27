@@ -335,3 +335,52 @@ the committed migrations.
   engine's day definition. Campaign windows remain timezone aware.
 - Tag filtering on leads runs in application code because tags are a
   JSON array; it is exact, and sized for workspace-scale lists.
+
+## Launch and growth (Phase 6, implemented)
+
+- **Integrations status.** `src/lib/integrations/status.ts` derives
+  one row per integration from environment presence and database
+  counts at request time; it returns only variable names, never
+  values. Settings renders the rows server side
+  (`IntegrationsStatusPanel`) and each row links to the matching
+  ACTIVATION.md section. The HubSpot row is a live card with
+  connection state because it carries per-workspace data the other
+  rows do not.
+- **Email verification.** `src/lib/verify/` separates the built-in
+  checks (builtin.ts: syntax, disposable, MX through an injectable
+  resolver that degrades to unknown), the optional provider
+  (provider.ts: NeverBounce, mapped onto the same enum; unknown
+  leaves the built-in verdict; failures are recorded, never fatal),
+  and the list service (service.ts: batches of 100 with cursor
+  pagination, workspace-scoped throughout). Verdicts live on the
+  Lead (`verificationStatus`, `verificationDetail`,
+  `verifiedAt`) and feed enrollment: INVALID is skipped and
+  counted, RISKY enrolls and is counted, in the same result object
+  as suppressions and duplicates.
+- **Warm-up schedules.** `src/lib/domain/warmup.ts` is a pure cap
+  function (20, 50, 100, 200 by week, then no ceiling). The
+  worker's capacity gate takes the minimum of the existing age
+  ramp (`src/lib/domain/limits.ts`, untouched) and the warm-up
+  cap, so warm-up can only ever lower a limit. Preflight receives
+  the caps from `preflightService` and warns when projected first
+  day volume exceeds one; it never blocks a launch on warm-up.
+- **HubSpot sync.** `src/lib/crm/` mirrors the mailbox OAuth
+  structure: signed state tokens with a distinct purpose claim
+  (state.ts), code exchange and refresh against HubSpot's token
+  endpoint, tokens encrypted with the security/crypto.ts helpers
+  used for mailboxes, and connections on the `CrmConnection` model
+  keyed by (workspaceId, provider). The sync service upserts
+  contacts by email in batches of 100 and stores a run summary on
+  the connection. The contacts scopes expose no subscription or
+  deletion feed, so there is deliberately no pull path; the
+  limitation is written into every summary and INTEGRATIONS.md.
+- **Pricing surface.** `src/lib/marketing/pricing.ts` formats the
+  plan catalog (`src/lib/domain/plans.ts`) and nothing else; the
+  `/pricing` page and the landing pricing section render from it,
+  and pricing.test.ts pins the rows to the catalog so the
+  marketing surface cannot drift from the quota engine.
+- **CI and uptime.** `.github/workflows/ci.yml` runs typecheck,
+  tests, build, and a failing high-severity `npm audit` step on
+  pushes to main and pull requests. `.github/workflows/uptime.yml`
+  polls the production health endpoint every 30 minutes and fails
+  loudly (GitHub notification) when it does not report ok.

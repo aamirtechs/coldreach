@@ -1,5 +1,61 @@
 # Changelog
 
+## 1.1.0 (2026-10-27)
+
+Phase 6: launch and growth, in three stages. 243 automated tests
+(48 added), a 20-check live smoke, typecheck and build green; see
+the Phase 6 addendum in QA.md for the executed evidence.
+
+- **Stage A, activation sprint.** A Settings Integrations status
+  panel reporting every integration's live state from real config
+  checks (Configured, or Not configured with the exact missing
+  environment variable names and a link into ACTIVATION.md), with
+  counts for SMTP accounts and webhook endpoints. ACTIVATION.md, a
+  click-by-click owner runbook for the encryption prerequisites,
+  Google OAuth, Microsoft OAuth, the OpenAI key, Stripe (test mode
+  first, with the three webhook events the handler consumes), the
+  optional verification provider, and HubSpot, ending in a
+  production verification checklist. `scripts/activate-smoke.ts`
+  reports per-integration status against any running instance and
+  makes one real AI call and one test-mode Stripe checkout only on
+  explicit opt-in; it never sends email.
+- **Stage B, launch readiness.** GitHub Actions CI
+  (`.github/workflows/ci.yml`: install, Prisma generate, typecheck,
+  tests, build, and `npm audit --audit-level=high` as a failing
+  step) and a 30-minute uptime workflow
+  (`.github/workflows/uptime.yml`) against `/api/health`. A public
+  `/pricing` page rendered from the plan catalog, linked from the
+  landing nav, pricing section, and footer, with a test pinning
+  the page data to the catalog; the landing page's stale
+  pre-Phase 4 pricing copy was replaced with the same catalog
+  data. TRADEMARK.md records that the ColdReach name is a working
+  name with no clearance performed, and what a real check
+  requires. DEPLOYMENT.md gains the CI and uptime sections and a
+  custom domain checklist.
+- **Stage C, growth features.** Email verification
+  (`src/lib/verify/`): built-in syntax, bundled partial
+  disposable-domain, and MX checks that degrade to UNKNOWN when
+  DNS cannot answer, optionally refined by NeverBounce behind
+  `VERIFY_API_KEY`. `Lead` gains verificationStatus,
+  verificationDetail, and verifiedAt (dev migration
+  `20261027011023_phase6_launch_and_growth`, prod migration
+  `0005_phase6_launch_and_growth`). A Verify list action verifies
+  in batches of 100 and stores per-lead results; enrollment skips
+  INVALID leads (counted as skippedInvalidVerification) and flags
+  RISKY ones (enrolledRisky). Warm-up schedules: `SendingAccount`
+  gains warmupEnabled and warmupStartedAt; the pure cap curve in
+  `src/lib/domain/warmup.ts` (20, 50, 100, 200 per day by week)
+  layers under the existing age ramp in the worker's capacity
+  gate, the accounts page gains a warm-up control, and preflight
+  warns when projected volume exceeds a warm-up cap. HubSpot CRM
+  sync (`src/lib/crm/`, new `CrmConnection` model): OAuth connect
+  mirroring the mailbox providers, tokens encrypted at rest, sync
+  pushing workspace leads as contacts in batches of 100 with the
+  run summary stored on the connection; the contacts scopes
+  expose no unsubscribe or deletion pull, and that limitation is
+  recorded in the summary and INTEGRATIONS.md rather than worked
+  around.
+
 ## 1.0.0 (2026-10-26)
 
 First production-ready release: Phases 1 to 5 complete, verified

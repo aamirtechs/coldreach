@@ -82,7 +82,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
     if (data.enrollment) {
       const e = data.enrollment;
       setNotice(
-        `Settings saved. Enrollment ran for the attached list: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedIneligible} ineligible.`,
+        `Settings saved. Enrollment ran for the attached list: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedIneligible} ineligible, ${e.skippedInvalidVerification ?? 0} failed verification, ${e.enrolledRisky ?? 0} enrolled but flagged RISKY by verification.`,
       );
     } else {
       setNotice("Settings saved.");

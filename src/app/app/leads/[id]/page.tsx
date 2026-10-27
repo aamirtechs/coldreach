@@ -7,6 +7,7 @@ import { findSuppression } from "@/lib/domain/suppression";
 import { loadSuppressions } from "@/lib/suppressions";
 import { AddLeadForm } from "@/components/leads/AddLeadForm";
 import { ImportWizard } from "@/components/leads/ImportWizard";
+import { VerifyListButton } from "@/components/leads/VerifyListButton";
 import { LeadsTable, type LeadRow } from "@/components/leads/LeadsTable";
 import { ListActions } from "@/components/leads/ListActions";
 import { EmptyState } from "@/components/ui";
@@ -87,11 +88,30 @@ export default async function LeadListDetailPage({
     ),
   ].sort();
 
+  // Verification summary for the whole list (Phase 6), counted in
+  // the database so the header stays truthful at any list size.
+  const verificationGroups = await prisma.lead.groupBy({
+    by: ["verificationStatus"],
+    where: { workspaceId, listId: list.id },
+    _count: true,
+  });
+  const verificationCounts: Record<string, number> = {};
+  for (const group of verificationGroups) {
+    verificationCounts[group.verificationStatus] = group._count;
+  }
+  const verifiedTotal =
+    (verificationCounts.VALID ?? 0) +
+    (verificationCounts.RISKY ?? 0) +
+    (verificationCounts.INVALID ?? 0) +
+    (verificationCounts.UNKNOWN ?? 0);
+  const unverifiedCount = verificationCounts.UNKNOWN ?? 0;
+
   const suppressions = await loadSuppressions(prisma, workspaceId);
   const rows: LeadRow[] = pageLeads.map((lead) => ({
     id: lead.id,
     email: lead.email,
     status: lead.status,
+    verificationStatus: lead.verificationStatus,
     fields:
       lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
         ? (lead.fields as Record<string, unknown>)
@@ -111,10 +131,18 @@ export default async function LeadListDetailPage({
           <h1 className="font-display text-2xl font-semibold tracking-tight">{list.name}</h1>
           {list.description ? <p className="mt-1 text-sm text-muted">{list.description}</p> : null}
           <p className="mt-1 text-sm text-muted">{total} lead{total === 1 ? "" : "s"} in this list</p>
+          {verifiedTotal > 0 ? (
+            <p className="mt-1 text-sm text-muted">
+              Verification: {verificationCounts.VALID ?? 0} valid, {verificationCounts.RISKY ?? 0}{" "}
+              risky, {verificationCounts.INVALID ?? 0} invalid, {unverifiedCount} not yet verified.
+              Invalid leads are skipped at campaign enrollment.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-3">
             <AddLeadForm listId={list.id} />
+            <VerifyListButton listId={list.id} />
           </div>
           <ListActions listId={list.id} listName={list.name} />
         </div>

@@ -123,4 +123,32 @@ describe("runPreflight", () => {
     );
     expect(check(result, "identity").status).toBe("warn");
   });
+
+  it("warns when projected volume exceeds an account warm-up cap (Phase 6)", () => {
+    const result = runPreflight(
+      baseInput({
+        projectedDailyVolume: 80,
+        warmupCaps: [{ email: "newbox@acme.com", cap: 20 }],
+      }),
+    );
+    const warmup = check(result, "warmup");
+    expect(warmup.status).toBe("warn");
+    expect(warmup.message).toContain("newbox@acme.com");
+    expect(result.canLaunch).toBe(true);
+  });
+
+  it("passes the warm-up check when volume fits every cap", () => {
+    const result = runPreflight(
+      baseInput({
+        projectedDailyVolume: 15,
+        warmupCaps: [{ email: "newbox@acme.com", cap: 20 }],
+      }),
+    );
+    expect(check(result, "warmup").status).toBe("pass");
+  });
+
+  it("omits the warm-up check entirely when no account has warm-up on", () => {
+    const result = runPreflight(baseInput({ warmupCaps: [] }));
+    expect(result.checks.find((entry) => entry.id === "warmup")).toBeUndefined();
+  });
 });

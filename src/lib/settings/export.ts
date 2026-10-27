@@ -157,6 +157,9 @@ export async function buildWorkspaceExport(db: PrismaClient, workspaceId: string
       fields: lead.fields,
       tags: lead.tags,
       status: lead.status,
+      verificationStatus: lead.verificationStatus,
+      verificationDetail: lead.verificationDetail,
+      verifiedAt: iso(lead.verifiedAt),
       createdAt: iso(lead.createdAt),
     })),
     campaigns: campaigns.map((campaign) => ({
@@ -213,6 +216,8 @@ export async function buildWorkspaceExport(db: PrismaClient, workspaceId: string
       status: account.status,
       dailyLimit: account.dailyLimit,
       warmupStatus: account.warmupStatus,
+      warmupEnabled: account.warmupEnabled,
+      warmupStartedAt: iso(account.warmupStartedAt),
       lastSyncAt: iso(account.lastSyncAt),
       createdAt: iso(account.createdAt),
     })),

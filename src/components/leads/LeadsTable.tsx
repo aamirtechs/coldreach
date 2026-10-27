@@ -9,6 +9,8 @@ export interface LeadRow {
   id: string;
   email: string;
   status: string;
+  /** Phase 6 verification outcome: UNKNOWN, VALID, RISKY, or INVALID. */
+  verificationStatus: string;
   fields: Record<string, unknown>;
   tags: string[];
   suppressed: boolean;
@@ -210,6 +212,20 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
                     {lead.email}
                     {lead.suppressed ? (
                       <span className="ml-2 text-xs font-normal text-warning">suppressed</span>
+                    ) : null}
+                    {lead.verificationStatus !== "UNKNOWN" ? (
+                      <span
+                        className={`ml-2 text-xs font-normal ${
+                          lead.verificationStatus === "INVALID"
+                            ? "text-red-500"
+                            : lead.verificationStatus === "RISKY"
+                              ? "text-warning"
+                              : "text-emerald-600 dark:text-emerald-400"
+                        }`}
+                        title="Email verification result. INVALID leads are skipped at campaign enrollment."
+                      >
+                        verified: {lead.verificationStatus.toLowerCase()}
+                      </span>
                     ) : null}
                     {lead.fields.icebreaker ? (
                       <p className="mt-1 max-w-md text-xs font-normal text-muted">

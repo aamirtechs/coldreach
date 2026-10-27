@@ -91,6 +91,15 @@ Phase 5 optional variables:
 | `SENTRY_DSN` | Optional error tracking. When set, error level entries from the structured logger (src/lib/log.ts) are also forwarded to Sentry's envelope endpoint. Unset means logs go to stdout and stderr only, which Vercel captures as runtime logs. |
 | `LOG_LEVEL` | Optional. One of debug, info, warn, error; defaults to info. |
 
+Phase 6 optional variables. Both are credential gates in the usual
+pattern: unset means the feature reports "not configured" naming
+these variables, and everything else works.
+
+| Variable | Value |
+| --- | --- |
+| `VERIFY_API_KEY` | Phase 6 email verification provider (NeverBounce). Without it, list verification runs the built-in checks only. Console steps in ACTIVATION.md section 6. |
+| `HUBSPOT_CLIENT_ID` / `HUBSPOT_CLIENT_SECRET` | Phase 6 HubSpot CRM sync. From the HubSpot app whose redirect URL is `{APP_URL}/api/crm/hubspot/callback`. Console steps in ACTIVATION.md section 8. |
+
 Optional, per SMTP sending account: an account stores only a
 `credentialRef` in the database. For a ref of `ACME_SMTP`, set
 `ACME_SMTP_HOST`, `ACME_SMTP_PORT`, `ACME_SMTP_USER`, `ACME_SMTP_PASS`,
@@ -207,6 +216,31 @@ webhook deliveries, cron runs, API errors), visible in Vercel's
 runtime logs; set `SENTRY_DSN` (section 3) to also forward errors
 to Sentry.
 
+**Built-in uptime check (Phase 6).** The repository ships
+`.github/workflows/uptime.yml`, which curls
+`{APP_URL}/api/health` every 30 minutes and on manual dispatch,
+and fails the run unless the response reports status ok and db ok.
+A failed run notifies the repository owner through GitHub's normal
+workflow notifications, so no third-party monitor is required for
+basic coverage (an external monitor on a shorter interval is still
+fine to add). The target URL is the `APP_URL` repository variable
+(Settings, Secrets and variables, Actions, Variables) when set,
+and the literal production URL
+`https://coldreach-blue.vercel.app` otherwise. Update the variable
+when the production domain changes (see section 12).
+
+**Continuous integration (Phase 6).** `.github/workflows/ci.yml`
+runs on every push to main and on every pull request: checkout,
+Node 20, `npm ci`, Prisma client generation,
+`npm run typecheck`, the full test suite, `npm run build`, and
+`npm audit --audit-level=high` as its own step, which fails the
+job on high or critical dependency findings. That audit step is
+the standing answer to the Phase 5 note that `npm audit` could not
+run from the development VM (the package registry proxy returned
+403 there): dependency findings are now checked on every change
+from CI, where the registry is reachable. Treat a red audit step
+as a launch blocker, as SECURITY.md records.
+
 ## 9. Backups and recovery
 
 Three layers, in the order you would reach for them:
@@ -265,3 +299,45 @@ credentials rotate in the Neon console and then in Vercel;
 `ENCRYPTION_KEY` rotation forces mailbox reconnections and
 webhook recreation, so plan it as maintenance, not a quick env
 edit.
+
+## 12. Custom domain (when the owner buys one)
+
+Nothing in the app is domain specific except configuration. When a
+custom domain is purchased (see TRADEMARK.md before branding
+anything), attach it in this order:
+
+- [ ] Buy the domain at a registrar of your choice.
+- [ ] In Vercel, open the ColdReach project, Settings, Domains, and
+      add the domain (and the `www` subdomain if you want it, with
+      a redirect to the apex).
+- [ ] At the registrar (or wherever DNS is hosted), add the records
+      Vercel shows for that domain: typically an A record for the
+      apex and a CNAME for `www`. Wait until Vercel reports the
+      domain as valid and the certificate as issued.
+- [ ] Update `APP_URL` in Vercel (Production) to the new origin,
+      for example `https://coldreach.example.com`, with no trailing
+      slash. Every redirect URI and link in the app derives from
+      it.
+- [ ] Update the OAuth redirect URIs to the new origin: Google
+      Cloud console (APIs and Services, Credentials, the OAuth
+      client), Microsoft app registration (Authentication), and the
+      HubSpot app (Auth tab). The paths do not change:
+      `/api/accounts/oauth/google/callback`,
+      `/api/accounts/oauth/microsoft/callback`,
+      `/api/crm/hubspot/callback`.
+- [ ] Update the Stripe webhook endpoint URL to
+      `https://<domain>/api/billing/webhook` (Developers, Webhooks).
+      The events stay the same three; the signing secret does not
+      change when only the URL changes on the same endpoint, but
+      verify `STRIPE_WEBHOOK_SECRET` still matches afterwards.
+- [ ] If you use an external scheduler for the worker tick or the
+      uptime workflow's `APP_URL` repository variable, update them
+      too.
+- [ ] Redeploy production so the new `APP_URL` takes effect.
+- [ ] Verify: `GET https://<domain>/api/health` returns ok; the
+      Integrations status panel in Settings shows the same
+      Configured rows as before; reconnect one mailbox end to end;
+      run one test-mode Stripe checkout. Keep the old
+      vercel.app URL live during the transition: it stays assigned
+      to the project, and the redirect URIs for it can stay in the
+      provider consoles as additional entries until you retire it.

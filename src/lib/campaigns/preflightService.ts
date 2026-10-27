@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { runPreflight, type PreflightResult } from "@/lib/domain/preflight";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
+import { warmupCapFor } from "@/lib/domain/warmup";
 import { findSuppression } from "@/lib/domain/suppression";
 import { loadSuppressions } from "@/lib/suppressions";
 import { countMonthlySends, getPlanForWorkspace } from "@/lib/billing/subscription";
@@ -60,6 +61,16 @@ export async function getCampaignPreflight(
     }),
   }));
 
+  // Warm-up ceilings (Phase 6): only accounts with warm-up enabled
+  // and an active ceiling today participate in the check.
+  const today = new Date(now);
+  const warmupCaps = campaign.accounts
+    .map(({ sendingAccount }) => ({
+      email: sendingAccount.email,
+      cap: warmupCapFor(sendingAccount, today),
+    }))
+    .filter((entry): entry is { email: string; cap: number } => entry.cap !== null);
+
   // Plan quota (Phase 4): the campaign's projection is every ACTIVE
   // enrollment receiving every step, on top of this month's real
   // SENT count under the workspace's plan.
@@ -80,6 +91,7 @@ export async function getCampaignPreflight(
       postalAddress: campaign.workspace.senderAddress,
     },
     projectedDailyVolume: enrollments.length,
+    warmupCaps,
     quota: {
       planName: plan.name,
       monthlyLimit: plan.monthlySends,

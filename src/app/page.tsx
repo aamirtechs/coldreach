@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { PLACEHOLDER_PRICING_NOTE, formatNumber, pricingRows } from "@/lib/marketing/pricing";
 
 interface Feature {
   icon: LucideIcon;
@@ -63,6 +64,9 @@ export default function LandingPage() {
           </div>
           <nav className="flex items-center gap-2" aria-label="Marketing">
             <ThemeToggle />
+            <Link href="/pricing" className="btn-ghost">
+              Pricing
+            </Link>
             <Link href="/login" className="btn-ghost">
               Sign in
             </Link>
@@ -154,38 +158,32 @@ export default function LandingPage() {
               Pricing
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-relaxed text-muted">
-              Pricing is planned and will be published before billing opens in Phase 4.
-              The tiers below describe the intended shape of the plans. Nothing is charged
-              today.
+              Four plans, one product. Plans differ only in seats, sending accounts, and
+              monthly send volume, and the numbers below come straight from the same plan
+              catalog the quota engine enforces.
             </p>
-            <div className="mt-10 grid gap-6 md:grid-cols-3">
-              {[
-                {
-                  name: "Starter",
-                  detail: "For founders sending their first campaigns from one workspace.",
-                },
-                {
-                  name: "Growth",
-                  detail: "For sales teams that need multiple sending accounts, inbox rotation, and team roles.",
-                },
-                {
-                  name: "Agency",
-                  detail: "For lead generation agencies running separate client workspaces with their own reporting.",
-                },
-              ].map((tier) => (
-                <article key={tier.name} className="card p-6 text-center">
-                  <h3 className="font-display text-lg font-semibold">{tier.name}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted">{tier.detail}</p>
-                  <p className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">
-                    Planned, not yet on sale
+            <p className="mx-auto mt-2 max-w-xl text-center text-xs text-warning">
+              {PLACEHOLDER_PRICING_NOTE}
+            </p>
+            <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {pricingRows().map((plan) => (
+                <article key={plan.id} className="card p-6 text-center">
+                  <h3 className="font-display text-lg font-semibold">{plan.name}</h3>
+                  <p className="mt-2 font-display text-2xl font-semibold">{plan.priceLabel}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted">
+                    {plan.seatsLabel} seats, {formatNumber(plan.sendingAccounts)} sending
+                    accounts, {formatNumber(plan.monthlySends)} sends per month.
                   </p>
                 </article>
               ))}
             </div>
-            <div className="mt-12 text-center">
-              <Link href="/signup" className="btn-primary px-5 py-2.5">
-                Start with the free foundation
+            <div className="mt-12 flex items-center justify-center gap-3">
+              <Link href="/pricing" className="btn-primary px-5 py-2.5">
+                See full pricing
                 <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link href="/signup" className="btn-secondary px-5 py-2.5">
+                Start with the free plan
               </Link>
             </div>
           </div>
@@ -195,6 +193,17 @@ export default function LandingPage() {
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 py-8 text-sm text-muted sm:flex-row">
           <p>ColdReach. Cold email outreach with guardrails.</p>
+          <nav className="flex gap-5" aria-label="Footer">
+            <Link href="/pricing" className="hover:text-primary">
+              Pricing
+            </Link>
+            <Link href="/signup" className="hover:text-primary">
+              Get started
+            </Link>
+            <Link href="/login" className="hover:text-primary">
+              Sign in
+            </Link>
+          </nav>
           <p>Send responsibly. Respect unsubscribes. Never fake the numbers.</p>
         </div>
       </footer>

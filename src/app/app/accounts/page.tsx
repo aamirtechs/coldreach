@@ -2,8 +2,10 @@ import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
+import { warmupCapFor, warmupProgress } from "@/lib/domain/warmup";
 import { AccountForm } from "@/components/accounts/AccountForm";
 import { AccountActions } from "@/components/accounts/AccountActions";
+import { WarmupControl } from "@/components/accounts/WarmupControl";
 import { OAuthConnect } from "@/components/accounts/OAuthConnect";
 import { SyncButton } from "@/components/accounts/SyncButton";
 import { DeliverabilityPanel } from "@/components/accounts/DeliverabilityPanel";
@@ -79,15 +81,21 @@ export default async function AccountsPage({
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Sent today / effective limit</th>
                 <th className="px-4 py-3 font-medium">Hard cap</th>
+                <th className="px-4 py-3 font-medium">Warm-up</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {accounts.map((account) => {
-                const effective = effectiveDailyLimit({
+                const rampLimit = effectiveDailyLimit({
                   dailyLimit: account.dailyLimit,
                   ageInDays: Math.max(0, Math.floor((now - account.createdAt.getTime()) / 86400000)),
                 });
+                // Same rule the worker enforces: the warm-up ceiling
+                // can only lower the ramp limit, never raise it.
+                const warmupCeiling = warmupCapFor(account, new Date(now));
+                const effective =
+                  warmupCeiling === null ? rampLimit : Math.min(rampLimit, warmupCeiling);
                 return (
                   <tr key={account.id} className="border-b border-line last:border-0 hover:bg-elevated/60">
                     <td className="px-4 py-3">
@@ -104,6 +112,25 @@ export default async function AccountsPage({
                     <td className="px-4 py-3"><StatusBadge status={account.status} /></td>
                     <td className="px-4 py-3">{sentToday.get(account.id) ?? 0} / {effective}</td>
                     <td className="px-4 py-3">{account.dailyLimit}</td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const today = new Date(now);
+                        const progress = warmupProgress(account.warmupStartedAt, today);
+                        return (
+                          <WarmupControl
+                            accountId={account.id}
+                            warmupEnabled={account.warmupEnabled}
+                            warmupStartedAt={
+                              account.warmupStartedAt ? account.warmupStartedAt.toISOString() : null
+                            }
+                            capToday={warmupCapFor(account, today)}
+                            progressDay={account.warmupEnabled ? progress.day : null}
+                            progressTotal={progress.totalDays}
+                            progressComplete={progress.complete}
+                          />
+                        );
+                      })()}
+                    </td>
                     <td className="px-4 py-3">
                       <span className="flex items-start justify-end gap-2">
                         {(account.provider === "GMAIL" || account.provider === "MS365") &&
@@ -128,7 +155,10 @@ export default async function AccountsPage({
       <p className="mt-4 text-xs text-muted">
         Effective limits come from the limits engine: 20 percent of the cap on day one, rising
         linearly to the full cap over 14 days. Sent today counts recorded SENT events since
-        midnight UTC.
+        midnight UTC. Warm-up is a separate, optional ceiling on top of that: when enabled, an
+        account is also capped at 20 sends a day in week 1, 50 in week 2, 100 in week 3, and 200
+        in week 4, counted from the day warm-up was switched on; the worker always applies the
+        lower of the two limits.
       </p>
 
       <DeliverabilityPanel />

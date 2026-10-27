@@ -4,6 +4,7 @@ import { computeNextSendAt } from "@/lib/domain/scheduling";
 import { findSuppression, type SuppressionEntry } from "@/lib/domain/suppression";
 import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
+import { effectiveDailyLimit as warmupDailyLimit } from "@/lib/domain/warmup";
 import { resolveProvider as defaultResolveProvider, type MailProvider } from "@/lib/providers";
 import { loadSuppressions } from "@/lib/suppressions";
 import { syncAllConnectedAccounts, type AccountSyncSummary } from "@/lib/sync/syncService";
@@ -212,13 +213,22 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       if (candidate.status === "PAUSED" || candidate.status === "ERROR") {
         continue;
       }
-      const limit = effectiveDailyLimit({
-        dailyLimit: candidate.dailyLimit,
-        ageInDays: Math.max(
-          0,
-          Math.floor((now.getTime() - candidate.createdAt.getTime()) / (24 * 60 * 60 * 1000)),
-        ),
-      });
+      // The existing age ramp from limits.ts, additionally capped by
+      // the Phase 6 warm-up schedule when the account has warm-up
+      // enabled. Taking the minimum extends the enforcement rather
+      // than forking it: warm-up off, the warm-up function returns
+      // the configured dailyLimit, which the ramp never exceeds, so
+      // behaviour is unchanged for accounts without warm-up.
+      const limit = Math.min(
+        effectiveDailyLimit({
+          dailyLimit: candidate.dailyLimit,
+          ageInDays: Math.max(
+            0,
+            Math.floor((now.getTime() - candidate.createdAt.getTime()) / (24 * 60 * 60 * 1000)),
+          ),
+        }),
+        warmupDailyLimit(candidate, now),
+      );
       if ((await sentTodayFor(candidate)) < limit) {
         chosen = candidate;
         rotationPointers.set(campaign.id, pointer + i + 1);

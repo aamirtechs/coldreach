@@ -62,6 +62,12 @@ export interface PreflightInput {
    *  capacity. Enrollment schedules every lead for step one, so the
    *  server passes the enrolled count as the first day estimate. */
   projectedDailyVolume: number;
+  /** Warm-up ceilings (Phase 6). Optional; when present, accounts
+   *  with warm-up enabled whose warm-up cap for today is below the
+   *  projected daily volume produce a WARN: the campaign still
+   *  launches, but its first day sends will be throttled to the
+   *  warm-up schedule. */
+  warmupCaps?: { email: string; cap: number }[];
   /** Plan quota context (Phase 4). Optional so older callers and tests
    *  keep working; when present, a campaign whose projected total
    *  sends would exceed the month's remaining quota fails preflight. */
@@ -233,6 +239,28 @@ export function runPreflight(input: PreflightInput): PreflightResult {
     );
   } else {
     add("identity", "Sender identity", "pass", "Sender display name and postal address are set.");
+  }
+
+  // Warm-up schedules -------------------------------------------------------
+  if (input.warmupCaps && input.warmupCaps.length > 0) {
+    const exceeded = input.warmupCaps.filter((entry) => input.projectedDailyVolume > entry.cap);
+    if (exceeded.length > 0) {
+      add(
+        "warmup",
+        "Warm-up schedules",
+        "warn",
+        `Projected first day volume of ${input.projectedDailyVolume} exceeds the warm-up cap for ${exceeded
+          .map((entry) => `${entry.email} (${entry.cap} per day)`)
+          .join(", ")}. The campaign can launch, but those accounts will only send up to their warm-up cap today and the rest will roll to later days.`,
+      );
+    } else {
+      add(
+        "warmup",
+        "Warm-up schedules",
+        "pass",
+        "Projected first day volume fits within every attached account's warm-up cap.",
+      );
+    }
   }
 
   // Plan quota -------------------------------------------------------------

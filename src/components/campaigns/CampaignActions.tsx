@@ -83,7 +83,7 @@ export function CampaignActions({ campaignId, status }: { campaignId: string; st
     }
     const e = data.enrollment;
     setNotice(
-      `Enrollment complete: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedIneligible} ineligible, of ${e.totalInList} in the list.`,
+      `Enrollment complete: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedIneligible} ineligible, ${e.skippedInvalidVerification ?? 0} failed verification, ${e.enrolledRisky ?? 0} enrolled but flagged RISKY by verification, of ${e.totalInList} in the list.`,
     );
     router.refresh();
   }
