@@ -85,6 +85,10 @@ testable in milliseconds and reusable by the future sending worker.
   window in the lead's local time. Unresolved leads fall back to the
   campaign timezone. The worker additionally re-stamps a due enrollment
   to the lead's next window opening rather than sending outside it.
+- Account selection in the tick is least-used-first (v1.8.2): among
+  a campaign's accounts with capacity left, the worker picks the one
+  with the fewest sends today, so volume balances across accounts
+  instead of draining the first accounts in every campaign's list.
 - Every successful campaign send records an outbound ThreadMessage
   on the lead's thread (v1.8.1), matched the way reply sync matches
   (workspace + lead + sending account); the Outbox and inbox history

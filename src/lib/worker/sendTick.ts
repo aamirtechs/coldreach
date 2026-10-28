@@ -23,7 +23,8 @@ import { createUnsubscribeToken } from "./unsubscribe";
  * campaign RUNNING) and sends the current step for each, in due order.
  * Every send is preceded by a fresh suppression check, a terminal lead
  * status check, and an account capacity check under the limits engine.
- * Accounts rotate in the campaign's configured order. Each send is
+ * The sending account is the campaign's least-used account today.
+ * Each send is
  * idempotent: the event key send:{enrollmentId}:{stepIndex} is claimed
  * by the SENT event itself, so a re-run tick can never send a step
  * twice; it detects the recorded event and only advances state.
@@ -188,7 +189,6 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   const suppressionCache = new Map<string, SuppressionEntry[]>();
   const sentTodayCache = new Map<string, number>();
   const providerCache = new Map<string, MailProvider>();
-  const rotationPointers = new Map<string, number>();
   const dayStart = startOfUtcDay(now);
 
   // Plan quota state per workspace (Phase 4): the plan plus this
@@ -283,13 +283,18 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       }
     }
 
-    // Gate 2: capacity, rotating across the campaign's accounts in
-    // order and honouring each account's effective daily limit.
+    // Gate 2: capacity, honouring each account's effective daily
+    // limit. Among the campaign's accounts with capacity left, pick
+    // the one that has sent least today (v1.8.2), so sends balance
+    // across accounts instead of every campaign walking the same
+    // list from the top and draining the first accounts while the
+    // last ones idle. sentTodayFor reads the real counts and this
+    // tick's own sends, so the balance holds across campaigns and
+    // across ticks. Ties keep the campaign's configured order.
     const accounts = campaign.accounts.map((entry) => entry.sendingAccount);
-    const pointer = rotationPointers.get(campaign.id) ?? 0;
     let chosen: SendingAccount | null = null;
-    for (let i = 0; i < accounts.length; i += 1) {
-      const candidate = accounts[(pointer + i) % accounts.length];
+    let chosenSentToday = Number.POSITIVE_INFINITY;
+    for (const candidate of accounts) {
       if (candidate.status === "PAUSED" || candidate.status === "ERROR") {
         continue;
       }
@@ -309,10 +314,10 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         }),
         warmupDailyLimit(candidate, now),
       );
-      if ((await sentTodayFor(candidate)) < limit) {
+      const sentToday = await sentTodayFor(candidate);
+      if (sentToday < limit && sentToday < chosenSentToday) {
         chosen = candidate;
-        rotationPointers.set(campaign.id, pointer + i + 1);
-        break;
+        chosenSentToday = sentToday;
       }
     }
     if (!chosen) {

@@ -440,3 +440,52 @@ describe("runSendTick outbound thread recording (v1.8.1)", () => {
     expect(messages[0].fromEmail).toBe(account.email);
   });
 });
+
+describe("runSendTick account balancing (v1.8.2)", () => {
+  it("spreads two campaigns sharing the same accounts across different accounts", async () => {
+    const accountA = await makeAccount(100, "bal-a");
+    const accountB = await makeAccount(100, "bal-b");
+    const { list: listA, leads: leadsA } = await makeListWithLeads("bal-a", ["bal-a@example.com"]);
+    const { list: listB, leads: leadsB } = await makeListWithLeads("bal-b", ["bal-b@example.com"]);
+    const campaignA = await makeCampaign({
+      suffix: "bal-a",
+      accountIds: [accountA.id, accountB.id],
+      listId: listA.id,
+    });
+    const campaignB = await makeCampaign({
+      suffix: "bal-b",
+      accountIds: [accountA.id, accountB.id],
+      listId: listB.id,
+    });
+    await enroll(campaignA.id, leadsA[0].id);
+    await enroll(campaignB.id, leadsB[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-bal-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const ours = captured.filter(
+      (input) => input.toEmail === "bal-a@example.com" || input.toEmail === "bal-b@example.com",
+    );
+    expect(ours).toHaveLength(2);
+    // The old rotation restarted at the first account for every
+    // campaign, so both sends would have left from account A. The
+    // least-used rule sends the second one from account B.
+    expect(ours[0].fromEmail).not.toBe(ours[1].fromEmail);
+    expect(new Set(ours.map((input) => input.fromEmail))).toEqual(
+      new Set([accountA.email, accountB.email]),
+    );
+  });
+});
