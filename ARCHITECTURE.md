@@ -85,6 +85,12 @@ testable in milliseconds and reusable by the future sending worker.
   window in the lead's local time. Unresolved leads fall back to the
   campaign timezone. The worker additionally re-stamps a due enrollment
   to the lead's next window opening rather than sending outside it.
+- When the day's sending capacity is spent, the dashboard schedule
+  panel switches to a capacity state (v1.8.4): an amber "Capacity
+  full today · sending resumes <reset>" badge, "waiting for
+  capacity" in the next-due tile and on due queue rows, instead of
+  "Scheduler live" and "Due now". Due stamps do not change; only the
+  labels stop implying sends that the capacity gate will defer.
 - Absolute timestamps in server-rendered pages render through the
   `LocalTime` client component (v1.8.3): the server emits a
   UTC-labelled fallback and the browser swaps in the viewer's own

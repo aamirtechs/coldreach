@@ -179,6 +179,11 @@ export default async function DashboardPage() {
     schedule.capacity.cap > 0
       ? Math.min(100, Math.round((schedule.capacity.used / schedule.capacity.cap) * 100))
       : 0;
+  // When the day's capacity is spent, due enrollments are waiting on
+  // the reset, not on the scheduler. The panel says so (v1.8.4)
+  // instead of calling them "Due now".
+  const capacityFull =
+    schedule.capacity.cap > 0 && schedule.capacity.used >= schedule.capacity.cap;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -227,10 +232,18 @@ export default async function DashboardPage() {
             When emails went out, when the next ones are due, and how much of today's
             capacity is left.
           </p>
-          <span className="inline-flex items-center gap-2 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-success" aria-hidden="true" />
-            Scheduler live · ticks every few minutes
-          </span>
+          {capacityFull ? (
+            <span className="inline-flex items-center gap-2 rounded-full bg-warning/10 px-3 py-1 text-xs font-medium text-warning">
+              <span className="h-2 w-2 rounded-full bg-warning" aria-hidden="true" />
+              Capacity full today · sending resumes{" "}
+              <LocalTime iso={nextReset.toISOString()} fallback="00:00 UTC" format="time" />
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-2 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-success" aria-hidden="true" />
+              Scheduler live · ticks every few minutes
+            </span>
+          )}
         </div>
 
         <div className="grid gap-4 px-6 py-5 sm:grid-cols-3">
@@ -294,7 +307,8 @@ export default async function DashboardPage() {
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
                   {formatInZone(nextDue.at, nextDue.timezone)} {nextDue.timezone} ·{" "}
-                  {formatUntil(nextDue.at, scheduleNow)} · {nextDue.campaignName}
+                  {capacityFull ? "waiting for capacity" : formatUntil(nextDue.at, scheduleNow)} ·{" "}
+                  {nextDue.campaignName}
                 </p>
               </>
             ) : (
@@ -325,7 +339,11 @@ export default async function DashboardPage() {
                     <span
                       aria-hidden="true"
                       className={`relative z-10 mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full border-2 ${
-                        send.due ? "border-success bg-success" : "border-accent bg-surface"
+                        send.due && capacityFull
+                          ? "border-warning bg-warning"
+                          : send.due
+                            ? "border-success bg-success"
+                            : "border-accent bg-surface"
                       }`}
                     />
                     <div className="w-44 shrink-0">
@@ -355,7 +373,11 @@ export default async function DashboardPage() {
                         <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs font-medium text-muted">
                           Step {send.stepNumber}
                         </span>
-                        {send.due ? (
+                        {send.due && capacityFull ? (
+                          <span className="inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">
+                            Waiting for capacity
+                          </span>
+                        ) : send.due ? (
                           <span className="inline-flex items-center rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">
                             Due now
                           </span>
