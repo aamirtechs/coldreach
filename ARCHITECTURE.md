@@ -85,6 +85,16 @@ testable in milliseconds and reusable by the future sending worker.
   window in the lead's local time. Unresolved leads fall back to the
   campaign timezone. The worker additionally re-stamps a due enrollment
   to the lead's next window opening rather than sending outside it.
+- Open tracking (v1.9.0): campaign HTML carries a 1x1 pixel whose
+  URL holds an HMAC token (workspace, enrollment, step) minted by
+  src/lib/worker/openTracking.ts. GET /o/[token] verifies it and
+  records one OPENED event per enrollment and step under the same
+  idempotency scheme as provider events, copying campaign, account
+  and variant attribution from the enrollment's latest SENT event;
+  the endpoint always serves the GIF, valid token or not. Before
+  v1.9.0 nothing produced OPENED events for SMTP sending, so the
+  opened counters were structurally zero. Opens remain approximate
+  (client prefetch and image blocking), as the analytics page says.
 - When the day's sending capacity is spent, the dashboard schedule
   panel switches to a capacity state (v1.8.4): an amber "Capacity
   full today · sending resumes <reset>" badge, "waiting for

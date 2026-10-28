@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { runSendTick } from "./sendTick";
+import { verifyOpenToken } from "./openTracking";
 import type { MailProvider, SendInput } from "@/lib/providers/types";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 
@@ -245,6 +246,45 @@ describe("runSendTick", () => {
     expect(ours).toHaveLength(1);
     expect(ours[0].headers?.["List-Unsubscribe"]).toMatch(/^<http:\/\/localhost:3000\/u\/.+>$/);
     expect(ours[0].headers?.["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+  });
+
+  it("embeds a signed open-tracking pixel in the HTML part only", async () => {
+    const account = await makeAccount(100, "pixel");
+    const { list, leads } = await makeListWithLeads("pixel", ["pixel@example.com"]);
+    const campaign = await makeCampaign({
+      suffix: "pixel",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    const enrollment = await enroll(campaign.id, leads[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-pixel-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const ours = captured.filter((input) => input.toEmail === "pixel@example.com");
+    expect(ours).toHaveLength(1);
+    const html = ours[0].html ?? "";
+    const match = html.match(/<img src="http:\/\/localhost:3000\/o\/([^"]+)"/);
+    expect(match).not.toBeNull();
+    expect(verifyOpenToken(match![1])).toEqual({
+      workspaceId,
+      enrollmentId: enrollment.id,
+      stepIndex: 0,
+    });
+    expect(ours[0].text).not.toContain("/o/");
   });
 
   it("renders the campaign signature between the body and the compliance footer", async () => {

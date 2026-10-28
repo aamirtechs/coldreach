@@ -15,6 +15,7 @@ import { countMonthlySends, getPlanForWorkspace } from "@/lib/billing/subscripti
 import { processDueDeliveries, type ProcessDueSummary } from "@/lib/webhooks/service";
 import { logger, newRequestId } from "@/lib/log";
 import { createUnsubscribeToken } from "./unsubscribe";
+import { createOpenToken } from "./openTracking";
 
 /**
  * One sending worker tick.
@@ -421,6 +422,11 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     const fullHtml = variant?.bodyHtml
       ? `${renderTemplate(variant.bodyHtml, leadFields)}${signatureHtml}\n${footerHtml}`
       : `${textToHtml(bodyText)}${signatureHtml}\n${footerHtml}`;
+    // Open tracking (v1.9.0): a 1x1 pixel whose signed URL records
+    // one OPENED event per enrollment and step when a mail client
+    // loads it. HTML part only; the text part is untouched.
+    const openPixel = `<img src="${appUrl}/o/${createOpenToken(workspaceId, enrollment.id, stepIndex)}" width="1" height="1" alt="" style="display:none;border:0;" />`;
+    const trackedHtml = `${fullHtml}\n${openPixel}`;
 
     let provider = providerCache.get(chosen.id);
     if (!provider) {
@@ -444,7 +450,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         toEmail: lead.email,
         subject,
         text: fullText,
-        html: fullHtml,
+        html: trackedHtml,
         headers: {
           "List-Unsubscribe": `<${unsubscribeUrl}>`,
           // RFC 8058 one-click unsubscribe, required by the Gmail and
