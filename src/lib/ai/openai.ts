@@ -165,6 +165,35 @@ export class OpenAiProvider implements AiProvider {
   }
 }
 
+export type AiProviderId = "openai" | "groq";
+
+/** Default model for a provider when no override is supplied. */
+export function defaultAiModel(providerId: AiProviderId): string {
+  return providerId === "groq" ? GROQ_MODEL_DEFAULT : AI_MODEL_DEFAULT;
+}
+
+/**
+ * Build a provider from an explicit key (v1.8.0). Used for
+ * per-workspace keys resolved by workspaceAi.ts, so a workspace key
+ * constructs the identical client the environment path builds below.
+ */
+export function buildAiProvider(
+  providerId: AiProviderId,
+  apiKey: string,
+  model?: string | null,
+): AiProvider {
+  if (providerId === "groq") {
+    return new OpenAiProvider({
+      apiKey,
+      model: model || GROQ_MODEL_DEFAULT,
+      id: "groq",
+      label: "Groq",
+      chatUrl: GROQ_CHAT_URL,
+    });
+  }
+  return new OpenAiProvider({ apiKey, model: model || AI_MODEL_DEFAULT });
+}
+
 /**
  * The configured provider, or null when no AI key exists. OpenAI wins
  * when both keys are set; Groq is the fallback (OPENAI_API_KEY keeps

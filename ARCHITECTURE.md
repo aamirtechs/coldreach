@@ -85,6 +85,13 @@ testable in milliseconds and reusable by the future sending worker.
   window in the lead's local time. Unresolved leads fall back to the
   campaign timezone. The worker additionally re-stamps a due enrollment
   to the lead's next window opening rather than sending outside it.
+- AI keys are per workspace (v1.8.0): `WorkspaceAiConfig` stores one
+  encrypted OpenAI or Groq key per workspace, managed in
+  `lib/ai/workspaceAi.ts` and the Integrations AI provider panel.
+  Resolution order is the workspace's own key first, then the
+  deployment keys only for the workspace whose owner matches
+  `PLATFORM_OWNER_EMAIL`. AI routes and `/api/ai/status` resolve per
+  workspace; nothing tenant-facing reads the env keys directly.
 - The dashboard sending schedule (v1.7.0) is computed by
   `sendingSchedule.ts` from the worker's own records: last SENT event,
   today's SENT count, the next enrollment `nextSendAt` stamps in

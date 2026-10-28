@@ -263,7 +263,7 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
                             : "Icebreaker"}
                       </button>
                     ) : aiConfigured === false ? (
-                      <span className="text-xs text-muted" title="Set OPENAI_API_KEY in the server environment to enable AI icebreakers">
+                      <span className="text-xs text-muted" title="Add your OpenAI or Groq key on the Integrations page to enable AI icebreakers">
                         AI not configured
                       </span>
                     ) : null}

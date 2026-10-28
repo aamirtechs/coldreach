@@ -435,8 +435,8 @@ export function SequenceBuilder({
                     <p className="mt-1 text-xs text-muted">Checking AI configuration...</p>
                   ) : !aiStatus.configured ? (
                     <p className="mt-1 text-xs text-muted">
-                      AI is not configured. Set {aiStatus.missingEnv.join(", ") || "OPENAI_API_KEY"} in the
-                      server environment to enable subject ideas, rewrites, and icebreakers.
+                      AI is not configured for this workspace. Add your OpenAI or Groq key on the
+                      Integrations page to enable subject ideas, rewrites, and icebreakers.
                     </p>
                   ) : (
                     <>

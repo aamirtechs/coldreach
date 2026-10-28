@@ -52,6 +52,7 @@ model Workspace {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   memberships     Membership[]
+  aiConfig        WorkspaceAiConfig?
   sendingAccounts SendingAccount[]
   leadLists       LeadList[]
   leads           Lead[]
@@ -66,6 +67,24 @@ model Workspace {
   webhookEndpoints WebhookEndpoint[]
   subscription    Subscription?
   crmConnections  CrmConnection[]
+}
+
+// Per-workspace AI provider key (v1.8.0). Each workspace brings its
+// own OpenAI or Groq key, stored AES-256-GCM encrypted; the plaintext
+// is never returned by any API and no fragment of it is stored. When
+// no row exists, AI is unconfigured for the workspace except for the
+// platform owner's own workspace (see lib/ai/workspaceAi.ts).
+model WorkspaceAiConfig {
+  id           String    @id @default(cuid())
+  workspaceId  String    @unique
+  // "openai" or "groq" (AiProviderId in lib/ai/openai.ts).
+  provider     String
+  encryptedKey String
+  // Optional model override; null means the provider default.
+  model        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model Membership {

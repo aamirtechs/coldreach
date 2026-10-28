@@ -110,7 +110,7 @@ sufficient.
 | Reply sync (automatic in the tick, or per account button) | Nothing to sync | Runs for every connected OAuth account |
 | Unified inbox | Shows threads created from recorded events and DEMO flows | Fills with synced replies |
 | Public API (`/api/v1`) and outbound webhooks | Work (keys and endpoints are created in the app; no credentials needed) | Work |
-| AI assistance (subject ideas, rewrite, icebreakers) | "AI is not configured" naming `OPENAI_API_KEY` | Live, with the model from `AI_MODEL` (default `gpt-4o-mini`) |
+| AI assistance (subject ideas, rewrite, icebreakers) | "AI is not configured" for that workspace until its own key is saved | Live per workspace: each workspace saves its own OpenAI or Groq key in Integrations (v1.8.0); the env keys serve only the platform owner's workspace when `PLATFORM_OWNER_EMAIL` matches |
 | Stripe checkout and customer portal | Billing page shows plan and usage with a manual owner override | Checkout and portal buttons go live |
 
 ## 5. Local development
@@ -175,27 +175,40 @@ Salesforce, sync runs through the surfaces above, outbound webhooks
 into Zapier or Make (which maintain their own Salesforce connector),
 or direct calls to the public API from your own integration code.
 
-## 8. AI assistance (Phase 4, credential gated)
+## 8. AI assistance (Phase 4; per-workspace keys since v1.8.0)
 
 Subject ideas in the sequence builder, body rewrites (shorter, more
 direct, friendlier presets or a custom instruction), and per-lead
 icebreakers run through an `AiProvider` interface. The bundled
-provider is OpenAI over plain HTTPS calls:
+provider speaks the OpenAI chat completions API over plain HTTPS,
+which also covers Groq.
+
+Since v1.8.0 each workspace brings its own key: an ADMIN or OWNER
+saves an OpenAI or Groq key (plus an optional model override) on the
+Integrations page, under "AI provider". The key is stored
+AES-256-GCM encrypted in `WorkspaceAiConfig`, is never returned by
+any API, and bills to that workspace's own provider account.
+Workspaces without a key have AI switched off.
+
+The deployment env keys remain only as the platform owner's
+fallback, and only for the one workspace whose OWNER email equals
+`PLATFORM_OWNER_EMAIL`:
 
 | Variable | Value |
 | --- | --- |
-| `OPENAI_API_KEY` | An OpenAI API key with chat completions access |
+| `PLATFORM_OWNER_EMAIL` | The platform owner's login email. When set, the env keys below serve that owner's workspace only |
+| `OPENAI_API_KEY` | Platform fallback. An OpenAI API key with chat completions access |
 | `AI_MODEL` | Optional. Defaults to `gpt-4o-mini` |
-| `GROQ_API_KEY` | Optional fallback. A Groq API key, used only when `OPENAI_API_KEY` is absent |
+| `GROQ_API_KEY` | Optional platform fallback. A Groq API key, used only when `OPENAI_API_KEY` is absent |
 | `GROQ_MODEL` | Optional. Defaults to `llama-3.3-70b-versatile` |
 
-Without either AI key, every AI endpoint returns `501` naming the
-missing variable and the UI panels show "AI is not configured",
-exactly like the OAuth pattern above. AI output is never applied
-automatically: subject ideas and rewrites land only when the user
-clicks Apply, and icebreakers are stored on the lead visibly marked
-as AI generated for review. The prompts forbid invented facts about
-the recipient, fake familiarity, and any spam-filter evasion content.
+Without a key for a workspace, every AI endpoint returns `501` for
+that workspace and the UI panels show "AI is not configured". AI
+output is never applied automatically: subject ideas and rewrites
+land only when the user clicks Apply, and icebreakers are stored on
+the lead visibly marked as AI generated for review. The prompts
+forbid invented facts about the recipient, fake familiarity, and
+any spam-filter evasion content.
 
 ## 9. Stripe billing (Phase 4, credential gated)
 

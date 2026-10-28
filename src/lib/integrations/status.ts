@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { oauthProviderStatuses } from "@/lib/oauth/config";
-import { aiConfigured, aiMissingEnv, activeAiModel, activeAiProviderId } from "@/lib/ai/openai";
+import { getWorkspaceAiStatus } from "@/lib/ai/workspaceAi";
 import { stripeMissingEnv } from "@/lib/billing/stripe";
 import { hubspotConfigured, hubspotMissingEnv, HUBSPOT_PROVIDER } from "@/lib/crm/hubspot";
 import { verifyProviderConfigured, verifyProviderMissingEnv } from "@/lib/verify/provider";
@@ -65,14 +65,18 @@ export async function getIntegrationStatuses(
     activationAnchor: "1-before-you-start-encryption-key-and-app-url",
   });
 
+  const aiStatus = await getWorkspaceAiStatus(db, workspaceId);
+  const aiProviderLabel = aiStatus.providerId === "groq" ? "Groq" : "OpenAI";
   rows.push({
     id: "openai",
     label: "AI assistance (OpenAI or Groq)",
-    configured: aiConfigured(),
-    missingEnv: aiMissingEnv(),
-    detail: aiConfigured()
-      ? `Live with ${activeAiProviderId() === "groq" ? "Groq" : "OpenAI"} model ${activeAiModel()}.`
-      : 'AI panels show "AI is not configured" until OPENAI_API_KEY or GROQ_API_KEY is set.',
+    configured: aiStatus.configured,
+    missingEnv: [],
+    detail: !aiStatus.configured
+      ? "Each workspace adds its own OpenAI or Groq key on the Integrations page. AI panels show \"AI is not configured\" until this workspace has one."
+      : aiStatus.source === "workspace"
+        ? `Live with this workspace's own ${aiProviderLabel} key, model ${aiStatus.model}.`
+        : `Live with the platform owner's ${aiProviderLabel} key, model ${aiStatus.model}. Other workspaces use their own keys.`,
     activationAnchor: "4-openai-api-key",
   });
 

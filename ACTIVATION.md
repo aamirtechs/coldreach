@@ -159,6 +159,18 @@ suggestions come back instead of the "not configured" notice. The
 activation smoke script in section 7 also makes one real subjects
 call to prove the key works end to end.
 
+Per-workspace keys (v1.8.0): since v1.8.0, the environment keys
+above serve ONLY the platform owner's own workspace, and only when
+`PLATFORM_OWNER_EMAIL` is also set (Production) to the workspace
+owner's login email. Every other workspace adds its own key in the
+product instead: Integrations, AI provider, choose OpenAI or Groq,
+paste the key, Save. The key is stored encrypted, is never shown
+again, and bills to that workspace's own provider account. A
+workspace can replace or remove its key in the same panel at any
+time. If `PLATFORM_OWNER_EMAIL` is not set, the environment keys
+serve no workspace at all and every workspace, including the
+operator's, uses its own saved key.
+
 ## 5. Stripe billing
 
 Goal: paid plans with checkout and self-serve plan changes.

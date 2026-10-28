@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
+import { AiProviderPanel } from "@/components/integrations/AiProviderPanel";
 import { ApiKeysPanel } from "@/components/integrations/ApiKeysPanel";
 import { WebhooksPanel } from "@/components/integrations/WebhooksPanel";
 
@@ -20,6 +21,7 @@ export default async function IntegrationsPage() {
         Mailbox connections (Gmail, Microsoft 365) live on the Sending Accounts page.
       </p>
 
+      <AiProviderPanel canManage={canManage} />
       <ApiKeysPanel canManage={canManage} />
       <WebhooksPanel canManage={canManage} />
 

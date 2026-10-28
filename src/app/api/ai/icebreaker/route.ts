@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession, stringField } from "@/lib/api";
-import { aiMissingEnv, getAiProvider } from "@/lib/ai/openai";
+import { resolveWorkspaceAi } from "@/lib/ai/workspaceAi";
 import { writeAuditLog } from "@/lib/audit";
 
 function notConfigured() {
   return NextResponse.json(
     {
-      error: "AI assistance is not configured on this server. Set OPENAI_API_KEY in the environment to enable it.",
-      missingEnv: aiMissingEnv(),
+      error:
+        "AI is not configured for this workspace. Add your OpenAI or Groq key in Integrations to enable it.",
+      missingEnv: ["workspace AI key"],
     },
     { status: 501 },
   );
@@ -25,7 +26,8 @@ export async function POST(request: Request) {
   const session = await requireSession("MEMBER");
   if ("error" in session) return session.error;
   const { ctx } = session;
-  const provider = getAiProvider();
+  const resolved = await resolveWorkspaceAi(prisma, ctx.workspace.id);
+  const provider = resolved?.provider ?? null;
   if (!provider) return notConfigured();
   const body = await readJson<{ leadId?: unknown; campaignId?: unknown }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
