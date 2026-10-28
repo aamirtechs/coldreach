@@ -85,6 +85,11 @@ testable in milliseconds and reusable by the future sending worker.
   window in the lead's local time. Unresolved leads fall back to the
   campaign timezone. The worker additionally re-stamps a due enrollment
   to the lead's next window opening rather than sending outside it.
+- The dashboard sending schedule (v1.7.0) is computed by
+  `sendingSchedule.ts` from the worker's own records: last SENT event,
+  today's SENT count, the next enrollment `nextSendAt` stamps in
+  running campaigns (shown in each lead's resolved timezone), and
+  today's effective capacity summed with sendTick's exact limit math.
 - The product tour (v1.6.0) lives in `tourSteps.ts` (pure step data),
   `tour.ts` (per-user completion on `User.tourCompletedAt`), the
   `ProductTour` client component mounted by the app layout, and

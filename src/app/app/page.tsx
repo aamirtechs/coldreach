@@ -16,6 +16,19 @@ import {
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { getOnboardingState } from "@/lib/onboarding";
+import { getSendingSchedule } from "@/lib/sendingSchedule";
+
+/** "28 Oct, 09:00" in the given IANA timezone, for schedule rows. */
+function formatInZone(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +141,8 @@ export default async function DashboardPage() {
 
   const isEmpty = campaignCount + leadCount + accountCount === 0;
   const onboarding = await getOnboardingState(prisma, workspaceId);
+  const schedule = await getSendingSchedule(prisma, workspaceId);
+  const nextDue = schedule.upcoming[0] ?? null;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -168,6 +183,66 @@ export default async function DashboardPage() {
           );
         })}
       </div>
+
+      <h2 className="mt-8 font-display text-lg font-semibold">Sending schedule</h2>
+      <section className="card mt-4 p-6">
+        <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+          <p>
+            <span className="text-muted">Last sent:</span>{" "}
+            <span className="font-medium">
+              {schedule.lastSentAt
+                ? `${formatInZone(schedule.lastSentAt, "UTC")} UTC`
+                : "Nothing sent yet"}
+            </span>
+          </p>
+          <p>
+            <span className="text-muted">Sent today:</span>{" "}
+            <span className="font-medium">
+              {schedule.sentToday} of about {schedule.capacity.cap} capacity across{" "}
+              {schedule.capacity.accounts}{" "}
+              {schedule.capacity.accounts === 1 ? "account" : "accounts"}
+            </span>
+          </p>
+          <p>
+            <span className="text-muted">Next send due:</span>{" "}
+            <span className="font-medium">
+              {nextDue
+                ? `${formatInZone(nextDue.at, nextDue.timezone)} (${nextDue.timezone})`
+                : "Nothing scheduled"}
+            </span>
+          </p>
+        </div>
+        {schedule.upcoming.length > 0 ? (
+          <ol className="mt-4 divide-y divide-line border-t border-line">
+            {schedule.upcoming.map((send) => (
+              <li key={send.enrollmentId} className="flex flex-wrap items-baseline gap-x-3 py-2 text-sm">
+                <span className="font-medium">
+                  {formatInZone(send.at, send.timezone)}
+                  <span className="text-muted"> {send.timezone}</span>
+                  {send.timezone !== "UTC" && (
+                    <span className="text-muted"> · {formatInZone(send.at, "UTC")} UTC</span>
+                  )}
+                </span>
+                <span>{send.campaignName}</span>
+                <span className="text-muted">
+                  {send.company ? `${send.company} · ` : ""}
+                  {send.leadEmail} · Step {send.stepNumber}
+                </span>
+                {send.due && <span className="text-xs font-medium text-accent">Due now</span>}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-3 text-sm text-muted">
+            No sends are scheduled. Enrolled leads in running campaigns will appear here with
+            their next send time.
+          </p>
+        )}
+        <p className="mt-3 text-xs text-muted">
+          Times are the moment each lead's local sending window opens. The scheduler ticks every
+          few minutes, so a due send leaves on the next tick after its time.
+        </p>
+      </section>
 
       {onboarding.complete ? (
         <p className="mt-6 flex items-center gap-2 text-sm text-muted" data-tour="checklist">
