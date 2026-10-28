@@ -254,8 +254,14 @@ the committed migrations.
   (`src/lib/auth/workspaces.ts`), so tenant scoping follows the claim
   everywhere with no parallel state.
 - **Production cron.** GET /api/cron/tick authorizes the
-  `CRON_SECRET` bearer token (Vercel Cron's native mechanism), runs
-  the reply sync pass plus the send tick, and returns a JSON summary;
+  `CRON_SECRET` bearer token (Vercel Cron's native mechanism) and
+  answers 401 without it, scheduling no work. With it, the route
+  schedules the tick (the reply sync pass plus the send tick) through
+  Next's `after()` and answers immediately with a small acceptance
+  body (v1.8.3): a full tick takes longer than external schedulers
+  allow a request (cron-job.org caps at 30 seconds and recorded
+  timeouts even though ticks completed), so the tick finishes in the
+  background and logs its summary instead of returning it.
   `vercel.json` schedules it once daily at 05:00 UTC on the current
   Vercel Hobby plan, with sub-daily options documented in
   DEPLOYMENT.md section 6.
