@@ -330,14 +330,14 @@ describe("runSendTick per-lead timezone window (v1.5.0)", () => {
   }
 
   /** Enrollment already due before this block's fixed tick times. */
-  async function enrollDue(campaignId: string, leadId: string) {
+  async function enrollDue(campaignId: string, leadId: string, nextSendAt = "2026-10-26T00:00:00Z") {
     return db.enrollment.create({
       data: {
         campaignId,
         leadId,
         status: "ACTIVE",
         currentStep: 0,
-        nextSendAt: new Date("2026-10-26T00:00:00Z"),
+        nextSendAt: new Date(nextSendAt),
       },
     });
   }
@@ -369,10 +369,26 @@ describe("runSendTick per-lead timezone window (v1.5.0)", () => {
     const list = await db.leadList.create({ data: { workspaceId, name: "List tz-de" } });
     const lead = await makeLeadWithCountry("tz-de", list.id, "Germany");
     const campaign = await makeWindowedCampaign("tz-de", account.id, list.id);
-    await enrollDue(campaign.id, lead.id);
+    // Stamped 08:00 UTC, which is 09:00 in Berlin: a valid local time.
+    await enrollDue(campaign.id, lead.id, "2026-10-26T08:00:00Z");
 
     // Monday 2026-10-26 08:30 UTC is 09:30 in Berlin: inside the window.
     const summary = await runSendTick({ db, now: new Date("2026-10-26T08:30:00Z"), skipSync: true });
+    expect(summary.sent).toBe(1);
+    expect(summary.deferredOutsideWindow).toBe(0);
+  });
+
+  it("still sends a validly stamped US lead when the only tick runs late", async () => {
+    const account = await makeAccount(100, "tz-late");
+    const list = await db.leadList.create({ data: { workspaceId, name: "List tz-late" } });
+    const lead = await makeLeadWithCountry("tz-late", list.id, "United States");
+    const campaign = await makeWindowedCampaign("tz-late", account.id, list.id);
+    // Stamped 2026-10-26 14:00 UTC, which is 09:00 in Chicago: valid.
+    await enrollDue(campaign.id, lead.id, "2026-10-26T14:00:00Z");
+
+    // The next tick runs at 05:00 UTC, midnight in Chicago. A sparse
+    // cadence must degrade to late delivery, never starve the lead.
+    const summary = await runSendTick({ db, now: new Date("2026-10-27T05:00:00Z"), skipSync: true });
     expect(summary.sent).toBe(1);
     expect(summary.deferredOutsideWindow).toBe(0);
   });

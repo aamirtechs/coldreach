@@ -55,9 +55,10 @@ export interface SendTickSummary {
   completed: number;
   skippedSuppressed: number;
   deferredNoCapacity: number;
-  /** Sends deferred because the lead's own timezone is outside the
-   *  campaign window right now; the enrollment is re-stamped to the
-   *  lead's next window opening (per-lead timezone sending, v1.5.0). */
+  /** Sends deferred because the enrollment's stamped time falls
+   *  outside the lead's own local window; the enrollment is
+   *  re-stamped to the lead's next window opening (per-lead
+   *  timezone sending, v1.5.0). */
   deferredOutsideWindow: number;
   failed: number;
   /** Sends refused because the workspace hit its plan's monthly quota. */
@@ -209,23 +210,27 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       continue;
     }
 
-    // Gate: per-lead timezone window (v1.5.0). When the lead's own
-    // timezone resolves and differs from the campaign's, the send
-    // must fall inside the campaign window as observed in the lead's
-    // timezone. Enrollments stamped before per-lead scheduling carry
-    // campaign-zone times, so a due enrollment can surface at an odd
-    // local hour for the lead; rather than send then, re-stamp it to
-    // the lead's next window opening and let a later tick send it.
+    // Gate: per-lead timezone window (v1.5.0). The enrollment's
+    // stamped time is the intended send moment. When the lead's own
+    // timezone resolves and differs from the campaign's, check the
+    // stamp itself against the lead's local window: a stamp that
+    // falls outside it (enrollments stamped before per-lead
+    // scheduling carry campaign-zone times) is re-stamped once to
+    // the lead's next window opening. A stamp that is already a
+    // valid lead-local send time always sends when a tick finds it
+    // due, even if the tick itself runs late, so a sparse tick
+    // cadence degrades to late delivery rather than starving a lead
+    // whose window no tick happens to land inside.
     const leadTimezone = resolveLeadTimezone(lead.fields as LeadFields);
-    if (leadTimezone && leadTimezone !== campaign.timezone) {
-      const slot = computeNextSendAt(now, {
+    if (leadTimezone && leadTimezone !== campaign.timezone && enrollment.nextSendAt) {
+      const slot = computeNextSendAt(enrollment.nextSendAt, {
         timezone: leadTimezone,
         windowStart: campaign.windowStart,
         windowEnd: campaign.windowEnd,
         businessDaysOnly: campaign.businessDaysOnly,
         delayHours: 0,
       });
-      if (slot.getTime() > now.getTime()) {
+      if (slot.getTime() > enrollment.nextSendAt.getTime()) {
         await db.enrollment.update({
           where: { id: enrollment.id },
           data: { nextSendAt: slot },
