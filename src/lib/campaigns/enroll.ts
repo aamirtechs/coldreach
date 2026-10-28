@@ -1,5 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { computeNextSendAt } from "@/lib/domain/scheduling";
+import { resolveLeadTimezone } from "@/lib/domain/leadTimezone";
+import type { LeadFields } from "@/lib/domain/personalize";
 import { findSuppression } from "@/lib/domain/suppression";
 import { loadSuppressions } from "@/lib/suppressions";
 
@@ -51,7 +53,7 @@ export async function enrollCampaign(
 
   const leads = await db.lead.findMany({
     where: { workspaceId: args.workspaceId, listId: campaign.leadListId },
-    select: { id: true, email: true, status: true, verificationStatus: true },
+    select: { id: true, email: true, status: true, verificationStatus: true, fields: true },
   });
   const suppressions = await loadSuppressions(db, args.workspaceId);
   const existingEnrollments = await db.enrollment.findMany({
@@ -65,7 +67,7 @@ export async function enrollCampaign(
   let skippedIneligible = 0;
   let skippedInvalidVerification = 0;
   let enrolledRisky = 0;
-  const eligible: { leadId: string }[] = [];
+  const eligible: { leadId: string; fields: LeadFields }[] = [];
 
   for (const lead of leads) {
     if (enrolledLeadIds.has(lead.id)) {
@@ -87,29 +89,32 @@ export async function enrollCampaign(
     if (lead.verificationStatus === "RISKY") {
       enrolledRisky += 1;
     }
-    eligible.push({ leadId: lead.id });
+    eligible.push({ leadId: lead.id, fields: (lead.fields ?? {}) as LeadFields });
   }
 
   const firstStep = campaign.steps[0];
   const firstDelayHours = firstStep ? firstStep.delayDays * 24 + firstStep.delayHours : 0;
-  const nextSendAt = firstStep
-    ? computeNextSendAt(now, {
-        timezone: campaign.timezone,
-        windowStart: campaign.windowStart,
-        windowEnd: campaign.windowEnd,
-        businessDaysOnly: campaign.businessDaysOnly,
-        delayHours: firstDelayHours,
-      })
-    : null;
 
   if (eligible.length > 0) {
     await db.enrollment.createMany({
+      // Per-lead timezone (v1.5.0): each lead's first send is stamped
+      // in its own timezone when one resolves from its fields, so the
+      // campaign window opens on the lead's local morning. Leads with
+      // no resolvable zone keep the campaign timezone, unchanged.
       data: eligible.map((entry) => ({
         campaignId: campaign.id,
         leadId: entry.leadId,
         currentStep: 0,
         status: "ACTIVE" as const,
-        nextSendAt,
+        nextSendAt: firstStep
+          ? computeNextSendAt(now, {
+              timezone: resolveLeadTimezone(entry.fields) ?? campaign.timezone,
+              windowStart: campaign.windowStart,
+              windowEnd: campaign.windowEnd,
+              businessDaysOnly: campaign.businessDaysOnly,
+              delayHours: firstDelayHours,
+            })
+          : null,
       })),
     });
   }

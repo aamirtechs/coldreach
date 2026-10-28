@@ -79,6 +79,12 @@ testable in milliseconds and reusable by the future sending worker.
 
 - `scheduling.ts` computes the next allowed send instant from a campaign
   timezone (via Intl), a local window, a business day rule, and a delay.
+- `leadTimezone.ts` (v1.5.0) resolves a lead's own timezone from its
+  imported fields (explicit timezone field, then US state, then country)
+  so enrollment stamping and the sending worker observe the campaign
+  window in the lead's local time. Unresolved leads fall back to the
+  campaign timezone. The worker additionally re-stamps a due enrollment
+  to the lead's next window opening rather than sending outside it.
 - `suppression.ts` matches exact emails and whole domains across workspace
   and global entries.
 - `dedupe.ts` normalises addresses (trim, lowercase, optional plus-tag

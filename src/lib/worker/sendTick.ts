@@ -1,6 +1,7 @@
 import type { PrismaClient, SendingAccount } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeNextSendAt } from "@/lib/domain/scheduling";
+import { resolveLeadTimezone } from "@/lib/domain/leadTimezone";
 import { findSuppression, type SuppressionEntry } from "@/lib/domain/suppression";
 import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
@@ -54,6 +55,10 @@ export interface SendTickSummary {
   completed: number;
   skippedSuppressed: number;
   deferredNoCapacity: number;
+  /** Sends deferred because the lead's own timezone is outside the
+   *  campaign window right now; the enrollment is re-stamped to the
+   *  lead's next window opening (per-lead timezone sending, v1.5.0). */
+  deferredOutsideWindow: number;
   failed: number;
   /** Sends refused because the workspace hit its plan's monthly quota. */
   quotaBlocked: number;
@@ -106,6 +111,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     completed: 0,
     skippedSuppressed: 0,
     deferredNoCapacity: 0,
+    deferredOutsideWindow: 0,
     failed: 0,
     quotaBlocked: 0,
     sync: syncSummaries,
@@ -203,6 +209,32 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       continue;
     }
 
+    // Gate: per-lead timezone window (v1.5.0). When the lead's own
+    // timezone resolves and differs from the campaign's, the send
+    // must fall inside the campaign window as observed in the lead's
+    // timezone. Enrollments stamped before per-lead scheduling carry
+    // campaign-zone times, so a due enrollment can surface at an odd
+    // local hour for the lead; rather than send then, re-stamp it to
+    // the lead's next window opening and let a later tick send it.
+    const leadTimezone = resolveLeadTimezone(lead.fields as LeadFields);
+    if (leadTimezone && leadTimezone !== campaign.timezone) {
+      const slot = computeNextSendAt(now, {
+        timezone: leadTimezone,
+        windowStart: campaign.windowStart,
+        windowEnd: campaign.windowEnd,
+        businessDaysOnly: campaign.businessDaysOnly,
+        delayHours: 0,
+      });
+      if (slot.getTime() > now.getTime()) {
+        await db.enrollment.update({
+          where: { id: enrollment.id },
+          data: { nextSendAt: slot },
+        });
+        summary.deferredOutsideWindow += 1;
+        continue;
+      }
+    }
+
     // Gate 2: capacity, rotating across the campaign's accounts in
     // order and honouring each account's effective daily limit.
     const accounts = campaign.accounts.map((entry) => entry.sendingAccount);
@@ -258,7 +290,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         return;
       }
       const nextSendAt = computeNextSendAt(now, {
-        timezone: campaign.timezone,
+        timezone: resolveLeadTimezone(lead.fields as LeadFields) ?? campaign.timezone,
         windowStart: campaign.windowStart,
         windowEnd: campaign.windowEnd,
         businessDaysOnly: campaign.businessDaysOnly,

@@ -287,3 +287,93 @@ describe("runSendTick", () => {
     expect(html.indexOf("Best regards")).toBeLessThan(html.indexOf("<hr />"));
   });
 });
+
+describe("runSendTick per-lead timezone window (v1.5.0)", () => {
+  async function makeWindowedCampaign(suffix: string, accountId: string, listId: string) {
+    const campaign = await db.campaign.create({
+      data: {
+        workspaceId,
+        name: `Campaign ${suffix}`,
+        status: "RUNNING",
+        timezone: "UTC",
+        windowStart: "09:00",
+        windowEnd: "17:00",
+        businessDaysOnly: false,
+        leadListId: listId,
+      },
+    });
+    await db.sequenceStep.create({
+      data: {
+        campaignId: campaign.id,
+        order: 0,
+        delayDays: 0,
+        delayHours: 0,
+        subject: "Hi {{firstName|there}}",
+        body: "Body",
+      },
+    });
+    await db.campaignAccount.create({ data: { campaignId: campaign.id, sendingAccountId: accountId } });
+    return campaign;
+  }
+
+  async function makeLeadWithCountry(suffix: string, listId: string, country: string) {
+    return db.lead.create({
+      data: {
+        workspaceId,
+        listId,
+        email: `${suffix}@example.com`,
+        fields: { firstName: "Test", company: "Acme", country },
+        tags: [],
+        status: "NEW",
+      },
+    });
+  }
+
+  /** Enrollment already due before this block's fixed tick times. */
+  async function enrollDue(campaignId: string, leadId: string) {
+    return db.enrollment.create({
+      data: {
+        campaignId,
+        leadId,
+        status: "ACTIVE",
+        currentStep: 0,
+        nextSendAt: new Date("2026-10-26T00:00:00Z"),
+      },
+    });
+  }
+
+  it("defers a US lead outside its local window and sends once the window opens", async () => {
+    const account = await makeAccount(100, "tz-us");
+    const list = await db.leadList.create({ data: { workspaceId, name: "List tz-us" } });
+    const lead = await makeLeadWithCountry("tz-us", list.id, "United States");
+    const campaign = await makeWindowedCampaign("tz-us", account.id, list.id);
+    const enrollment = await enrollDue(campaign.id, lead.id);
+
+    // Monday 2026-10-26 10:00 UTC is 05:00 in Chicago, before the
+    // 09:00 window opening there: nothing sends, and the enrollment
+    // is re-stamped to 09:00 Chicago time (14:00 UTC).
+    const early = await runSendTick({ db, now: new Date("2026-10-26T10:00:00Z"), skipSync: true });
+    expect(early.sent).toBe(0);
+    expect(early.deferredOutsideWindow).toBe(1);
+    const deferred = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(deferred?.nextSendAt?.toISOString()).toBe("2026-10-26T14:00:00.000Z");
+
+    // 16:00 UTC is 11:00 in Chicago: inside the window, the send goes.
+    const later = await runSendTick({ db, now: new Date("2026-10-26T16:00:00Z"), skipSync: true });
+    expect(later.sent).toBe(1);
+    expect(later.deferredOutsideWindow).toBe(0);
+  });
+
+  it("sends a German lead whose local window is already open", async () => {
+    const account = await makeAccount(100, "tz-de");
+    const list = await db.leadList.create({ data: { workspaceId, name: "List tz-de" } });
+    const lead = await makeLeadWithCountry("tz-de", list.id, "Germany");
+    const campaign = await makeWindowedCampaign("tz-de", account.id, list.id);
+    await enrollDue(campaign.id, lead.id);
+
+    // Monday 2026-10-26 08:30 UTC is 09:30 in Berlin: inside the window.
+    const summary = await runSendTick({ db, now: new Date("2026-10-26T08:30:00Z"), skipSync: true });
+    expect(summary.sent).toBe(1);
+    expect(summary.deferredOutsideWindow).toBe(0);
+  });
+});
