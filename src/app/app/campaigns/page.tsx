@@ -31,7 +31,7 @@ export default async function CampaignsPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4" data-tour="campaigns">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Campaigns</h1>
           <p className="mt-1 text-sm text-muted">
@@ -48,7 +48,7 @@ export default async function CampaignsPage() {
           body="Create a campaign, attach a lead list, write the sequence, and run preflight. Launch is blocked until every safety check passes."
         />
       ) : (
-        <div className="card mt-6 overflow-hidden">
+        <div className="card mt-6 overflow-hidden" data-tour="campaigns-table">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
               <tr>

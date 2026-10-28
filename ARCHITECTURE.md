@@ -85,6 +85,11 @@ testable in milliseconds and reusable by the future sending worker.
   window in the lead's local time. Unresolved leads fall back to the
   campaign timezone. The worker additionally re-stamps a due enrollment
   to the lead's next window opening rather than sending outside it.
+- The product tour (v1.6.0) lives in `tourSteps.ts` (pure step data),
+  `tour.ts` (per-user completion on `User.tourCompletedAt`), the
+  `ProductTour` client component mounted by the app layout, and
+  `POST /api/tour/complete`. Pages expose `data-tour` anchors; the
+  dashboard checklist links into matching steps via `?tour=<stepId>`.
 - `suppression.ts` matches exact emails and whole domains across workspace
   and global entries.
 - `dedupe.ts` normalises addresses (trim, lowercase, optional plus-tag

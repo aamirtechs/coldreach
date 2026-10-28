@@ -44,7 +44,7 @@ export default async function SettingsPage({
             : `HubSpot connection did not complete${detail ? `: ${detail}` : ""}. Check the HubSpot card below and try again.`}
         </div>
       ) : null}
-      <div className="mt-6">
+      <div className="mt-6" data-tour="identity">
         <WorkspaceSettingsForm
           canEdit={canEdit}
           initial={{

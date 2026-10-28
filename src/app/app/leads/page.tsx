@@ -24,7 +24,7 @@ export default async function LeadsPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4" data-tour="leads">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="mt-1 text-sm text-muted">

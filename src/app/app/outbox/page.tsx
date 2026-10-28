@@ -154,7 +154,7 @@ export default async function OutboxPage({
   const shown = filtered.slice(0, PAGE_LIMIT);
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl" data-tour="outbox">
       <h1 className="font-display text-2xl font-semibold tracking-tight">Outbox</h1>
       <p className="mt-1 text-sm text-muted">
         Emails sent from {session.workspace.name}, read from recorded sends. Opened and replied

@@ -173,12 +173,18 @@ export default async function DashboardPage() {
         <p className="mt-6 flex items-center gap-2 text-sm text-muted">
           <ListChecks className="h-4 w-4 text-accent" />
           Getting started: all set. Every setup step is complete for this workspace.
+          <Link href="/app?tour=welcome" className="font-medium text-accent hover:underline">
+            Take the product tour
+          </Link>
         </p>
       ) : (
-        <section className="card mt-6 p-6">
+        <section className="card mt-6 p-6" data-tour="checklist">
           <div className="flex items-center justify-between gap-4">
             <h2 className="font-display text-lg font-semibold">Getting started</h2>
-            <span className="text-xs font-medium text-muted">
+            <span className="flex items-center gap-3 text-xs font-medium text-muted">
+              <Link href="/app?tour=welcome" className="text-accent hover:underline">
+                Take the tour
+              </Link>
               {onboarding.doneCount} of {onboarding.total} done
             </span>
           </div>
@@ -197,9 +203,17 @@ export default async function DashboardPage() {
                 {item.done ? (
                   <span className="text-muted line-through">{item.label}</span>
                 ) : (
-                  <Link href={item.href} className="font-medium hover:text-accent">
-                    {item.label}
-                  </Link>
+                  <>
+                    <Link href={item.href} className="font-medium hover:text-accent">
+                      {item.label}
+                    </Link>
+                    <Link
+                      href={`/app?tour=${item.tourStep}`}
+                      className="text-xs font-medium text-accent hover:underline"
+                    >
+                      Show me
+                    </Link>
+                  </>
                 )}
               </li>
             ))}

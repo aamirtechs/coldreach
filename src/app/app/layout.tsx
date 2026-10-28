@@ -1,6 +1,10 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { listUserWorkspaces } from "@/lib/auth/workspaces";
+import { getTourCompletedAt } from "@/lib/tour";
+import { ProductTour } from "@/components/ProductTour";
 import { Sidebar } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/components/UserMenu";
@@ -12,6 +16,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
   const workspaces = await listUserWorkspaces(session.user.id);
+  const tourCompletedAt = await getTourCompletedAt(prisma, session.user.id);
 
   return (
     <div className="flex min-h-screen">
@@ -39,6 +44,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </header>
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
+      <Suspense fallback={null}>
+        <ProductTour tourCompleted={tourCompletedAt !== null} />
+      </Suspense>
     </div>
   );
 }

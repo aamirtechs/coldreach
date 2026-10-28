@@ -12,6 +12,8 @@ export interface OnboardingItem {
   label: string;
   done: boolean;
   href: string;
+  /** Product tour step that demonstrates this item (v1.6.0). */
+  tourStep: string;
 }
 
 export interface OnboardingState {
@@ -45,36 +47,42 @@ export async function getOnboardingState(
       label: "Set your sender identity (name and postal address, required by CAN-SPAM)",
       done: Boolean(workspace?.senderName && workspace?.senderAddress),
       href: "/app/settings",
+      tourStep: "identity",
     },
     {
       key: "list",
       label: "Create your first lead list",
       done: listCount > 0,
       href: "/app/leads",
+      tourStep: "leads",
     },
     {
       key: "leads",
       label: "Import leads into a list",
       done: leadCount > 0,
       href: "/app/leads",
+      tourStep: "leads",
     },
     {
       key: "account",
       label: "Connect a sending account",
       done: connectedAccounts > 0,
       href: "/app/accounts",
+      tourStep: "accounts",
     },
     {
       key: "campaign",
       label: "Create your first campaign",
       done: campaignCount > 0,
       href: "/app/campaigns",
+      tourStep: "campaigns",
     },
     {
       key: "launch",
       label: "Launch a campaign (preflight checks run first)",
       done: launchedCount > 0,
       href: "/app/campaigns",
+      tourStep: "preflight",
     },
   ];
   const doneCount = items.filter((item) => item.done).length;
