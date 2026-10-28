@@ -3,8 +3,11 @@ import { redirect } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
+  Clock,
   Eye,
   Flame,
+  Gauge,
+  History,
   ListChecks,
   Mail,
   Play,
@@ -18,16 +21,37 @@ import { prisma } from "@/lib/prisma";
 import { getOnboardingState } from "@/lib/onboarding";
 import { getSendingSchedule } from "@/lib/sendingSchedule";
 
-/** "28 Oct, 09:00" in the given IANA timezone, for schedule rows. */
+/** "Wed 28 Oct, 09:00" in the given IANA timezone, for schedule rows. */
 function formatInZone(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone,
+    weekday: "short",
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   }).format(date);
+}
+
+/** "in 5h 12m", "in 24m", "in 2d 3h", or "due now" for a future stamp. */
+function formatUntil(date: Date, now: Date): string {
+  const minutes = Math.floor((date.getTime() - now.getTime()) / 60_000);
+  if (minutes <= 0) return "due now";
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `in ${hours}h ${minutes % 60}m`;
+  return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+/** "12m ago", "3h ago", "2d ago" for a past stamp. */
+function formatAgo(date: Date, now: Date): string {
+  const minutes = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 export const dynamic = "force-dynamic";
@@ -143,6 +167,11 @@ export default async function DashboardPage() {
   const onboarding = await getOnboardingState(prisma, workspaceId);
   const schedule = await getSendingSchedule(prisma, workspaceId);
   const nextDue = schedule.upcoming[0] ?? null;
+  const scheduleNow = new Date();
+  const capacityPercent =
+    schedule.capacity.cap > 0
+      ? Math.min(100, Math.round((schedule.capacity.used / schedule.capacity.cap) * 100))
+      : 0;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -185,63 +214,153 @@ export default async function DashboardPage() {
       </div>
 
       <h2 className="mt-8 font-display text-lg font-semibold">Sending schedule</h2>
-      <section className="card mt-4 p-6">
-        <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
-          <p>
-            <span className="text-muted">Last sent:</span>{" "}
-            <span className="font-medium">
-              {schedule.lastSentAt
-                ? `${formatInZone(schedule.lastSentAt, "UTC")} UTC`
-                : "Nothing sent yet"}
-            </span>
+      <section className="card mt-4 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
+          <p className="text-sm text-muted">
+            When emails went out, when the next ones are due, and how much of today's
+            capacity is left.
           </p>
-          <p>
-            <span className="text-muted">Sent today:</span>{" "}
-            <span className="font-medium">
-              {schedule.sentToday} of about {schedule.capacity.cap} capacity across{" "}
-              {schedule.capacity.accounts}{" "}
-              {schedule.capacity.accounts === 1 ? "account" : "accounts"}
-            </span>
-          </p>
-          <p>
-            <span className="text-muted">Next send due:</span>{" "}
-            <span className="font-medium">
-              {nextDue
-                ? `${formatInZone(nextDue.at, nextDue.timezone)} (${nextDue.timezone})`
-                : "Nothing scheduled"}
-            </span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-success" aria-hidden="true" />
+            Scheduler live · ticks every few minutes
+          </span>
+        </div>
+
+        <div className="grid gap-4 px-6 py-5 sm:grid-cols-3">
+          <div className="rounded-xl bg-elevated p-4">
+            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted">
+              <History className="h-4 w-4 text-accent" /> Last sent
+            </p>
+            {schedule.lastSentAt ? (
+              <>
+                <p className="mt-2 font-display text-xl font-semibold">
+                  {formatInZone(schedule.lastSentAt, "UTC")}
+                  <span className="ml-1 text-sm font-medium text-muted">UTC</span>
+                </p>
+                <p className="mt-0.5 text-xs text-muted">{formatAgo(schedule.lastSentAt, scheduleNow)}</p>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 font-display text-xl font-semibold">Nothing yet</p>
+                <p className="mt-0.5 text-xs text-muted">The first sends appear here as they leave</p>
+              </>
+            )}
+          </div>
+
+          <div className="rounded-xl bg-elevated p-4">
+            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted">
+              <Gauge className="h-4 w-4 text-accent" /> Sent today
+            </p>
+            <p className="mt-2 font-display text-xl font-semibold">
+              {schedule.sentToday}
+              <span className="text-sm font-medium text-muted"> of about {schedule.capacity.cap}</span>
+            </p>
+            <div
+              className="mt-2 h-1.5 overflow-hidden rounded-full bg-line"
+              role="progressbar"
+              aria-valuenow={schedule.capacity.used}
+              aria-valuemax={schedule.capacity.cap}
+              aria-label="Today's sending capacity used"
+            >
+              <div className="h-full rounded-full bg-accent" style={{ width: `${capacityPercent}%` }} />
+            </div>
+            <p className="mt-1.5 text-xs text-muted">
+              {capacityPercent}% of today's capacity across {schedule.capacity.accounts}{" "}
+              {schedule.capacity.accounts === 1 ? "account" : "accounts"} · resets 00:00 UTC
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-elevated p-4">
+            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted">
+              <Clock className="h-4 w-4 text-accent" /> Next send due
+            </p>
+            {nextDue ? (
+              <>
+                <p className="mt-2 font-display text-xl font-semibold">
+                  {formatInZone(nextDue.at, nextDue.timezone)}
+                </p>
+                <p className="mt-0.5 text-xs text-muted">
+                  {nextDue.timezone} · {formatUntil(nextDue.at, scheduleNow)} · {nextDue.campaignName}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 font-display text-xl font-semibold">Nothing scheduled</p>
+                <p className="mt-0.5 text-xs text-muted">No active enrollments in running campaigns</p>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t border-line px-6 py-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="text-sm font-semibold">Upcoming sends</h3>
+            {schedule.upcoming.length > 0 && (
+              <span className="text-xs text-muted">Next {schedule.upcoming.length}, soonest first</span>
+            )}
+          </div>
+          {schedule.upcoming.length > 0 ? (
+            <div className="relative mt-3">
+              <div aria-hidden="true" className="absolute bottom-3 left-[5px] top-3 w-px bg-line" />
+              <ol>
+                {schedule.upcoming.map((send) => (
+                  <li
+                    key={send.enrollmentId}
+                    className="relative flex gap-4 rounded-lg px-1 py-2.5 transition-colors hover:bg-elevated/70"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`relative z-10 mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full border-2 ${
+                        send.due ? "border-success bg-success" : "border-accent bg-surface"
+                      }`}
+                    />
+                    <div className="w-44 shrink-0">
+                      <p className="text-sm font-semibold leading-tight">
+                        {formatInZone(send.at, send.timezone)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">{send.timezone}</p>
+                      {send.timezone !== "UTC" && (
+                        <p className="text-xs text-muted">{formatInZone(send.at, "UTC")} UTC</p>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {send.company ?? send.leadEmail}
+                        {send.company && (
+                          <span className="font-normal text-muted"> · {send.leadEmail}</span>
+                        )}
+                      </p>
+                      <p className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+                          {send.campaignName}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs font-medium text-muted">
+                          Step {send.stepNumber}
+                        </span>
+                        {send.due ? (
+                          <span className="inline-flex items-center rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">
+                            Due now
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted">{formatUntil(send.at, scheduleNow)}</span>
+                        )}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : (
+            <p className="mt-3 rounded-lg bg-elevated px-4 py-3 text-sm text-muted">
+              No sends are scheduled. Enrolled leads in running campaigns will appear here with
+              their next send time.
+            </p>
+          )}
+          <p className="mt-4 text-xs text-muted">
+            Times are the moment each lead's local sending window opens. A due send leaves on the
+            next scheduler tick after its time.
           </p>
         </div>
-        {schedule.upcoming.length > 0 ? (
-          <ol className="mt-4 divide-y divide-line border-t border-line">
-            {schedule.upcoming.map((send) => (
-              <li key={send.enrollmentId} className="flex flex-wrap items-baseline gap-x-3 py-2 text-sm">
-                <span className="font-medium">
-                  {formatInZone(send.at, send.timezone)}
-                  <span className="text-muted"> {send.timezone}</span>
-                  {send.timezone !== "UTC" && (
-                    <span className="text-muted"> · {formatInZone(send.at, "UTC")} UTC</span>
-                  )}
-                </span>
-                <span>{send.campaignName}</span>
-                <span className="text-muted">
-                  {send.company ? `${send.company} · ` : ""}
-                  {send.leadEmail} · Step {send.stepNumber}
-                </span>
-                {send.due && <span className="text-xs font-medium text-accent">Due now</span>}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="mt-3 text-sm text-muted">
-            No sends are scheduled. Enrolled leads in running campaigns will appear here with
-            their next send time.
-          </p>
-        )}
-        <p className="mt-3 text-xs text-muted">
-          Times are the moment each lead's local sending window opens. The scheduler ticks every
-          few minutes, so a due send leaves on the next tick after its time.
-        </p>
       </section>
 
       {onboarding.complete ? (
