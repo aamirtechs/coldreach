@@ -85,6 +85,12 @@ testable in milliseconds and reusable by the future sending worker.
   window in the lead's local time. Unresolved leads fall back to the
   campaign timezone. The worker additionally re-stamps a due enrollment
   to the lead's next window opening rather than sending outside it.
+- Every successful campaign send records an outbound ThreadMessage
+  on the lead's thread (v1.8.1), matched the way reply sync matches
+  (workspace + lead + sending account); the Outbox and inbox history
+  read those rows. The tick also interleaves its due pool across
+  campaigns (`interleaveByCampaign` in sendTick.ts) so one batch is
+  shared fairly instead of draining the oldest-stamped campaign.
 - AI keys are per workspace (v1.8.0): `WorkspaceAiConfig` stores one
   encrypted OpenAI or Groq key per workspace, managed in
   `lib/ai/workspaceAi.ts` and the Integrations AI provider panel.

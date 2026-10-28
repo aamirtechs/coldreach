@@ -393,3 +393,50 @@ describe("runSendTick per-lead timezone window (v1.5.0)", () => {
     expect(summary.deferredOutsideWindow).toBe(0);
   });
 });
+
+describe("interleaveByCampaign (v1.8.1 fairness)", () => {
+  it("round-robins across campaigns instead of draining the first one", async () => {
+    const { interleaveByCampaign } = await import("./sendTick");
+    const pool = [
+      ...[1, 2, 3, 4].map((n) => ({ campaignId: "a", n })),
+      ...[1, 2, 3, 4].map((n) => ({ campaignId: "b", n })),
+    ];
+    const picked = interleaveByCampaign(pool, 4);
+    expect(picked.map((item) => item.campaignId)).toEqual(["a", "b", "a", "b"]);
+    expect(picked.map((item) => item.n)).toEqual([1, 1, 2, 2]);
+  });
+
+  it("keeps a single campaign in its own order and returns everything under the limit", async () => {
+    const { interleaveByCampaign } = await import("./sendTick");
+    const pool = [1, 2, 3].map((n) => ({ campaignId: "a", n }));
+    expect(interleaveByCampaign(pool, 10).map((item) => item.n)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("runSendTick outbound thread recording (v1.8.1)", () => {
+  it("writes the send as an outbound thread message so the Outbox lists it", async () => {
+    const account = await makeAccount(100, "outbox");
+    const { list, leads } = await makeListWithLeads("outbox", ["outbox@example.com"]);
+    const campaign = await makeCampaign({
+      suffix: "outbox",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    await enroll(campaign.id, leads[0].id);
+
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true });
+    expect(summary.failed).toBe(0);
+
+    const messages = await db.threadMessage.findMany({
+      where: { direction: "OUTBOUND", toEmail: "outbox@example.com" },
+      include: { thread: true },
+    });
+    expect(messages).toHaveLength(1);
+    expect(messages[0].thread.campaignId).toBe(campaign.id);
+    expect(messages[0].thread.leadId).toBe(leads[0].id);
+    expect(messages[0].thread.sendingAccountId).toBe(account.id);
+    expect(messages[0].subject).toContain("Subject 1");
+    expect(messages[0].body).toContain("Body 1 for Acme");
+    expect(messages[0].fromEmail).toBe(account.email);
+  });
+});

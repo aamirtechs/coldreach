@@ -75,6 +75,44 @@ function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
+/**
+ * Round-robin a due pool across campaigns (v1.8.1). The pool arrives
+ * in due order; grouping by campaign and taking one enrollment from
+ * each campaign in turn means a single tick's batch is shared fairly
+ * instead of the oldest-stamped campaign consuming the whole batch
+ * while the others wait for later ticks.
+ */
+export function interleaveByCampaign<T extends { campaignId: string }>(
+  items: T[],
+  limit: number,
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const group = groups.get(item.campaignId);
+    if (group) {
+      group.push(item);
+    } else {
+      groups.set(item.campaignId, [item]);
+    }
+  }
+  const queues = [...groups.values()];
+  const pointers = queues.map(() => 0);
+  const result: T[] = [];
+  while (result.length < limit) {
+    let advanced = false;
+    for (let q = 0; q < queues.length && result.length < limit; q += 1) {
+      const item = queues[q][pointers[q]];
+      if (item !== undefined) {
+        result.push(item);
+        pointers[q] += 1;
+        advanced = true;
+      }
+    }
+    if (!advanced) break;
+  }
+  return result;
+}
+
 function textToHtml(text: string): string {
   const escaped = text
     .replace(/&/g, "&amp;")
@@ -119,7 +157,11 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     webhooks: { attempted: 0, delivered: 0, failed: 0, retrying: 0 },
   };
 
-  const due = await db.enrollment.findMany({
+  // Fetch a wider due pool than the batch, then interleave it across
+  // campaigns (v1.8.1) so the batch is shared fairly. The pool fetch
+  // stays in due order, so each campaign's own queue keeps its order.
+  const batchLimit = deps.batchLimit ?? 200;
+  const duePool = await db.enrollment.findMany({
     where: {
       status: "ACTIVE",
       nextSendAt: { lte: now },
@@ -139,8 +181,9 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       },
     },
     orderBy: { nextSendAt: "asc" },
-    take: deps.batchLimit ?? 200,
+    take: batchLimit * 5,
   });
+  const due = interleaveByCampaign(duePool, batchLimit);
 
   const suppressionCache = new Map<string, SuppressionEntry[]>();
   const sentTodayCache = new Map<string, number>();
@@ -417,6 +460,53 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
           occurredAt: now,
         },
       });
+      // Record the send in the lead's conversation thread (v1.8.1).
+      // The Outbox and the inbox thread history read outbound
+      // ThreadMessages; before this, campaign sends wrote only the
+      // SENT event, so real sends never appeared in the Outbox. The
+      // thread is matched the same way reply sync matches it
+      // (workspace + lead + sending account), so a later reply lands
+      // in the same conversation. A failure here must not fail the
+      // send, which already happened and is evented above.
+      try {
+        let thread = await db.thread.findFirst({
+          where: { workspaceId, leadId: lead.id, sendingAccountId: chosen.id },
+          orderBy: { lastMessageAt: "desc" },
+        });
+        if (!thread) {
+          thread = await db.thread.create({
+            data: {
+              workspaceId,
+              leadId: lead.id,
+              campaignId: campaign.id,
+              sendingAccountId: chosen.id,
+              subject,
+              status: "OPEN",
+              unread: false,
+              lastMessageAt: now,
+            },
+          });
+        } else {
+          await db.thread.update({
+            where: { id: thread.id },
+            data: { lastMessageAt: now },
+          });
+        }
+        await db.threadMessage.create({
+          data: {
+            threadId: thread.id,
+            direction: "OUTBOUND",
+            fromEmail: chosen.email,
+            toEmail: lead.email,
+            subject,
+            body: fullText,
+            providerMessageId: result.providerMessageId,
+            occurredAt: now,
+          },
+        });
+      } catch (error) {
+        logger.error("Outbound thread recording failed after send", { error, requestId });
+      }
       sentTodayCache.set(chosen.id, (sentTodayCache.get(chosen.id) ?? 0) + 1);
       quota.sentThisMonth += 1;
       summary.sent += 1;
