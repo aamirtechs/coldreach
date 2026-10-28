@@ -20,6 +20,7 @@ import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { getOnboardingState } from "@/lib/onboarding";
 import { getSendingSchedule } from "@/lib/sendingSchedule";
+import { LocalTime } from "@/components/LocalTime";
 
 /** "Wed 28 Oct, 09:00" in the given IANA timezone, for schedule rows. */
 function formatInZone(date: Date, timeZone: string): string {
@@ -168,6 +169,12 @@ export default async function DashboardPage() {
   const schedule = await getSendingSchedule(prisma, workspaceId);
   const nextDue = schedule.upcoming[0] ?? null;
   const scheduleNow = new Date();
+  // The daily capacity resets at the next UTC midnight; the tile
+  // shows that moment in the viewer's own timezone (v1.8.3).
+  const nextReset = new Date(
+    Date.UTC(scheduleNow.getUTCFullYear(), scheduleNow.getUTCMonth(), scheduleNow.getUTCDate()) +
+      86_400_000,
+  );
   const capacityPercent =
     schedule.capacity.cap > 0
       ? Math.min(100, Math.round((schedule.capacity.used / schedule.capacity.cap) * 100))
@@ -234,8 +241,10 @@ export default async function DashboardPage() {
             {schedule.lastSentAt ? (
               <>
                 <p className="mt-2 font-display text-xl font-semibold">
-                  {formatInZone(schedule.lastSentAt, "UTC")}
-                  <span className="ml-1 text-sm font-medium text-muted">UTC</span>
+                  <LocalTime
+                    iso={schedule.lastSentAt.toISOString()}
+                    fallback={`${formatInZone(schedule.lastSentAt, "UTC")} UTC`}
+                  />
                 </p>
                 <p className="mt-0.5 text-xs text-muted">{formatAgo(schedule.lastSentAt, scheduleNow)}</p>
               </>
@@ -266,7 +275,8 @@ export default async function DashboardPage() {
             </div>
             <p className="mt-1.5 text-xs text-muted">
               {capacityPercent}% of today's capacity across {schedule.capacity.accounts}{" "}
-              {schedule.capacity.accounts === 1 ? "account" : "accounts"} · resets 00:00 UTC
+              {schedule.capacity.accounts === 1 ? "account" : "accounts"} · resets{" "}
+              <LocalTime iso={nextReset.toISOString()} fallback="00:00 UTC" format="time" />
             </p>
           </div>
 
@@ -277,10 +287,14 @@ export default async function DashboardPage() {
             {nextDue ? (
               <>
                 <p className="mt-2 font-display text-xl font-semibold">
-                  {formatInZone(nextDue.at, nextDue.timezone)}
+                  <LocalTime
+                    iso={nextDue.at.toISOString()}
+                    fallback={`${formatInZone(nextDue.at, "UTC")} UTC`}
+                  />
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  {nextDue.timezone} · {formatUntil(nextDue.at, scheduleNow)} · {nextDue.campaignName}
+                  {formatInZone(nextDue.at, nextDue.timezone)} {nextDue.timezone} ·{" "}
+                  {formatUntil(nextDue.at, scheduleNow)} · {nextDue.campaignName}
                 </p>
               </>
             ) : (
@@ -319,9 +333,13 @@ export default async function DashboardPage() {
                         {formatInZone(send.at, send.timezone)}
                       </p>
                       <p className="mt-0.5 text-xs text-muted">{send.timezone}</p>
-                      {send.timezone !== "UTC" && (
-                        <p className="text-xs text-muted">{formatInZone(send.at, "UTC")} UTC</p>
-                      )}
+                      <p className="text-xs text-muted">
+                        <LocalTime
+                          iso={send.at.toISOString()}
+                          fallback={`${formatInZone(send.at, "UTC")} UTC`}
+                        />{" "}
+                        your time
+                      </p>
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">

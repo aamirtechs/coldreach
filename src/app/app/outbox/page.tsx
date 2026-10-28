@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
+import { LocalTime } from "@/components/LocalTime";
 
 export const dynamic = "force-dynamic";
 
@@ -222,7 +223,11 @@ export default async function OutboxPage({
                   <span className="badge bg-accent-soft text-accent">Replied</span>
                 ) : null}
                 <span className="ml-auto text-xs text-muted">
-                  {message.occurredAt.toLocaleString()}
+                  <LocalTime
+                    iso={message.occurredAt.toISOString()}
+                    fallback={`${message.occurredAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}
+                    format="full"
+                  />
                 </span>
               </div>
               <p className="mt-1 text-sm text-muted">

@@ -85,6 +85,13 @@ testable in milliseconds and reusable by the future sending worker.
   window in the lead's local time. Unresolved leads fall back to the
   campaign timezone. The worker additionally re-stamps a due enrollment
   to the lead's next window opening rather than sending outside it.
+- Absolute timestamps in server-rendered pages render through the
+  `LocalTime` client component (v1.8.3): the server emits a
+  UTC-labelled fallback and the browser swaps in the viewer's own
+  timezone on mount. Client components format with `toLocaleString`
+  in the browser and were already local. The sending schedule's
+  queue rows keep the lead's timezone as the primary value, with the
+  viewer's local time as the secondary line.
 - Account selection in the tick is least-used-first (v1.8.2): among
   a campaign's accounts with capacity left, the worker picks the one
   with the fewest sends today, so volume balances across accounts

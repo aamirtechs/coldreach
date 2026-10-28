@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
+import { LocalTime } from "@/components/LocalTime";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { warmupCapFor, warmupProgress } from "@/lib/domain/warmup";
 import { AccountForm } from "@/components/accounts/AccountForm";
@@ -142,7 +143,12 @@ export default async function AccountsPage({
                       </span>
                       {account.lastSyncAt ? (
                         <p className="mt-1 text-right text-[11px] text-muted">
-                          Last reply sync {account.lastSyncAt.toLocaleString()}
+                          Last reply sync{" "}
+                          <LocalTime
+                            iso={account.lastSyncAt.toISOString()}
+                            fallback={`${account.lastSyncAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}
+                            format="full"
+                          />
                         </p>
                       ) : null}
                     </td>

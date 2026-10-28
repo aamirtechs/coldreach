@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
+import { LocalTime } from "@/components/LocalTime";
 import { CreateListForm } from "@/components/leads/CreateListForm";
 import { EmptyState } from "@/components/ui";
 
@@ -63,7 +64,13 @@ export default async function LeadsPage() {
                     ) : null}
                   </td>
                   <td className="px-4 py-3">{list._count.leads}</td>
-                  <td className="px-4 py-3 text-muted">{list.createdAt.toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-muted">
+                    <LocalTime
+                      iso={list.createdAt.toISOString()}
+                      fallback={list.createdAt.toLocaleDateString("en-GB", { timeZone: "UTC" })}
+                      format="date"
+                    />
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <Link href={`/app/leads/${list.id}`} className="btn-secondary !px-3 !py-1.5 text-xs">
                       Open
