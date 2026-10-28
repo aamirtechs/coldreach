@@ -170,7 +170,7 @@ export default async function DashboardPage() {
       </div>
 
       {onboarding.complete ? (
-        <p className="mt-6 flex items-center gap-2 text-sm text-muted">
+        <p className="mt-6 flex items-center gap-2 text-sm text-muted" data-tour="checklist">
           <ListChecks className="h-4 w-4 text-accent" />
           Getting started: all set. Every setup step is complete for this workspace.
           <Link href="/app?tour=welcome" className="font-medium text-accent hover:underline">
