@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.10.0 (2026-10-29)
+
+Inbox bulk actions, manual compose, campaign progress, live sidebar status.
+
+- **Bulk mark as read.** Inbox rows gain checkboxes with a select page
+  control and an action bar (Mark as read, Mark as unread, Clear).
+  POST /api/threads/bulk verifies every id against the session
+  workspace before a scoped update, and audit logs the count.
+- **Compose.** A Compose button sits in the sidebar directly above
+  Inbox and opens a Gmail style compose window: a From select of the
+  workspace sending accounts (only CONNECTED accounts can send), To,
+  Subject, and body. POST /api/threads/compose checks suppression
+  before sending, links the thread to the lead when the recipient is
+  one (with the usual one-click unsubscribe headers), sends through
+  the account provider, and records the thread, the outbound message,
+  and a SENT event, so manual emails appear in the inbox and Outbox
+  and count toward the account's daily totals.
+- **Campaigns Progress column.** The campaigns table shows, per
+  campaign, "X of Y contacted" (enrollments that have received at
+  least one email), "Z remaining" (enrolled, not yet emailed), and
+  the total emails sent, from batched groupBy aggregates on the list
+  endpoint and the page query.
+- **Sidebar live sending status.** The sidebar footer paragraph is
+  replaced by a compact live card: a pulsing status dot (amber at
+  full capacity), today's sent count against the capacity cap with a
+  progress bar, and one status dot per sending account. It reads
+  GET /api/sending-status, built on the same sending schedule
+  computation as the dashboard panel, and refreshes every minute.
+
 ## 1.4.0 (2026-10-27)
 
 Outbox, campaign signatures, Groq AI fallback, richer dashboard.

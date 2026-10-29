@@ -95,6 +95,16 @@ testable in milliseconds and reusable by the future sending worker.
   v1.9.0 nothing produced OPENED events for SMTP sending, so the
   opened counters were structurally zero. Opens remain approximate
   (client prefetch and image blocking), as the analytics page says.
+- Inbox and compose (v1.10.0): the inbox supports bulk read state
+  changes through POST /api/threads/bulk (workspace-verified ids,
+  audit logged), and manual one-off sends through
+  POST /api/threads/compose, which runs the same suppression gate as
+  the worker, sends through the chosen account's provider, and
+  records the thread, outbound message, and SENT event so manual
+  mail joins the inbox, the Outbox, and the account's daily totals.
+  The campaigns list carries contacted, remaining, and sent
+  aggregates per campaign, and the sidebar footer shows the live
+  sending schedule figures from GET /api/sending-status.
 - When the day's sending capacity is spent, the dashboard schedule
   panel switches to a capacity state (v1.8.4): an amber "Capacity
   full today · sending resumes <reset>" badge, "waiting for

@@ -28,6 +28,26 @@ export default async function CampaignsPage() {
       select: { id: true, name: true },
     }),
   ]);
+  // Progress aggregates, batched with groupBy (no per-campaign queries):
+  // an enrollment counts as contacted once its first step has sent
+  // (currentStep >= 1), and sentCount is the campaign's SENT events.
+  const campaignIds = campaigns.map((campaign) => campaign.id);
+  const [contactedRows, sentRows] = await Promise.all([
+    prisma.enrollment.groupBy({
+      by: ["campaignId"],
+      // Enrollment has no workspaceId column; the campaign id list is
+      // already scoped to this workspace and is the tenant boundary.
+      where: { campaignId: { in: campaignIds }, currentStep: { gte: 1 } },
+      _count: { _all: true },
+    }),
+    prisma.emailEvent.groupBy({
+      by: ["campaignId"],
+      where: { workspaceId, campaignId: { in: campaignIds }, type: "SENT" },
+      _count: { _all: true },
+    }),
+  ]);
+  const contactedByCampaign = new Map(contactedRows.map((row) => [row.campaignId, row._count._all]));
+  const sentByCampaign = new Map(sentRows.map((row) => [row.campaignId, row._count._all]));
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -57,6 +77,7 @@ export default async function CampaignsPage() {
                 <th className="px-4 py-3 font-medium">List</th>
                 <th className="px-4 py-3 font-medium">Steps</th>
                 <th className="px-4 py-3 font-medium">Enrolled</th>
+                <th className="px-4 py-3 font-medium">Progress</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -73,6 +94,20 @@ export default async function CampaignsPage() {
                   <td className="px-4 py-3 text-muted">{campaign.leadList?.name ?? "Not attached"}</td>
                   <td className="px-4 py-3">{campaign._count.steps}</td>
                   <td className="px-4 py-3">{campaign._count.enrollments}</td>
+                  <td className="px-4 py-3">
+                    {campaign._count.enrollments === 0 ? (
+                      <span className="text-muted">No leads yet</span>
+                    ) : (
+                      <>
+                        <span>
+                          {contactedByCampaign.get(campaign.id) ?? 0} of {campaign._count.enrollments} contacted
+                        </span>
+                        <p className="mt-0.5 text-xs text-muted">
+                          {campaign._count.enrollments - (contactedByCampaign.get(campaign.id) ?? 0)} remaining · {sentByCampaign.get(campaign.id) ?? 0} emails sent
+                        </p>
+                      </>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <Link href={`/app/campaigns/${campaign.id}`} className="btn-secondary !px-3 !py-1.5 text-xs">
                       Open

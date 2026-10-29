@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -14,9 +15,12 @@ import {
   Plug,
   Send,
   Settings,
+  SquarePen,
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { ComposeEmail } from "@/components/inbox/ComposeEmail";
+import { SidebarStatus } from "@/components/SidebarStatus";
 
 interface NavItem {
   href: string;
@@ -41,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [composeOpen, setComposeOpen] = useState(false);
 
   return (
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-line bg-surface md:flex">
@@ -56,22 +61,31 @@ export function Sidebar() {
             item.href === "/app" ? pathname === "/app" : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`nav-link ${active ? "nav-link-active" : ""}`}
-              aria-current={active ? "page" : undefined}
-            >
-              <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-              {item.label}
-            </Link>
+            <Fragment key={item.href}>
+              {item.href === "/app/inbox" ? (
+                <button
+                  type="button"
+                  className="btn-primary w-full"
+                  onClick={() => setComposeOpen(true)}
+                >
+                  <SquarePen className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  Compose
+                </button>
+              ) : null}
+              <Link
+                href={item.href}
+                className={`nav-link ${active ? "nav-link-active" : ""}`}
+                aria-current={active ? "page" : undefined}
+              >
+                <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                {item.label}
+              </Link>
+            </Fragment>
           );
         })}
       </nav>
-      <div className="px-5 py-4 text-xs leading-relaxed text-muted">
-        Responsible sending: suppression checked before every send, honest analytics from real
-        events, no inbox placement promises.
-      </div>
+      <ComposeEmail open={composeOpen} onClose={() => setComposeOpen(false)} />
+      <SidebarStatus />
     </aside>
   );
 }

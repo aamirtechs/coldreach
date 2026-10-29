@@ -46,6 +46,13 @@ export function InboxList() {
   const [campaigns, setCampaigns] = useState<Option[]>([]);
   const [accounts, setAccounts] = useState<Option[]>([]);
   const [members, setMembers] = useState<Option[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  // Selection only ever applies to the page and filter set on screen.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [page, q, status, classification, campaignId, accountId, assigneeId]);
 
   useEffect(() => {
     fetch("/api/campaigns")
@@ -110,6 +117,43 @@ export function InboxList() {
     const name = [fields?.firstName, fields?.lastName].filter(Boolean).join(" ");
     return name || thread.lead?.email || "Unknown sender";
   };
+
+  const allSelected = threads.length > 0 && threads.every((thread) => selected.has(thread.id));
+
+  function toggleThread(id: string, checked: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  function togglePage(checked: boolean) {
+    setSelected(checked ? new Set(threads.map((thread) => thread.id)) : new Set());
+  }
+
+  async function bulkMark(action: "mark_read" | "mark_unread") {
+    setBulkBusy(true);
+    try {
+      const response = await fetch("/api/threads/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, threadIds: [...selected] }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Bulk update failed");
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Bulk update failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -181,6 +225,48 @@ export function InboxList() {
       </p>
       {error ? <p className="mt-2 text-sm text-danger">{error}</p> : null}
 
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm text-muted">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={(event) => togglePage(event.target.checked)}
+            disabled={threads.length === 0}
+            aria-label="Select all conversations on this page"
+          />
+          Select page
+        </label>
+        {selected.size > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">{selected.size} selected</span>
+            <button
+              type="button"
+              className="btn-secondary !px-3 !py-1.5 text-xs"
+              disabled={bulkBusy}
+              onClick={() => void bulkMark("mark_read")}
+            >
+              Mark as read
+            </button>
+            <button
+              type="button"
+              className="btn-secondary !px-3 !py-1.5 text-xs"
+              disabled={bulkBusy}
+              onClick={() => void bulkMark("mark_unread")}
+            >
+              Mark as unread
+            </button>
+            <button
+              type="button"
+              className="btn-ghost !px-3 !py-1.5 text-xs"
+              disabled={bulkBusy}
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
+      </div>
+
       <div className="card mt-3 overflow-hidden">
         {loading ? (
           <p className="p-5 text-sm text-muted">Loading conversations...</p>
@@ -193,8 +279,15 @@ export function InboxList() {
         ) : (
           <ul>
             {threads.map((thread) => (
-              <li key={thread.id} className="border-b border-line last:border-0 hover:bg-elevated/60">
-                <Link href={`/app/inbox/${thread.id}`} className="flex flex-wrap items-center gap-3 px-4 py-3">
+              <li key={thread.id} className="flex items-start gap-2 border-b border-line last:border-0 hover:bg-elevated/60">
+                <input
+                  type="checkbox"
+                  className="ml-4 mt-4 shrink-0"
+                  checked={selected.has(thread.id)}
+                  onChange={(event) => toggleThread(thread.id, event.target.checked)}
+                  aria-label={`Select conversation ${thread.subject}`}
+                />
+                <Link href={`/app/inbox/${thread.id}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-3 py-3 pl-2 pr-4">
                   <span
                     className={`h-2 w-2 shrink-0 rounded-full ${thread.unread ? "bg-accent" : "bg-line"}`}
                     title={thread.unread ? "Unread" : "Read"}
