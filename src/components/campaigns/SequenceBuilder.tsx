@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
+import { renderSpintax } from "@/lib/domain/spintax";
 
 export interface VariantDraft {
   label: string;
@@ -92,10 +93,16 @@ export function SequenceBuilder({
       : null;
   const editorSubject = current ? (currentVariant ? currentVariant.subject : current.subject) : "";
   const editorBody = current ? (currentVariant ? currentVariant.bodyText : current.body) : "";
+  // The preview resolves spintax with a fixed seed so authors see
+  // one concrete variant instead of the raw {a|b} syntax; real sends
+  // seed per enrollment and step (v1.11.0).
   const previewSubject = current
-    ? renderTemplate(currentVariant ? currentVariant.subject || current.subject : current.subject, fields)
+    ? renderSpintax(
+        renderTemplate(currentVariant ? currentVariant.subject || current.subject : current.subject, fields),
+        "preview",
+      )
     : "";
-  const previewBody = current ? renderTemplate(editorBody, fields) : "";
+  const previewBody = current ? renderSpintax(renderTemplate(editorBody, fields), "preview") : "";
 
   function update(index: number, patch: Partial<StepDraft>) {
     setSteps(steps.map((step, i) => (i === index ? { ...step, ...patch } : step)));

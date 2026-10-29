@@ -4,9 +4,12 @@ import { apiError, intField, requireSession } from "@/lib/api";
 
 /**
  * Unified inbox thread list. Filters: campaignId, sendingAccountId,
- * status, classification, assigneeId ("me" for the caller, "none" for
- * unassigned), q (matches lead email, lead name, subject, and message
- * bodies). All queries are scoped to the session workspace.
+ * status, classification, excludeClassification (v1.11.0: keep every
+ * thread except one classification, including unclassified ones; the
+ * inbox "Humans only" toggle uses it to hide AUTOMATED threads),
+ * assigneeId ("me" for the caller, "none" for unassigned), q
+ * (matches lead email, lead name, subject, and message bodies). All
+ * queries are scoped to the session workspace.
  */
 export async function GET(request: Request) {
   const session = await requireSession("VIEWER");
@@ -25,6 +28,14 @@ export async function GET(request: Request) {
     if (status) where.status = status;
     const classification = params.get("classification");
     if (classification) where.classification = classification;
+    const excludeClassification = params.get("excludeClassification");
+    if (excludeClassification && !classification) {
+      where.AND = [
+        {
+          OR: [{ classification: null }, { classification: { not: excludeClassification } }],
+        },
+      ];
+    }
     const assigneeId = params.get("assigneeId");
     if (assigneeId === "me") where.assigneeId = ctx.user.id;
     else if (assigneeId === "none") where.assigneeId = null;

@@ -20,6 +20,7 @@ import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { getOnboardingState } from "@/lib/onboarding";
 import { getSendingSchedule } from "@/lib/sendingSchedule";
+import { computeAccountHealthForAccounts } from "@/lib/accountHealth";
 import { LocalTime } from "@/components/LocalTime";
 
 /** "Wed 28 Oct, 09:00" in the given IANA timezone, for schedule rows. */
@@ -78,18 +79,40 @@ export default async function DashboardPage() {
     prisma.suppression.count({ where: { OR: [{ workspaceId }, { scope: "GLOBAL" }] } }),
   ]);
 
-  const [runningCampaignCount, sentCount, openedCount, repliedCount, suspendedAccountCount, warmupAccounts] =
+  const [runningCampaignCount, sentCount, openedCount, repliedCount, automatedRepliedCount, suspendedAccountCount, warmupAccounts] =
     await Promise.all([
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
       prisma.emailEvent.count({ where: { workspaceId, type: "SENT" } }),
       prisma.emailEvent.count({ where: { workspaceId, type: "OPENED" } }),
       prisma.emailEvent.count({ where: { workspaceId, type: "REPLIED" } }),
+      prisma.emailEvent.count({
+        where: { workspaceId, type: "REPLIED", classification: "AUTOMATED" },
+      }),
       prisma.sendingAccount.count({ where: { workspaceId, status: { in: ["PAUSED", "ERROR"] } } }),
       prisma.sendingAccount.findMany({
         where: { workspaceId, warmupEnabled: true },
         select: { warmupStartedAt: true },
       }),
     ]);
+  // Human replies exclude machine replies (ticket receipts, support
+  // routing notices) classified AUTOMATED since v1.11.0; the
+  // automated count is shown separately in the Replied stat note.
+  const humanRepliedCount = repliedCount - automatedRepliedCount;
+
+  // Account health alert data (v1.11.0): only non-healthy accounts
+  // are listed, and the block renders nothing when all are healthy.
+  const healthAccounts = await prisma.sendingAccount.findMany({
+    where: { workspaceId },
+    select: { id: true, email: true, status: true, lastError: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const healthByAccountId = await computeAccountHealthForAccounts(prisma, healthAccounts);
+  const unhealthyAccounts = healthAccounts
+    .map((account) => ({ email: account.email, health: healthByAccountId.get(account.id) }))
+    .filter(
+      (entry): entry is { email: string; health: NonNullable<typeof entry.health> } =>
+        entry.health !== undefined && entry.health.state !== "healthy",
+    );
   // An account counts as warmed once its 4-week warmup curve (see
   // src/lib/domain/warmup.ts) has fully elapsed since warmupStartedAt.
   const warmedAccountCount = warmupAccounts.filter(
@@ -119,9 +142,9 @@ export default async function DashboardPage() {
     },
     {
       label: "Replied",
-      value: repliedCount,
+      value: humanRepliedCount,
       icon: Reply,
-      note: "Recorded REPLIED events, all time",
+      note: `Replies: ${humanRepliedCount} human · ${automatedRepliedCount} automated`,
     },
     {
       label: "Suspended accounts",
@@ -402,6 +425,34 @@ export default async function DashboardPage() {
           </p>
         </div>
       </section>
+
+      {unhealthyAccounts.length > 0 ? (
+        <section className="card mt-4 border-amber-300 p-6 dark:border-amber-800">
+          <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            Account health
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            These sending accounts need a look. Critical accounts with a high bounce rate are
+            paused automatically by the sending worker until their health recovers.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {unhealthyAccounts.map((entry) => (
+              <li key={entry.email} className="text-sm">
+                <span className="font-medium">{entry.email}</span>
+                <span className="text-muted">
+                  {" "}
+                  · {entry.health.state === "critical" ? "Critical" : "Needs attention"}:{" "}
+                  {entry.health.reasons.join(" ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <Link href="/app/accounts" className="mt-3 inline-block text-sm font-medium text-accent hover:underline">
+            Review sending accounts
+          </Link>
+        </section>
+      ) : null}
 
       {onboarding.complete ? (
         <p className="mt-6 flex items-center gap-2 text-sm text-muted" data-tour="checklist">

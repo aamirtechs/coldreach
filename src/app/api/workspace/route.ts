@@ -13,6 +13,7 @@ export async function GET() {
       name: ctx.workspace.name,
       senderName: ctx.workspace.senderName,
       senderAddress: ctx.workspace.senderAddress,
+      trackingDomain: ctx.workspace.trackingDomain,
     },
     role: ctx.role,
   });
@@ -22,7 +23,7 @@ export async function PATCH(request: Request) {
   const session = await requireSession("ADMIN");
   if ("error" in session) return session.error;
   const { ctx } = session;
-  const body = await readJson<{ name?: unknown; senderName?: unknown; senderAddress?: unknown }>(request);
+  const body = await readJson<{ name?: unknown; senderName?: unknown; senderAddress?: unknown; trackingDomain?: unknown }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   const data: Record<string, unknown> = {};
   if (body.name !== undefined) {
@@ -32,6 +33,25 @@ export async function PATCH(request: Request) {
   }
   if (body.senderName !== undefined) data.senderName = stringField(body.senderName) || null;
   if (body.senderAddress !== undefined) data.senderAddress = stringField(body.senderAddress) || null;
+  if (body.trackingDomain !== undefined) {
+    // Bare host only (v1.11.0): no scheme, no path, no port. The
+    // tracking URLs are built as https://<host>/..., so anything
+    // richer would produce broken links.
+    const raw = stringField(body.trackingDomain).trim().toLowerCase();
+    if (!raw) {
+      data.trackingDomain = null;
+    } else if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(raw)) {
+      data.trackingDomain = raw;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "Tracking domain must be a bare host like track.example.com, with no https:// prefix and no path.",
+        },
+        { status: 400 },
+      );
+    }
+  }
   try {
     const workspace = await prisma.workspace.update({ where: { id: ctx.workspace.id }, data });
     await writeAuditLog({

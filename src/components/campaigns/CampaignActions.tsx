@@ -47,11 +47,20 @@ function PreflightView({ preflight }: { preflight: PreflightResult }) {
   );
 }
 
+interface EnrollConflict {
+  leadId: string;
+  email: string;
+  campaignName: string;
+  status: string;
+  contacted: boolean;
+}
+
 export function CampaignActions({ campaignId, status }: { campaignId: string; status: string }) {
   const router = useRouter();
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [conflicts, setConflicts] = useState<EnrollConflict[] | null>(null);
 
   async function call(label: string, url: string, method: string, body?: unknown) {
     setBusy(label);
@@ -75,12 +84,23 @@ export function CampaignActions({ campaignId, status }: { campaignId: string; st
     setPreflight(data.preflight);
   }
 
-  async function enroll() {
-    const { response, data } = await call("enroll", `/api/campaigns/${campaignId}/enroll`, "POST");
+  async function enroll(force = false) {
+    const { response, data } = await call(
+      "enroll",
+      `/api/campaigns/${campaignId}/enroll`,
+      "POST",
+      force ? { force: true } : undefined,
+    );
     if (!response.ok) {
+      if (response.status === 409 && Array.isArray(data.conflicts)) {
+        setConflicts(data.conflicts as EnrollConflict[]);
+        setNotice("Some of these leads are already enrolled in another campaign. Nothing was enrolled.");
+        return;
+      }
       setNotice(data.error ?? "Enrollment failed");
       return;
     }
+    setConflicts(null);
     const e = data.enrollment;
     setNotice(
       `Enrollment complete: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedIneligible} ineligible, ${e.skippedInvalidVerification ?? 0} failed verification, ${e.enrolledRisky ?? 0} enrolled but flagged RISKY by verification, of ${e.totalInList} in the list.`,
@@ -120,7 +140,7 @@ export function CampaignActions({ campaignId, status }: { campaignId: string; st
           Run preflight
         </button>
         {canEdit ? (
-          <button type="button" className="btn-secondary" disabled={busy !== null} onClick={enroll}>
+          <button type="button" className="btn-secondary" disabled={busy !== null} onClick={() => enroll()}>
             Enroll list leads
           </button>
         ) : null}
@@ -146,6 +166,42 @@ export function CampaignActions({ campaignId, status }: { campaignId: string; st
         )}
       </div>
       {notice ? <p className="mt-3 text-sm text-muted">{notice}</p> : null}
+      {conflicts ? (
+        <div className="mt-4 rounded-lg border border-line p-4">
+          <p className="text-sm font-medium">
+            {conflicts.length} lead{conflicts.length === 1 ? " is" : "s are"} already enrolled in another campaign:
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-muted">
+            {conflicts.slice(0, 25).map((conflict) => (
+              <li key={conflict.leadId}>
+                {conflict.email} · {conflict.campaignName} · {conflict.status}
+                {conflict.contacted ? " · already contacted" : " · not contacted yet"}
+              </li>
+            ))}
+          </ul>
+          {conflicts.length > 25 ? (
+            <p className="mt-2 text-sm text-muted">And {conflicts.length - 25} more.</p>
+          ) : null}
+          <div className="mt-3 flex gap-3">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={busy !== null}
+              onClick={() => enroll(true)}
+            >
+              Enroll anyway
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={busy !== null}
+              onClick={() => setConflicts(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
       {preflight ? <PreflightView preflight={preflight} /> : null}
     </section>
   );

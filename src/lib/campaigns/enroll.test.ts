@@ -161,3 +161,82 @@ describe("enrollCampaign per-lead timezone stamping (v1.5.0)", () => {
     expect(byEmail.get("plain@acme.com")?.toISOString()).toBe("2026-10-27T09:00:00.000Z");
   });
 });
+
+describe("enrollCampaign cross-campaign duplicate guard (v1.11.0)", () => {
+  // A lead belongs to exactly one list, so two campaigns conflict
+  // when they draw on the same list (the guard's production case:
+  // one list feeding a second campaign while the first is live).
+  async function makeSecondCampaignOnList(listId: string, suffix: string) {
+    const campaign = await db.campaign.create({
+      data: {
+        workspaceId,
+        name: `Campaign ${suffix}`,
+        status: "DRAFT",
+        timezone: "UTC",
+        windowStart: "00:00",
+        windowEnd: "23:59",
+        businessDaysOnly: false,
+        leadListId: listId,
+      },
+    });
+    await db.sequenceStep.create({
+      data: {
+        campaignId: campaign.id,
+        order: 0,
+        delayDays: 0,
+        delayHours: 0,
+        subject: "Hello",
+        body: "Body",
+      },
+    });
+    return campaign;
+  }
+
+  it("refuses with 409 conflicts and enrolls nothing when a lead is in another campaign", async () => {
+    const first = await makeCampaignWithList("guard-a", [{ email: "shared@acme.com" }]);
+    const firstResult = await enrollCampaign(db, { workspaceId, campaignId: first.id });
+    expect(firstResult.enrolled).toBe(1);
+    // Mark the first enrollment as already contacted.
+    await db.enrollment.updateMany({
+      where: { campaignId: first.id },
+      data: { currentStep: 1 },
+    });
+
+    const second = await makeSecondCampaignOnList(first.leadListId!, "guard-b");
+    let thrown: unknown = null;
+    try {
+      await enrollCampaign(db, { workspaceId, campaignId: second.id });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    const err = thrown as Error & { status?: number; conflicts?: Array<Record<string, unknown>> };
+    expect(err.status).toBe(409);
+    expect(err.conflicts).toHaveLength(1);
+    expect(err.conflicts?.[0]).toMatchObject({
+      email: "shared@acme.com",
+      campaignName: first.name,
+      contacted: true,
+    });
+    const secondEnrollments = await db.enrollment.findMany({
+      where: { campaignId: second.id },
+    });
+    expect(secondEnrollments).toHaveLength(0);
+  });
+
+  it("enrolls with force despite the conflict", async () => {
+    const first = await makeCampaignWithList("guard-c", [{ email: "forced@acme.com" }]);
+    await enrollCampaign(db, { workspaceId, campaignId: first.id });
+    const second = await makeSecondCampaignOnList(first.leadListId!, "guard-d");
+    const result = await enrollCampaign(db, { workspaceId, campaignId: second.id, force: true });
+    expect(result.enrolled).toBe(1);
+  });
+
+  it("does not treat enrollment in the same campaign as a conflict", async () => {
+    const campaign = await makeCampaignWithList("guard-e", [{ email: "again@acme.com" }]);
+    await enrollCampaign(db, { workspaceId, campaignId: campaign.id });
+    const result = await enrollCampaign(db, { workspaceId, campaignId: campaign.id });
+    expect(result.enrolled).toBe(0);
+    expect(result.skippedDuplicate).toBe(1);
+  });
+});

@@ -16,6 +16,9 @@ import { processDueDeliveries, type ProcessDueSummary } from "@/lib/webhooks/ser
 import { logger, newRequestId } from "@/lib/log";
 import { createUnsubscribeToken } from "./unsubscribe";
 import { createOpenToken } from "./openTracking";
+import { resolveTrackingBase, rewriteLinksForTracking } from "./clickTracking";
+import { renderSpintax } from "@/lib/domain/spintax";
+import { computeAccountHealthForAccounts, type AccountHealth } from "@/lib/accountHealth";
 
 /**
  * One sending worker tick.
@@ -192,6 +195,71 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   const providerCache = new Map<string, MailProvider>();
   const dayStart = startOfUtcDay(now);
 
+  // Account health gate state (v1.11.0): health is computed once per
+  // account per tick, and the auto-pause audit note is written at
+  // most once per account per UTC day (checked against the audit
+  // log itself, so the rule also holds across ticks).
+  const healthCache = new Map<string, AccountHealth>();
+  const healthNoted = new Set<string>();
+  const healthForAccounts = async (accounts: SendingAccount[]): Promise<Map<string, AccountHealth>> => {
+    const missing = accounts.filter((account) => !healthCache.has(account.id));
+    if (missing.length > 0) {
+      try {
+        const computed = await computeAccountHealthForAccounts(db, missing, now);
+        for (const [id, health] of computed) {
+          healthCache.set(id, health);
+        }
+      } catch (error) {
+        // Health is a guardrail, not a dependency: if it cannot be
+        // computed, sending continues exactly as before this gate
+        // existed rather than stalling live campaigns.
+        logger.error("Account health computation failed in send tick", { error, requestId });
+      }
+    }
+    return healthCache;
+  };
+  const noteHealthPause = async (
+    account: SendingAccount,
+    workspaceId: string,
+    reasons: string[],
+  ): Promise<void> => {
+    if (healthNoted.has(account.id)) {
+      return;
+    }
+    healthNoted.add(account.id);
+    try {
+      const auditLog = db.auditLog;
+      if (!auditLog?.findMany || !auditLog?.create) {
+        return;
+      }
+      const todays = await auditLog.findMany({
+        where: { workspaceId, action: "account.auto_paused_health", createdAt: { gte: dayStart } },
+        select: { metadata: true },
+      });
+      const already = todays.some(
+        (row) => (row.metadata as { accountId?: string } | null)?.accountId === account.id,
+      );
+      if (already) {
+        return;
+      }
+      await auditLog.create({
+        data: {
+          workspaceId,
+          userId: null,
+          action: "account.auto_paused_health",
+          metadata: {
+            accountId: account.id,
+            email: account.email,
+            reasons,
+            date: dayStart.toISOString().slice(0, 10),
+          },
+        },
+      });
+    } catch (error) {
+      logger.error("Failed to write account health audit entry", { error, requestId });
+    }
+  };
+
   // Plan quota state per workspace (Phase 4): the plan plus this
   // month's real SENT count, loaded once per workspace per tick and
   // incremented locally on every successful send.
@@ -293,10 +361,21 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     // tick's own sends, so the balance holds across campaigns and
     // across ticks. Ties keep the campaign's configured order.
     const accounts = campaign.accounts.map((entry) => entry.sendingAccount);
+    const healthById = await healthForAccounts(accounts);
     let chosen: SendingAccount | null = null;
     let chosenSentToday = Number.POSITIVE_INFINITY;
     for (const candidate of accounts) {
       if (candidate.status === "PAUSED" || candidate.status === "ERROR") {
+        continue;
+      }
+      // Health gate (v1.11.0): an account whose recent bounce rate
+      // is critical is excluded from selection, exactly as if it had
+      // no capacity. The account's stored status is never mutated;
+      // it becomes eligible again on its own when the 7 day window
+      // recovers. The exclusion is audit logged once per day.
+      const health = healthById.get(candidate.id);
+      if (health?.bounceCritical) {
+        void noteHealthPause(candidate, workspaceId, health.reasons);
         continue;
       }
       // The existing age ramp from limits.ts, additionally capped by
@@ -394,8 +473,20 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
         ? { ...(lead.fields as Record<string, string>), email: lead.email }
         : { email: lead.email };
-    const subject = renderTemplate(variant?.subject ?? step.subject, leadFields);
-    const bodyText = renderTemplate(variant ? variant.bodyText : step.body, leadFields);
+    // Spintax (v1.11.0): after template rendering, resolve any
+    // {a|b|c} groups in the subject and body. The seed is the
+    // enrollment and step, so a retry of this send renders the
+    // identical variant while different leads get different ones.
+    // Copy without spintax syntax passes through unchanged.
+    const spintaxSeed = `${enrollment.id}:${stepIndex}`;
+    const subject = renderSpintax(
+      renderTemplate(variant?.subject ?? step.subject, leadFields),
+      spintaxSeed,
+    );
+    const bodyText = renderSpintax(
+      renderTemplate(variant ? variant.bodyText : step.body, leadFields),
+      spintaxSeed,
+    );
     const unsubscribeUrl = `${appUrl}/u/${createUnsubscribeToken(workspaceId, lead.id, campaign.id)}`;
     const senderLine = campaign.workspace.senderName ?? campaign.workspace.name;
     const footerText = [
@@ -419,14 +510,31 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       campaign.workspace.senderAddress ? `<br />${campaign.workspace.senderAddress}` : ""
     }<br /><a href="${unsubscribeUrl}">Unsubscribe</a></p>`;
     const signatureHtml = signatureText ? `\n${textToHtml(signatureText)}` : "";
-    const fullHtml = variant?.bodyHtml
-      ? `${renderTemplate(variant.bodyHtml, leadFields)}${signatureHtml}\n${footerHtml}`
-      : `${textToHtml(bodyText)}${signatureHtml}\n${footerHtml}`;
+    const renderedHtml = variant?.bodyHtml
+      ? renderSpintax(renderTemplate(variant.bodyHtml, leadFields), spintaxSeed)
+      : textToHtml(bodyText);
+    const fullHtml = `${renderedHtml}${signatureHtml}\n${footerHtml}`;
+    // Tracking base (v1.11.0): the workspace's custom tracking
+    // domain when one is saved, otherwise the app URL. Opens and
+    // clicks share it, so both kinds of tracking URL live on the
+    // same host.
+    const trackingBase = resolveTrackingBase(campaign.workspace, appUrl);
+    // Click tracking (v1.11.0): anchor hrefs in the body are
+    // rewritten to signed redirect URLs. The unsubscribe link, the
+    // pixel, mailto links, and URLs already on the tracking host
+    // are never touched, and the plain text part is unchanged.
+    const linkedHtml = rewriteLinksForTracking(fullHtml, {
+      trackingBase,
+      workspaceId,
+      enrollmentId: enrollment.id,
+      stepIndex,
+      unsubscribeUrl,
+    });
     // Open tracking (v1.9.0): a 1x1 pixel whose signed URL records
     // one OPENED event per enrollment and step when a mail client
     // loads it. HTML part only; the text part is untouched.
-    const openPixel = `<img src="${appUrl}/o/${createOpenToken(workspaceId, enrollment.id, stepIndex)}" width="1" height="1" alt="" style="display:none;border:0;" />`;
-    const trackedHtml = `${fullHtml}\n${openPixel}`;
+    const openPixel = `<img src="${trackingBase}/o/${createOpenToken(workspaceId, enrollment.id, stepIndex)}" width="1" height="1" alt="" style="display:none;border:0;" />`;
+    const trackedHtml = `${linkedHtml}\n${openPixel}`;
 
     let provider = providerCache.get(chosen.id);
     if (!provider) {

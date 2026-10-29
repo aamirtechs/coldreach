@@ -21,6 +21,14 @@ interface ThreadNote {
   author: { id: string; name: string | null; email: string };
 }
 
+interface Snippet {
+  id: string;
+  title: string;
+  body: string;
+  createdById: string;
+  createdAt: string;
+}
+
 interface ThreadDetail {
   id: string;
   subject: string;
@@ -35,7 +43,7 @@ interface ThreadDetail {
   notes: ThreadNote[];
 }
 
-const CLASSIFICATIONS = ["POSITIVE", "NEGATIVE", "OUT_OF_OFFICE", "REFERRAL", "NEUTRAL"];
+const CLASSIFICATIONS = ["POSITIVE", "NEGATIVE", "OUT_OF_OFFICE", "REFERRAL", "NEUTRAL", "AUTOMATED"];
 
 /**
  * Conversation view: full message history, a reply composer that sends
@@ -51,6 +59,10 @@ export function ThreadView({ threadId }: { threadId: string }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [members, setMembers] = useState<Array<{ userId: string; name: string | null; email: string }>>([]);
+  const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [snippetPicker, setSnippetPicker] = useState("");
+  const [newSnippetTitle, setNewSnippetTitle] = useState("");
+  const [newSnippetBody, setNewSnippetBody] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +82,10 @@ export function ThreadView({ threadId }: { threadId: string }) {
     fetch("/api/team/members")
       .then((r) => (r.ok ? r.json() : { members: [] }))
       .then((payload: { members?: typeof members }) => setMembers(payload.members ?? []))
+      .catch(() => undefined);
+    fetch("/api/snippets")
+      .then((r) => (r.ok ? r.json() : { snippets: [] }))
+      .then((payload: { snippets?: Snippet[] }) => setSnippets(payload.snippets ?? []))
       .catch(() => undefined);
   }, [load]);
 
@@ -128,6 +144,58 @@ export function ThreadView({ threadId }: { threadId: string }) {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Note failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function insertSnippet(snippetId: string) {
+    setSnippetPicker("");
+    const snippet = snippets.find((entry) => entry.id === snippetId);
+    if (!snippet) return;
+    setReply((current) => {
+      if (!current) return snippet.body;
+      if (current.endsWith("\n")) return current + snippet.body;
+      return `${current}\n${snippet.body}`;
+    });
+  }
+
+  async function saveSnippet(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy("snippet");
+    try {
+      const response = await fetch("/api/snippets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newSnippetTitle, body: newSnippetBody }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        snippet?: Snippet;
+      };
+      if (!response.ok || !payload.snippet) throw new Error(payload.error ?? "Snippet failed");
+      const created = payload.snippet;
+      setSnippets((current) =>
+        [...current, created].sort((a, b) => a.title.localeCompare(b.title)),
+      );
+      setNewSnippetTitle("");
+      setNewSnippetBody("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Snippet failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteSnippet(snippetId: string) {
+    setBusy(`snippet-delete-${snippetId}`);
+    try {
+      const response = await fetch(`/api/snippets/${snippetId}`, { method: "DELETE" });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Snippet delete failed");
+      setSnippets((current) => current.filter((entry) => entry.id !== snippetId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Snippet delete failed");
     } finally {
       setBusy(null);
     }
@@ -227,24 +295,93 @@ export function ThreadView({ threadId }: { threadId: string }) {
         ))}
       </ol>
 
-      <form onSubmit={sendReply} className="card mt-6 p-4">
-        <label className="label" htmlFor="reply-body">
-          Reply{demo ? " (DEMO: simulated send, nothing leaves the server)" : ""}
-        </label>
-        <textarea
-          id="reply-body"
-          className="input mt-2 min-h-28"
-          value={reply}
-          onChange={(event) => setReply(event.target.value)}
-          placeholder="Write a reply to send from the thread's account..."
-          required
-        />
-        <div className="mt-3 flex gap-3">
-          <button type="submit" className="btn-primary" disabled={busy === "reply"}>
-            {busy === "reply" ? "Sending..." : demo ? "Send simulated reply" : "Send reply"}
+      <div className="card mt-6 p-4">
+        <form onSubmit={sendReply}>
+          <label className="label" htmlFor="reply-body">
+            Reply{demo ? " (DEMO: simulated send, nothing leaves the server)" : ""}
+          </label>
+          <textarea
+            id="reply-body"
+            className="input mt-2 min-h-28"
+            value={reply}
+            onChange={(event) => setReply(event.target.value)}
+            placeholder="Write a reply to send from the thread's account..."
+            required
+          />
+          <div className="mt-3">
+            <label className="flex flex-col gap-1 text-xs text-muted">
+              Snippets
+              <select
+                className="input"
+                value={snippetPicker}
+                onChange={(event) => insertSnippet(event.target.value)}
+                aria-label="Snippets"
+              >
+                <option value="">Insert a snippet</option>
+                {snippets.map((snippet) => (
+                  <option key={snippet.id} value={snippet.id}>
+                    {snippet.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 flex gap-3">
+            <button type="submit" className="btn-primary" disabled={busy === "reply"}>
+              {busy === "reply" ? "Sending..." : demo ? "Send simulated reply" : "Send reply"}
+            </button>
+          </div>
+        </form>
+
+        {snippets.length > 0 ? (
+          <ul className="mt-4 space-y-2">
+            {snippets.map((snippet) => (
+              <li
+                key={snippet.id}
+                className="flex items-center justify-between gap-3 rounded-lg bg-elevated px-3 py-2 text-sm"
+              >
+                <span>{snippet.title}</span>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void deleteSnippet(snippet.id)}
+                  disabled={busy === `snippet-delete-${snippet.id}`}
+                >
+                  {busy === `snippet-delete-${snippet.id}` ? "Deleting..." : "Delete"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <form onSubmit={saveSnippet} className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            New snippet title
+            <input
+              className="input"
+              value={newSnippetTitle}
+              onChange={(event) => setNewSnippetTitle(event.target.value)}
+              placeholder="Snippet title"
+              maxLength={120}
+              required
+            />
+          </label>
+          <label className="flex flex-1 flex-col gap-1 text-xs text-muted">
+            New snippet body
+            <input
+              className="input"
+              value={newSnippetBody}
+              onChange={(event) => setNewSnippetBody(event.target.value)}
+              placeholder="Snippet text to insert into a reply"
+              maxLength={4000}
+              required
+            />
+          </label>
+          <button type="submit" className="btn-secondary" disabled={busy === "snippet"}>
+            {busy === "snippet" ? "Saving..." : "Save snippet"}
           </button>
-        </div>
-      </form>
+        </form>
+      </div>
 
       <section className="card mt-6 p-4">
         <h2 className="font-display text-sm font-semibold">Internal notes</h2>

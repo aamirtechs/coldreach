@@ -8,6 +8,7 @@ import { loadSuppressions } from "@/lib/suppressions";
 import { AddLeadForm } from "@/components/leads/AddLeadForm";
 import { ImportWizard } from "@/components/leads/ImportWizard";
 import { VerifyListButton } from "@/components/leads/VerifyListButton";
+import { GenerateIcebreakersButton } from "@/components/leads/GenerateIcebreakersButton";
 import { LeadsTable, type LeadRow } from "@/components/leads/LeadsTable";
 import { ListActions } from "@/components/leads/ListActions";
 import { EmptyState } from "@/components/ui";
@@ -143,6 +144,7 @@ export default async function LeadListDetailPage({
           <div className="flex gap-3">
             <AddLeadForm listId={list.id} />
             <VerifyListButton listId={list.id} />
+            <GenerateIcebreakersButton listId={list.id} />
           </div>
           <ListActions listId={list.id} listName={list.name} />
         </div>

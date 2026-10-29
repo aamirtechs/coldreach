@@ -175,8 +175,10 @@ async function importMessage(
   const leadId = enrollment?.leadId ?? lead?.id ?? null;
 
   // 3. Apply the REPLIED event through the shared path (same status
-  // transition webhooks get: the enrollment stops as REPLIED).
-  const classification = classifyReply(message.subject, message.bodyText);
+  // transition webhooks get: the enrollment stops as REPLIED). The
+  // sender address feeds the classifier too (v1.11.0): automated
+  // senders like noreply and system mailboxes classify AUTOMATED.
+  const classification = classifyReply(message.subject, message.bodyText, message.fromEmail);
   if (enrollment) {
     const result = await applyProviderEvent(db, {
       enrollmentId: enrollment.id,

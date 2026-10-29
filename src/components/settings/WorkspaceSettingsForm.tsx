@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 interface WorkspaceSettingsFormProps {
-  initial: { name: string; senderName: string; senderAddress: string };
+  initial: { name: string; senderName: string; senderAddress: string; trackingDomain: string };
   canEdit: boolean;
 }
 
@@ -13,6 +13,7 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
   const [name, setName] = useState(initial.name);
   const [senderName, setSenderName] = useState(initial.senderName);
   const [senderAddress, setSenderAddress] = useState(initial.senderAddress);
+  const [trackingDomain, setTrackingDomain] = useState(initial.trackingDomain);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -23,7 +24,7 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
     const response = await fetch("/api/workspace", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, senderName, senderAddress }),
+      body: JSON.stringify({ name, senderName, senderAddress, trackingDomain }),
     });
     const data = await response.json();
     setBusy(false);
@@ -55,6 +56,16 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
         <div className="sm:col-span-2">
           <label className="label" htmlFor="ws-address">Postal address</label>
           <input id="ws-address" className="input" value={senderAddress} disabled={!canEdit} onChange={(e) => setSenderAddress(e.target.value)} placeholder="123 Market Street, Suite 400, San Francisco, CA 94103" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="ws-tracking">Tracking domain</label>
+          <input id="ws-tracking" className="input" value={trackingDomain} disabled={!canEdit} onChange={(e) => setTrackingDomain(e.target.value)} placeholder="track.example.com" />
+          <p className="mt-1 text-xs text-muted">
+            Optional. Add a DNS CNAME record from this host to the app domain (the domain this app
+            is served on), then save the bare host here, with no https:// prefix. Once saved, open
+            tracking pixels and click tracking links in campaign emails use this domain instead of
+            the app domain. Leave it empty to track on the app domain.
+          </p>
         </div>
       </div>
       {notice ? <p className="mt-3 text-sm text-muted">{notice}</p> : null}

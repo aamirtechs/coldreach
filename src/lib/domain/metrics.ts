@@ -30,6 +30,10 @@ export interface CampaignMetrics {
   delivered: number;
   bounced: number;
   replies: number;
+  /** REPLIED events classified AUTOMATED (v1.11.0): machine replies
+   *  such as ticket receipts and support routing notices. Kept out
+   *  of `replies` so reply figures mean human replies. */
+  automatedReplies: number;
   positiveReplies: number;
   unsubscribes: number;
   complaints: number;
@@ -46,6 +50,8 @@ export interface CampaignMetrics {
     bounceRate: number;
     /** replies / delivered */
     replyRate: number;
+    /** clicks / delivered */
+    clickRate: number;
     /** positiveReplies / delivered */
     positiveReplyRate: number;
     /** unsubscribes / delivered */
@@ -67,6 +73,7 @@ interface Tallies {
   delivered: number;
   bounced: number;
   replies: number;
+  automatedReplies: number;
   positiveReplies: number;
   unsubscribes: number;
   complaints: number;
@@ -80,6 +87,7 @@ function emptyTallies(): Tallies {
     delivered: 0,
     bounced: 0,
     replies: 0,
+    automatedReplies: 0,
     positiveReplies: 0,
     unsubscribes: 0,
     complaints: 0,
@@ -105,6 +113,10 @@ function addToTallies(
       tallies.bounced += count;
       break;
     case "REPLIED":
+      if (classification?.toUpperCase() === "AUTOMATED") {
+        tallies.automatedReplies += count;
+        break;
+      }
       tallies.replies += count;
       if (classification?.toUpperCase() === "POSITIVE") {
         tallies.positiveReplies += count;
@@ -133,6 +145,7 @@ function finalizeTallies(t: Tallies): CampaignMetrics {
     delivered: t.delivered,
     bounced: t.bounced,
     replies: t.replies,
+    automatedReplies: t.automatedReplies,
     positiveReplies: t.positiveReplies,
     unsubscribes: t.unsubscribes,
     complaints: t.complaints,
@@ -142,6 +155,7 @@ function finalizeTallies(t: Tallies): CampaignMetrics {
       deliveryRate: rate(t.delivered, t.sent),
       bounceRate: rate(t.bounced, t.sent),
       replyRate: rate(t.replies, t.delivered),
+      clickRate: rate(t.clicks, t.delivered),
       positiveReplyRate: rate(t.positiveReplies, t.delivered),
       unsubscribeRate: rate(t.unsubscribes, t.delivered),
       complaintRate: rate(t.complaints, t.delivered),

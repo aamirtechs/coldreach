@@ -51,6 +51,7 @@ export default async function SettingsPage({
             name: session.workspace.name,
             senderName: session.workspace.senderName ?? "",
             senderAddress: session.workspace.senderAddress ?? "",
+            trackingDomain: session.workspace.trackingDomain ?? "",
           }}
         />
       </div>

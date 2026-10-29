@@ -31,11 +31,27 @@ export interface EnrollResult {
   totalInList: number;
 }
 
+/**
+ * One cross-campaign conflict (v1.11.0): a lead that this enroll call
+ * would enroll is already enrolled in another campaign of the same
+ * workspace, so enrolling would put the same contact into two live
+ * outreach sequences at once.
+ */
+export interface EnrollConflict {
+  leadId: string;
+  email: string;
+  campaignName: string;
+  status: string;
+  /** True when the other enrollment has already been sent at least
+   *  one step, so the contact has genuinely been pitched before. */
+  contacted: boolean;
+}
+
 const INELIGIBLE_STATUSES = new Set(["UNSUBSCRIBED", "BOUNCED", "SUPPRESSED", "INVALID"]);
 
 export async function enrollCampaign(
   db: PrismaClient,
-  args: { workspaceId: string; campaignId: string; now?: Date },
+  args: { workspaceId: string; campaignId: string; now?: Date; force?: boolean },
 ): Promise<EnrollResult> {
   const now = args.now ?? new Date();
   const campaign = await db.campaign.findFirst({
@@ -90,6 +106,43 @@ export async function enrollCampaign(
       enrolledRisky += 1;
     }
     eligible.push({ leadId: lead.id, fields: (lead.fields ?? {}) as LeadFields });
+  }
+
+  // Cross-campaign duplicate guard (v1.11.0): a lead that would be
+  // enrolled here but already sits in another campaign of this
+  // workspace blocks the whole enroll unless the caller confirmed
+  // with force. Enrolling nothing on conflict keeps the action
+  // atomic: the operator sees exactly which contacts are affected
+  // and decides, instead of silently double-pitching some of them.
+  if (!args.force && eligible.length > 0) {
+    const otherEnrollments = await db.enrollment.findMany({
+      where: {
+        leadId: { in: eligible.map((entry) => entry.leadId) },
+        campaign: { workspaceId: args.workspaceId, id: { not: campaign.id } },
+      },
+      select: {
+        leadId: true,
+        status: true,
+        currentStep: true,
+        campaign: { select: { name: true } },
+      },
+    });
+    if (otherEnrollments.length > 0) {
+      const emailByLeadId = new Map(leads.map((lead) => [lead.id, lead.email]));
+      const conflicts: EnrollConflict[] = otherEnrollments.map((entry) => ({
+        leadId: entry.leadId,
+        email: emailByLeadId.get(entry.leadId) ?? "",
+        campaignName: entry.campaign.name,
+        status: entry.status,
+        contacted: entry.currentStep >= 1,
+      }));
+      throw Object.assign(
+        new Error(
+          `${conflicts.length} lead${conflicts.length === 1 ? " is" : "s are"} already enrolled in another campaign. Review the conflicts and enroll anyway only if double outreach is intended.`,
+        ),
+        { status: 409, conflicts },
+      );
+    }
   }
 
   const firstStep = campaign.steps[0];

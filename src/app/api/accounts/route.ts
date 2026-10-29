@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, intField, readJson, requireSession, stringField } from "@/lib/api";
+import { computeAccountHealthForAccounts } from "@/lib/accountHealth";
 import { isValidEmail, normalizeEmail } from "@/lib/domain/dedupe";
 import { encryptMailboxCredentials, resolveSmtpConfig } from "@/lib/providers";
 import { hasMailboxInput, parseMailboxInput } from "@/lib/accounts/mailboxInput";
@@ -20,6 +21,17 @@ export async function GET() {
       where: { workspaceId: ctx.workspace.id },
       orderBy: { createdAt: "asc" },
     });
+    // Health per account (v1.11.0): state plus human-readable
+    // reasons, computed from the last 7 days of SENT and BOUNCED
+    // events and the stored sync error. See lib/accountHealth.ts.
+    // Defensive: a health failure must never break the accounts
+    // list itself, so accounts fall back to a plain healthy state.
+    let healthByAccountId = new Map<string, { state: string; reasons: string[] }>();
+    try {
+      healthByAccountId = await computeAccountHealthForAccounts(prisma, accounts);
+    } catch {
+      healthByAccountId = new Map();
+    }
     return NextResponse.json({
       accounts: accounts.map((account) => ({
         id: account.id,
@@ -36,6 +48,7 @@ export async function GET() {
         lastSyncAt: account.lastSyncAt,
         providerAccountId: account.providerAccountId,
         lastError: account.lastError,
+        health: healthByAccountId.get(account.id) ?? { state: "healthy", reasons: [] },
         demo: account.provider === "SIMULATION",
         createdAt: account.createdAt,
       })),

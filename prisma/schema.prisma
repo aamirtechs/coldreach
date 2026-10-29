@@ -36,6 +36,7 @@ model User {
   auditLogs    AuditLog[]
   assignedThreads Thread[]  @relation("ThreadAssignee")
   threadNotes  ThreadNote[]
+  snippets     Snippet[]
   invitesSent  Invite[]     @relation("InviteSender")
   apiKeysCreated ApiKey[]   @relation("ApiKeyCreator")
 }
@@ -49,6 +50,10 @@ model Workspace {
   // campaign preflight refuses to launch while it is missing.
   senderName      String?
   senderAddress   String?
+  // Custom tracking domain (v1.11.0): when set, open and click
+  // tracking URLs are built on this host, which the workspace points
+  // at the app with a CNAME. Bare host only, no scheme or path.
+  trackingDomain  String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   memberships     Membership[]
@@ -64,6 +69,7 @@ model Workspace {
   emailEvents     EmailEvent[]
   invites         Invite[]
   threadNotes     ThreadNote[]
+  snippets        Snippet[]
   webhookEndpoints WebhookEndpoint[]
   subscription    Subscription?
   crmConnections  CrmConnection[]
@@ -473,7 +479,7 @@ model Thread {
   unread           Boolean        @default(false)
   // Latest reply classification from the rules engine in
   // src/lib/domain/classify.ts (POSITIVE, NEGATIVE, OUT_OF_OFFICE,
-  // REFERRAL, NEUTRAL), or a member's manual override.
+  // REFERRAL, NEUTRAL, AUTOMATED), or a member's manual override.
   classification   String?
   lastMessageAt    DateTime       @default(now())
   createdAt        DateTime       @default(now())
@@ -527,6 +533,24 @@ model ThreadNote {
 
   @@index([threadId, createdAt])
   @@index([workspaceId])
+}
+
+// Saved reply text for the inbox (v1.11.0). Snippets are per-workspace
+// canned responses a member can insert into a thread reply; they are
+// plain text, never sent automatically, and carry no per-user privacy:
+// anyone in the workspace can use or delete any snippet in it.
+model Snippet {
+  id          String   @id @default(cuid())
+  workspaceId String
+  title       String
+  body        String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
 }
 
 // ---------------------------------------------------------------------------

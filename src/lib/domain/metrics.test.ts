@@ -43,6 +43,31 @@ describe("computeCampaignMetrics", () => {
     expect(metrics.rates.complaintRate).toBeCloseTo(1 / 9);
   });
 
+  it("counts clicks and derives clickRate on delivered volume", () => {
+    const metrics = computeCampaignMetrics([
+      ...repeat("SENT", 10),
+      ...repeat("DELIVERED", 8),
+      ...repeat("CLICKED", 2),
+    ]);
+
+    expect(metrics.clicks).toBe(2);
+    expect(metrics.rates.clickRate).toBeCloseTo(2 / 8);
+  });
+
+  it("keeps AUTOMATED replies out of the human reply count", () => {
+    const metrics = computeCampaignMetrics([
+      ...repeat("SENT", 10),
+      ...repeat("DELIVERED", 10),
+      { type: "REPLIED", classification: "POSITIVE" },
+      { type: "REPLIED", classification: "NEUTRAL" },
+      { type: "REPLIED", classification: "AUTOMATED" },
+      { type: "REPLIED", classification: "AUTOMATED" },
+    ]);
+    expect(metrics.replies).toBe(2);
+    expect(metrics.automatedReplies).toBe(2);
+    expect(metrics.rates.replyRate).toBeCloseTo(2 / 10);
+  });
+
   it("returns zeros for an empty event set", () => {
     const metrics = computeCampaignMetrics(events());
     expect(metrics.sent).toBe(0);

@@ -104,7 +104,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     { label: "Sent", value: String(metrics.sent), note: "Recorded send events" },
     { label: "Delivered", value: String(metrics.delivered), note: `Delivery rate ${formatPercent(metrics.rates.deliveryRate)}` },
     { label: "Bounce rate", value: formatPercent(metrics.rates.bounceRate), note: `${metrics.bounced} bounced` },
-    { label: "Reply rate", value: formatPercent(metrics.rates.replyRate), note: `${metrics.replies} replies` },
+    { label: "Reply rate", value: formatPercent(metrics.rates.replyRate), note: `${metrics.replies} human replies · ${metrics.automatedReplies} automated` },
     { label: "Positive replies", value: String(metrics.positiveReplies), note: "Classified POSITIVE" },
     { label: "Unsubscribe rate", value: formatPercent(metrics.rates.unsubscribeRate), note: `${metrics.unsubscribes} unsubscribes` },
   ];

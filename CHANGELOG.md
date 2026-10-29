@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.11.0 (2026-10-29)
+
+Seven outreach upgrades in one release.
+
+- **AI icebreaker generator.** A "Generate icebreakers" button on
+  each lead list drafts a personalized opening line for leads that
+  lack one, from the lead's website and company details, using the
+  workspace's AI provider. Up to 25 leads per run; lines land in the
+  lead's icebreaker field for review before enrolling.
+- **Automated reply detection.** Replies now classify as AUTOMATED
+  when they are machine receipts, ticket confirmations, or support
+  routing messages, checked before the positive and referral rules.
+  The inbox gains a "Humans only" filter, the dashboard separates
+  human from automated replies, and a "Detect automated replies"
+  action reclassifies existing referral, neutral, and unlabelled
+  threads (never positive, negative, or out-of-office ones).
+- **Account health guardrails.** Each sending account gets a health
+  state from its bounce rate and reply sync status, shown on the
+  Sending Accounts page and as a dashboard alert when an account
+  needs attention. An account whose bounce rate turns critical is
+  automatically excluded from sending for that day, with an audit
+  entry.
+- **Click tracking with a custom tracking domain.** Links in
+  campaign emails are tracked like opens (the unsubscribe link is
+  never rewritten), and a workspace Tracking domain setting lets
+  opens and clicks run under your own subdomain.
+- **Spintax.** Sequence subjects and bodies support
+  {option a|option b} variations, chosen consistently per lead, and
+  pass through unchanged when no spintax is present.
+- **Inbox snippets.** Save reusable reply texts and insert them
+  into any thread reply in one click, managed right from the reply
+  box.
+- **Cross-campaign contact guard.** Enrolling a lead who is already
+  enrolled in another campaign stops with the conflict list and an
+  explicit "Enroll anyway" choice instead of double pitching them.
+
 ## 1.10.1 (2026-10-29)
 
 Sidebar consistency fix.

@@ -111,6 +111,7 @@ export default async function AnalyticsPage() {
                 <th className="px-4 py-3 font-medium">Bounce rate</th>
                 <th className="px-4 py-3 font-medium">Reply rate</th>
                 <th className="px-4 py-3 font-medium">Positive</th>
+                <th className="px-4 py-3 font-medium">Automated replies</th>
                 <th className="px-4 py-3 font-medium">Unsub rate</th>
                 <th className="px-4 py-3 font-medium">Opens (unreliable)</th>
               </tr>
@@ -135,6 +136,7 @@ export default async function AnalyticsPage() {
                   <td className="px-4 py-3">{formatPercent(row.metrics.rates.bounceRate)}</td>
                   <td className="px-4 py-3">{formatPercent(row.metrics.rates.replyRate)}</td>
                   <td className="px-4 py-3">{row.metrics.positiveReplies}</td>
+                  <td className="px-4 py-3 text-muted">{row.metrics.automatedReplies}</td>
                   <td className="px-4 py-3">{formatPercent(row.metrics.rates.unsubscribeRate)}</td>
                   <td className="px-4 py-3 text-muted">{row.metrics.opens.count}</td>
                 </tr>

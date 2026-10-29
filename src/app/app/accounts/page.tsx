@@ -11,6 +11,18 @@ import { OAuthConnect } from "@/components/accounts/OAuthConnect";
 import { SyncButton } from "@/components/accounts/SyncButton";
 import { DeliverabilityPanel } from "@/components/accounts/DeliverabilityPanel";
 import { DemoBadge, EmptyState, StatusBadge } from "@/components/ui";
+import { computeAccountHealthForAccounts, type AccountHealthState } from "@/lib/accountHealth";
+
+const HEALTH_STYLES: Record<AccountHealthState, string> = {
+  healthy: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  attention: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  critical: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+};
+const HEALTH_LABELS: Record<AccountHealthState, string> = {
+  healthy: "Healthy",
+  attention: "Needs attention",
+  critical: "Critical",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +60,8 @@ export default async function AccountsPage({
     }
   }
 
+  const healthByAccountId = await computeAccountHealthForAccounts(prisma, accounts);
+
   const now = Date.now();
 
   return (
@@ -80,6 +94,7 @@ export default async function AccountsPage({
                 <th className="px-4 py-3 font-medium">Account</th>
                 <th className="px-4 py-3 font-medium">Provider</th>
                 <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Health</th>
                 <th className="px-4 py-3 font-medium">Sent today / effective limit</th>
                 <th className="px-4 py-3 font-medium">Hard cap</th>
                 <th className="px-4 py-3 font-medium">Warm-up</th>
@@ -111,6 +126,28 @@ export default async function AccountsPage({
                       </span>
                     </td>
                     <td className="px-4 py-3"><StatusBadge status={account.status} /></td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const health = healthByAccountId.get(account.id) ?? {
+                          state: "healthy" as AccountHealthState,
+                          reasons: [] as string[],
+                        };
+                        return (
+                          <div>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${HEALTH_STYLES[health.state]}`}
+                            >
+                              {HEALTH_LABELS[health.state]}
+                            </span>
+                            {health.reasons.map((reason) => (
+                              <p key={reason} className="mt-0.5 text-xs text-muted">
+                                {reason}
+                              </p>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="px-4 py-3">{sentToday.get(account.id) ?? 0} / {effective}</td>
                     <td className="px-4 py-3">{account.dailyLimit}</td>
                     <td className="px-4 py-3">

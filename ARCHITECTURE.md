@@ -370,6 +370,22 @@ the committed migrations.
 
 ## Known limitations after Phase 4
 
+- v1.11.0 outreach upgrades: AI icebreaker generation per lead list
+  (workspace AI provider, 25 leads per run, lines stored in the
+  lead's icebreaker field); AUTOMATED reply classification ahead of
+  the positive and referral rules with an inbox Humans only filter
+  and a guarded backfill that never overrides POSITIVE, NEGATIVE,
+  or OUT_OF_OFFICE threads; account health states from 7 day bounce
+  rates and reply sync errors, with a conservative worker gate that
+  excludes critical accounts for the day and audits the pause;
+  HMAC signed click tracking at /c/[token] with one CLICKED event
+  per enrollment, step, and URL, link rewriting that never touches
+  the unsubscribe URL, and a workspace Tracking domain used as the
+  base for opens and clicks when set; deterministic per enrollment
+  spintax in subjects and bodies; workspace inbox snippets; and a
+  cross-campaign enroll guard that returns conflicts for explicit
+  confirmation.
+
 - The API rate limiter and the webhook retry queue are per instance
   and database backed respectively: the limiter resets on restart
   and does not coordinate across instances (documented in API.md),

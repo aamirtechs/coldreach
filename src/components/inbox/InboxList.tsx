@@ -23,7 +23,7 @@ interface Option {
   label: string;
 }
 
-const CLASSIFICATIONS = ["POSITIVE", "NEGATIVE", "OUT_OF_OFFICE", "REFERRAL", "NEUTRAL"];
+const CLASSIFICATIONS = ["POSITIVE", "NEGATIVE", "OUT_OF_OFFICE", "REFERRAL", "NEUTRAL", "AUTOMATED"];
 
 /**
  * Unified inbox list. Threads arrive from reply sync (Gmail, Microsoft
@@ -48,11 +48,14 @@ export function InboxList() {
   const [members, setMembers] = useState<Option[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [humansOnly, setHumansOnly] = useState(false);
+  const [detectBusy, setDetectBusy] = useState(false);
+  const [detectNotice, setDetectNotice] = useState<string | null>(null);
 
   // Selection only ever applies to the page and filter set on screen.
   useEffect(() => {
     setSelected(new Set());
-  }, [page, q, status, classification, campaignId, accountId, assigneeId]);
+  }, [page, q, status, classification, campaignId, accountId, assigneeId, humansOnly]);
 
   useEffect(() => {
     fetch("/api/campaigns")
@@ -84,6 +87,7 @@ export function InboxList() {
       if (q.trim()) params.set("q", q.trim());
       if (status) params.set("status", status);
       if (classification) params.set("classification", classification);
+      else if (humansOnly) params.set("excludeClassification", "AUTOMATED");
       if (campaignId) params.set("campaignId", campaignId);
       if (accountId) params.set("sendingAccountId", accountId);
       if (assigneeId) params.set("assigneeId", assigneeId);
@@ -103,7 +107,30 @@ export function InboxList() {
     } finally {
       setLoading(false);
     }
-  }, [page, q, status, classification, campaignId, accountId, assigneeId]);
+  }, [page, q, status, classification, campaignId, accountId, assigneeId, humansOnly]);
+
+  async function detectAutomated() {
+    setDetectBusy(true);
+    setDetectNotice(null);
+    try {
+      const response = await fetch("/api/threads/reclassify-automated", { method: "POST" });
+      const payload = (await response.json().catch(() => ({}))) as {
+        reclassified?: number;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error ?? "Detection failed");
+      setDetectNotice(
+        payload.reclassified && payload.reclassified > 0
+          ? `Reclassified ${payload.reclassified} thread${payload.reclassified === 1 ? "" : "s"} as automated.`
+          : "No automated replies found among the unchecked threads.",
+      );
+      await load();
+    } catch (err) {
+      setDetectNotice(err instanceof Error ? err.message : "Detection failed");
+    } finally {
+      setDetectBusy(false);
+    }
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -217,7 +244,27 @@ export function InboxList() {
             ))}
           </select>
         </label>
+        <label className="flex items-center gap-2 pb-1 text-sm text-muted">
+          <input
+            type="checkbox"
+            checked={humansOnly}
+            onChange={(event) => {
+              setHumansOnly(event.target.checked);
+              setPage(1);
+            }}
+          />
+          Humans only
+        </label>
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={detectBusy}
+          onClick={detectAutomated}
+        >
+          {detectBusy ? "Detecting..." : "Detect automated replies"}
+        </button>
       </div>
+      {detectNotice ? <p className="mt-2 text-sm text-muted">{detectNotice}</p> : null}
 
       <p className="mt-4 text-sm text-muted">
         {total} conversation{total === 1 ? "" : "s"}
