@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.1 (2026-10-29)
+
+Display fix for click tracking.
+
+- **Campaigns Progress now shows clicks.** The campaigns list adds
+  each campaign's tracked link clicks next to emails sent, and the
+  campaigns API returns the same clickedCount. Click events were
+  already being recorded in v1.11.0; only the display was missing.
+
 ## 1.11.0 (2026-10-29)
 
 Seven outreach upgrades in one release.

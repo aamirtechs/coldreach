@@ -17,7 +17,7 @@ export async function GET() {
       },
     });
     const campaignIds = campaigns.map((campaign) => campaign.id);
-    const [contactedRows, sentRows] = await Promise.all([
+    const [contactedRows, sentRows, clickedRows] = await Promise.all([
       prisma.enrollment.groupBy({
         by: ["campaignId"],
         where: {
@@ -38,11 +38,21 @@ export async function GET() {
         },
         _count: { _all: true },
       }),
+      prisma.emailEvent.groupBy({
+        by: ["campaignId"],
+        where: {
+          workspaceId: ctx.workspace.id,
+          campaignId: { in: campaignIds },
+          type: "CLICKED",
+        },
+        _count: { _all: true },
+      }),
     ]);
     const contactedByCampaign = new Map(
       contactedRows.map((row) => [row.campaignId, row._count._all]),
     );
     const sentByCampaign = new Map(sentRows.map((row) => [row.campaignId, row._count._all]));
+    const clickedByCampaign = new Map(clickedRows.map((row) => [row.campaignId, row._count._all]));
     return NextResponse.json({
       campaigns: campaigns.map((campaign) => {
         const contactedCount = contactedByCampaign.get(campaign.id) ?? 0;
@@ -57,6 +67,7 @@ export async function GET() {
           contactedCount,
           notContactedCount: campaign._count.enrollments - contactedCount,
           sentCount: sentByCampaign.get(campaign.id) ?? 0,
+          clickedCount: clickedByCampaign.get(campaign.id) ?? 0,
           createdAt: campaign.createdAt,
         };
       }),

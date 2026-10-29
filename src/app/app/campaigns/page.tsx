@@ -32,7 +32,7 @@ export default async function CampaignsPage() {
   // an enrollment counts as contacted once its first step has sent
   // (currentStep >= 1), and sentCount is the campaign's SENT events.
   const campaignIds = campaigns.map((campaign) => campaign.id);
-  const [contactedRows, sentRows] = await Promise.all([
+  const [contactedRows, sentRows, clickedRows] = await Promise.all([
     prisma.enrollment.groupBy({
       by: ["campaignId"],
       // Enrollment has no workspaceId column; the campaign id list is
@@ -45,9 +45,15 @@ export default async function CampaignsPage() {
       where: { workspaceId, campaignId: { in: campaignIds }, type: "SENT" },
       _count: { _all: true },
     }),
+    prisma.emailEvent.groupBy({
+      by: ["campaignId"],
+      where: { workspaceId, campaignId: { in: campaignIds }, type: "CLICKED" },
+      _count: { _all: true },
+    }),
   ]);
   const contactedByCampaign = new Map(contactedRows.map((row) => [row.campaignId, row._count._all]));
   const sentByCampaign = new Map(sentRows.map((row) => [row.campaignId, row._count._all]));
+  const clickedByCampaign = new Map(clickedRows.map((row) => [row.campaignId, row._count._all]));
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -103,7 +109,7 @@ export default async function CampaignsPage() {
                           {contactedByCampaign.get(campaign.id) ?? 0} of {campaign._count.enrollments} contacted
                         </span>
                         <p className="mt-0.5 text-xs text-muted">
-                          {campaign._count.enrollments - (contactedByCampaign.get(campaign.id) ?? 0)} remaining · {sentByCampaign.get(campaign.id) ?? 0} emails sent
+                          {campaign._count.enrollments - (contactedByCampaign.get(campaign.id) ?? 0)} remaining · {sentByCampaign.get(campaign.id) ?? 0} emails sent · {clickedByCampaign.get(campaign.id) ?? 0} clicks
                         </p>
                       </>
                     )}
