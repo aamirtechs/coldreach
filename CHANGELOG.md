@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.1 (2026-10-29)
+
+Sidebar consistency fix.
+
+- **Compose matches the other sidebar buttons.** The Compose entry
+  above Inbox now uses the same nav link styling as every other
+  sidebar item (same shape, hover, and text treatment) instead of a
+  separate primary button design. Behavior is unchanged: it still
+  opens the compose window.
+
 ## 1.10.0 (2026-10-29)
 
 Inbox bulk actions, manual compose, campaign progress, live sidebar status.

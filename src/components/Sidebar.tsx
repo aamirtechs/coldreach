@@ -65,7 +65,7 @@ export function Sidebar() {
               {item.href === "/app/inbox" ? (
                 <button
                   type="button"
-                  className="btn-primary w-full"
+                  className="nav-link w-full"
                   onClick={() => setComposeOpen(true)}
                 >
                   <SquarePen className="h-5 w-5 shrink-0" aria-hidden="true" />
