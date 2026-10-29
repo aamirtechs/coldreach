@@ -370,6 +370,11 @@ the committed migrations.
 
 ## Known limitations after Phase 4
 
+- v1.11.2: campaign enrollment removal (Enrolled leads card with
+  bulk remove; the API refuses contacted enrollments, meaning
+  currentStep >= 1 or any SENT event, with a 409 naming them, so
+  send history is never orphaned; removal never deletes the lead
+  from its list).
 - v1.11.0 outreach upgrades: AI icebreaker generation per lead list
   (workspace AI provider, 25 leads per run, lines stored in the
   lead's icebreaker field); AUTOMATED reply classification ahead of

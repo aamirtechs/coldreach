@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { computeCampaignMetricsFromCounts } from "@/lib/domain/metrics";
 import { listTokens } from "@/lib/domain/personalize";
 import { CampaignActions } from "@/components/campaigns/CampaignActions";
+import { EnrolledLeads } from "@/components/campaigns/EnrolledLeads";
 import { CampaignSettingsForm } from "@/components/campaigns/CampaignSettingsForm";
 import { SequenceBuilder, type StepDraft } from "@/components/campaigns/SequenceBuilder";
 import { StatusBadge, formatPercent } from "@/components/ui";
@@ -137,6 +138,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       </div>
 
       <CampaignActions campaignId={campaign.id} status={campaign.status} />
+
+      <EnrolledLeads campaignId={campaign.id} />
 
       <CampaignSettingsForm
         campaignId={campaign.id}

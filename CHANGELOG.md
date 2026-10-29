@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.11.2 (2026-10-29)
+
+Enrollment removal for campaigns.
+
+- **Remove leads from a campaign without deleting them.** The
+  campaign page gains an Enrolled leads card with bulk selection
+  and removal. Removal only affects the campaign: the lead stays in
+  its list. As a safeguard, an enrollment that has already been
+  contacted (any step sent) cannot be removed, so send history and
+  attribution are never wiped by accident.
+
 ## 1.11.1 (2026-10-29)
 
 Display fix for click tracking.
