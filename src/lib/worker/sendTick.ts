@@ -5,6 +5,7 @@ import { resolveLeadTimezone } from "@/lib/domain/leadTimezone";
 import { findSuppression, type SuppressionEntry } from "@/lib/domain/suppression";
 import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
+import { hourlyBudget, hourlySendCap, tickSendCeiling } from "@/lib/domain/pacing";
 import { effectiveDailyLimit as warmupDailyLimit } from "@/lib/domain/warmup";
 import { resolveProvider as defaultResolveProvider, type MailProvider } from "@/lib/providers";
 import { loadSuppressions } from "@/lib/suppressions";
@@ -47,6 +48,11 @@ export interface SendTickDeps {
   now?: Date;
   appUrl?: string;
   batchLimit?: number;
+  /** Pacing overrides (v1.11.4); default to the env-derived caps in
+   *  domain/pacing. Tests pass explicit values to exercise the gates
+   *  without depending on the production numbers. */
+  hourlyCap?: number;
+  tickSendCeiling?: number;
   /** Set false in tests that exercise sending in isolation. The tick
    *  syncs replies for connected OAuth accounts before sending, so a
    *  reply that just landed stops its follow-up in the same run. */
@@ -65,6 +71,12 @@ export interface SendTickSummary {
    *  re-stamped to the lead's next window opening (per-lead
    *  timezone sending, v1.5.0). */
   deferredOutsideWindow: number;
+  /** Sends deferred because the workspace reached its rolling
+   *  60 minute send cap (v1.11.4 pacing). */
+  deferredHourlyCap: number;
+  /** Sends deferred because this tick reached its per-tick send
+   *  ceiling (v1.11.4 pacing). */
+  deferredTickPacing: number;
   failed: number;
   /** Sends refused because the workspace hit its plan's monthly quota. */
   quotaBlocked: number;
@@ -156,6 +168,8 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     skippedSuppressed: 0,
     deferredNoCapacity: 0,
     deferredOutsideWindow: 0,
+    deferredHourlyCap: 0,
+    deferredTickPacing: 0,
     failed: 0,
     quotaBlocked: 0,
     sync: syncSummaries,
@@ -290,6 +304,30 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     return count;
   };
 
+  // Send pacing (v1.11.4): the sending domain's host enforces a hard
+  // per-domain hourly relay limit, and a tick that finds a large due
+  // pool at a window opening can submit it all inside a minute. The
+  // host defers the excess, delivery lags, and the deferral notices
+  // pollute the sending inboxes. Two budgets keep submission smooth:
+  // a rolling 60 minute cap per workspace and a per-tick ceiling.
+  // Only real sends consume them; simulated sends never reach SMTP.
+  const hourlyCap = deps.hourlyCap ?? hourlySendCap();
+  const tickCeiling = deps.tickSendCeiling ?? tickSendCeiling();
+  const hourStart = new Date(now.getTime() - 60 * 60 * 1000);
+  const hourlyCache = new Map<string, number>();
+  let realSendsThisTick = 0;
+  const sentLastHourFor = async (wsId: string): Promise<number> => {
+    const cached = hourlyCache.get(wsId);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const count = await db.emailEvent.count({
+      where: { workspaceId: wsId, type: "SENT", occurredAt: { gte: hourStart } },
+    });
+    hourlyCache.set(wsId, count);
+    return count;
+  };
+
   for (const enrollment of due) {
     summary.processed += 1;
     const { campaign, lead } = enrollment;
@@ -319,6 +357,18 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         data: { status: "COMPLETED", nextSendAt: null },
       });
       summary.completed += 1;
+      continue;
+    }
+
+    // Gate: send pacing (v1.11.4). Deferred enrollments stay due and
+    // are picked up by later ticks as budget frees; nothing is
+    // re-stamped or error-marked, so pacing is invisible to the lead.
+    if (realSendsThisTick >= tickCeiling) {
+      summary.deferredTickPacing += 1;
+      continue;
+    }
+    if (hourlyBudget(await sentLastHourFor(workspaceId), hourlyCap) <= 0) {
+      summary.deferredHourlyCap += 1;
       continue;
     }
 
@@ -631,6 +681,10 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       summary.sent += 1;
       if (provider.isSimulation) {
         summary.simulated += 1;
+      } else {
+        // Real sends consume the pacing budgets (v1.11.4).
+        realSendsThisTick += 1;
+        hourlyCache.set(workspaceId, (hourlyCache.get(workspaceId) ?? 0) + 1);
       }
       await advance();
     } catch (error) {
@@ -674,6 +728,8 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     completed: summary.completed,
     failed: summary.failed,
     quotaBlocked: summary.quotaBlocked,
+    deferredHourlyCap: summary.deferredHourlyCap,
+    deferredTickPacing: summary.deferredTickPacing,
     webhooksAttempted: summary.webhooks.attempted,
     webhooksDelivered: summary.webhooks.delivered,
   });

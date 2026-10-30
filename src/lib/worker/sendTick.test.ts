@@ -528,4 +528,100 @@ describe("runSendTick account balancing (v1.8.2)", () => {
       new Set([accountA.email, accountB.email]),
     );
   });
+
+  it("defers sends past the per-tick pacing ceiling and sends them on a later tick", async () => {
+    const account = await makeAccount(100, "pace-tick");
+    const { list, leads } = await makeListWithLeads("pace-tick", [
+      "pace1@example.com",
+      "pace2@example.com",
+      "pace3@example.com",
+      "pace4@example.com",
+      "pace5@example.com",
+    ]);
+    const campaign = await makeCampaign({
+      suffix: "pace-tick",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    for (const lead of leads) {
+      await enroll(campaign.id, lead.id);
+    }
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async () => ({ providerMessageId: "capture-pace-tick" }),
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+      tickSendCeiling: 2,
+      hourlyCap: 500,
+    });
+    expect(summary.sent).toBe(2);
+    expect(summary.deferredTickPacing).toBe(3);
+    expect(summary.deferredHourlyCap).toBe(0);
+    // The deferred enrollments stayed due: a later tick with a fresh
+    // ceiling sends the rest.
+    const second = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+      tickSendCeiling: 20,
+      hourlyCap: 500,
+    });
+    expect(second.sent).toBe(3);
+  });
+
+  it("defers every send when the workspace already hit its rolling hourly cap", async () => {
+    const account = await makeAccount(100, "pace-hour");
+    const { list, leads } = await makeListWithLeads("pace-hour", [
+      "paceh1@example.com",
+      "paceh2@example.com",
+    ]);
+    const campaign = await makeCampaign({
+      suffix: "pace-hour",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    const enrollments = [];
+    for (const lead of leads) {
+      enrollments.push(await enroll(campaign.id, lead.id));
+    }
+    // Three sends already recorded inside the last hour.
+    for (let i = 0; i < 3; i += 1) {
+      await db.emailEvent.create({
+        data: {
+          workspaceId,
+          campaignId: campaign.id,
+          enrollmentId: enrollments[0].id,
+          sendingAccountId: account.id,
+          type: "SENT",
+          idempotencyKey: `pace-hour-seed-${i}`,
+          occurredAt: new Date(Date.now() - 5 * 60_000),
+        },
+      });
+    }
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async () => ({ providerMessageId: "capture-pace-hour" }),
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+      tickSendCeiling: 100,
+      hourlyCap: 3,
+    });
+    expect(summary.sent).toBe(0);
+    // At least this test's two enrollments deferred on the hourly
+    // cap; the shared suite database can hold other due enrollments
+    // from earlier tests, which defer on the same gate.
+    expect(summary.deferredHourlyCap).toBeGreaterThanOrEqual(2);
+    expect(summary.deferredTickPacing).toBe(0);
+  });
 });

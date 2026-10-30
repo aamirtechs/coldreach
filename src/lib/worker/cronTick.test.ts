@@ -37,6 +37,8 @@ function emptySummary(): CronTickSummary {
       skippedSuppressed: 0,
       deferredNoCapacity: 0,
       deferredOutsideWindow: 0,
+      deferredHourlyCap: 0,
+      deferredTickPacing: 0,
       failed: 0,
       quotaBlocked: 0,
       sync: [],
