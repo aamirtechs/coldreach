@@ -730,6 +730,13 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     quotaBlocked: summary.quotaBlocked,
     deferredHourlyCap: summary.deferredHourlyCap,
     deferredTickPacing: summary.deferredTickPacing,
+    // Log every deferral bucket (v1.11.5): the 2026-10-30 sending
+    // stall showed ticks processing 200 enrollments with zero sends
+    // and zero in every logged counter, which left the real bucket
+    // (suppressed, no-capacity, or outside-window) invisible.
+    skippedSuppressed: summary.skippedSuppressed,
+    deferredNoCapacity: summary.deferredNoCapacity,
+    deferredOutsideWindow: summary.deferredOutsideWindow,
     webhooksAttempted: summary.webhooks.attempted,
     webhooksDelivered: summary.webhooks.delivered,
   });
