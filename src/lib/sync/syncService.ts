@@ -65,6 +65,26 @@ function referenceCandidates(message: NormalizedInboundMessage): string[] {
 interface SyncDeps {
   source?: MessageSource;
   now?: Date;
+  /** Delays between retry attempts for transient fetch failures. */
+  retryDelaysMs?: number[];
+}
+
+/**
+ * Connection level failures from shared mail hosts are usually
+ * transient: the server is slow to accept or greet while many
+ * mailboxes on the same host are being polled. Those errors are
+ * worth retrying inside the same sync pass; authentication and
+ * configuration errors are not, because a retry cannot fix them.
+ */
+const TRANSIENT_SYNC_ERROR =
+  /timed?\s?out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|Failed to establish connection|greeting/i;
+
+function isTransientSyncError(error: unknown): boolean {
+  return error instanceof Error && TRANSIENT_SYNC_ERROR.test(error.message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function syncAccount(
@@ -93,7 +113,24 @@ export async function syncAccount(
 
   let fetched;
   try {
-    fetched = await source.fetchNewMessages(account, account.syncCursor);
+    // One initial attempt plus one retry per configured delay, but
+    // only while the failure looks transient. lastError is written
+    // only when every attempt failed, so a recovered sync never
+    // leaves a stale failure flag on the account.
+    const delays = deps.retryDelaysMs ?? [2_000, 6_000];
+    let attempt = 0;
+    for (;;) {
+      try {
+        fetched = await source.fetchNewMessages(account, account.syncCursor);
+        break;
+      } catch (error) {
+        if (attempt >= delays.length || !isTransientSyncError(error)) {
+          throw error;
+        }
+        await sleep(delays[attempt]);
+        attempt += 1;
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Sync failed";
     await db.sendingAccount.update({
@@ -277,7 +314,15 @@ export async function syncAllConnectedAccounts(
     },
   });
   const summaries: AccountSyncSummary[] = [];
+  let first = true;
   for (const account of accounts) {
+    // A short pause between accounts: many mailboxes often share one
+    // host, and back to back logins from a single IP can trip the
+    // host's login rate limits, which surface as connect timeouts.
+    if (!first) {
+      await sleep(250);
+    }
+    first = false;
     try {
       summaries.push(await syncAccount(db, account));
     } catch (error) {

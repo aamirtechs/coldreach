@@ -167,4 +167,57 @@ describe("syncAccount with FakeSource", () => {
     });
     expect(thread?.leadId).toBeNull();
   });
+
+  it("retries a transient connection failure and imports on recovery", async () => {
+    let calls = 0;
+    const flaky = {
+      id: "flaky",
+      async fetchNewMessages() {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("Failed to establish connection in required time");
+        }
+        return { messages: [], cursor: "flaky-cursor" };
+      },
+    };
+    const account = await db.sendingAccount.findUniqueOrThrow({ where: { id: accountId } });
+    const summary = await syncAccount(db, account, { source: flaky, retryDelaysMs: [0, 0] });
+    expect(calls).toBe(2);
+    expect(summary.error).toBeUndefined();
+    const after = await db.sendingAccount.findUniqueOrThrow({ where: { id: accountId } });
+    expect(after.lastError).toBeNull();
+    expect(after.syncCursor).toBe("flaky-cursor");
+  });
+
+  it("does not retry a non-transient failure and records lastError once", async () => {
+    let calls = 0;
+    const broken = {
+      id: "broken",
+      async fetchNewMessages(): Promise<never> {
+        calls += 1;
+        throw new Error("Invalid credentials");
+      },
+    };
+    const account = await db.sendingAccount.findUniqueOrThrow({ where: { id: accountId } });
+    const summary = await syncAccount(db, account, { source: broken, retryDelaysMs: [0, 0] });
+    expect(calls).toBe(1);
+    expect(summary.error).toBe("Invalid credentials");
+    const after = await db.sendingAccount.findUniqueOrThrow({ where: { id: accountId } });
+    expect(after.lastError).toBe("Reply sync failed: Invalid credentials");
+  });
+
+  it("gives up after the configured retries on persistent timeouts", async () => {
+    let calls = 0;
+    const slow = {
+      id: "slow",
+      async fetchNewMessages(): Promise<never> {
+        calls += 1;
+        throw new Error("read ETIMEDOUT");
+      },
+    };
+    const account = await db.sendingAccount.findUniqueOrThrow({ where: { id: accountId } });
+    const summary = await syncAccount(db, account, { source: slow, retryDelaysMs: [0, 0] });
+    expect(calls).toBe(3);
+    expect(summary.error).toBe("read ETIMEDOUT");
+  });
 });

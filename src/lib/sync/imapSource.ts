@@ -74,9 +74,12 @@ function defaultClientFactory(credentials: MailboxCredentials): ImapClientLike {
     auth: { user: credentials.user, pass: credentials.pass },
     logger: false,
     disableAutoIdle: true,
-    connectionTimeout: 15_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 30_000,
+    // Shared hosting mail servers can be slow to accept and greet
+    // under load; generous timeouts keep a slow server from failing
+    // the whole sync (transient failures are also retried upstream).
+    connectionTimeout: 30_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 60_000,
     ...(credentials.imap.secure ? {} : { doSTARTTLS: true as const }),
   });
   return client as unknown as ImapClientLike;

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.11.3 (2026-10-30)
+
+Reply sync reliability fix.
+
+- **Transient IMAP failures are retried, not flagged.** When a
+  mailbox connection times out (common on shared mail hosts while
+  many accounts on one host are polled), the sync now retries with
+  backoff inside the same pass and only records a failure on the
+  account if every attempt fails. Connection, greeting, and socket
+  timeouts were raised (30s, 15s, 60s), and account syncs are
+  spaced slightly apart so back to back logins from one IP stop
+  tripping host login rate limits.
+
 ## 1.11.2 (2026-10-29)
 
 Enrollment removal for campaigns.
