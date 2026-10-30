@@ -414,8 +414,25 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     const healthById = await healthForAccounts(accounts);
     let chosen: SendingAccount | null = null;
     let chosenSentToday = Number.POSITIVE_INFINITY;
+    // Diagnostic detail (v1.11.6): when no account is chosen, record
+    // why each candidate was rejected, so a capacity stall can be
+    // diagnosed from the tick logs instead of guessed at.
+    const capacityDetail: Array<{
+      email: string;
+      status: string;
+      bounceCritical: boolean | null;
+      limit: number;
+      sentToday: number;
+    }> = [];
     for (const candidate of accounts) {
       if (candidate.status === "PAUSED" || candidate.status === "ERROR") {
+        capacityDetail.push({
+          email: candidate.email,
+          status: candidate.status,
+          bounceCritical: null,
+          limit: -1,
+          sentToday: -1,
+        });
         continue;
       }
       // Health gate (v1.11.0): an account whose recent bounce rate
@@ -426,6 +443,13 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       const health = healthById.get(candidate.id);
       if (health?.bounceCritical) {
         void noteHealthPause(candidate, workspaceId, health.reasons);
+        capacityDetail.push({
+          email: candidate.email,
+          status: candidate.status,
+          bounceCritical: true,
+          limit: -1,
+          sentToday: -1,
+        });
         continue;
       }
       // The existing age ramp from limits.ts, additionally capped by
@@ -445,6 +469,13 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         warmupDailyLimit(candidate, now),
       );
       const sentToday = await sentTodayFor(candidate);
+      capacityDetail.push({
+        email: candidate.email,
+        status: candidate.status,
+        bounceCritical: false,
+        limit,
+        sentToday,
+      });
       if (sentToday < limit && sentToday < chosenSentToday) {
         chosen = candidate;
         chosenSentToday = sentToday;
@@ -452,6 +483,16 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     }
     if (!chosen) {
       summary.deferredNoCapacity += 1;
+      // Cap the detail lines so one stalled tick cannot flood the
+      // logs; the first few carry the full picture.
+      if (summary.deferredNoCapacity <= 3) {
+        logger.warn("Send tick deferred: no account capacity", {
+          requestId,
+          campaignId: campaign.id,
+          workspaceId,
+          capacityDetail,
+        });
+      }
       continue;
     }
 
