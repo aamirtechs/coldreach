@@ -580,13 +580,6 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     );
     const unsubscribeUrl = `${appUrl}/u/${createUnsubscribeToken(workspaceId, lead.id, campaign.id)}`;
     const senderLine = campaign.workspace.senderName ?? campaign.workspace.name;
-    const footerText = [
-      "",
-      "--",
-      senderLine,
-      ...(campaign.workspace.senderAddress ? [campaign.workspace.senderAddress] : []),
-      `Unsubscribe: ${unsubscribeUrl}`,
-    ].join("\n");
     // Per-campaign signature (v1.4.0): rendered with the same lead
     // fields and placed between the body and the compliance footer,
     // so it applies to every step and A/B variant without editing
@@ -594,12 +587,29 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     const signatureText = campaign.signatureText
       ? renderTemplate(campaign.signatureText, leadFields).trim()
       : "";
+    // Footer slimming (v1.11.7): when the campaign carries its own
+    // signature, the signature already signs off with the sender's
+    // name, so the compliance footer drops the repeated name line and
+    // keeps only the postal address and the unsubscribe link. Without
+    // a signature the footer keeps the name, so the email still signs
+    // off properly.
+    const footerSenderLines = signatureText ? [] : [senderLine];
+    const footerText = [
+      "",
+      "--",
+      ...footerSenderLines,
+      ...(campaign.workspace.senderAddress ? [campaign.workspace.senderAddress] : []),
+      `Unsubscribe: ${unsubscribeUrl}`,
+    ].join("\n");
     const fullText = signatureText
       ? `${bodyText}\n\n${signatureText}\n${footerText}`
       : `${bodyText}\n${footerText}`;
-    const footerHtml = `<hr /><p style="font-size:12px;color:#666">${senderLine}${
-      campaign.workspace.senderAddress ? `<br />${campaign.workspace.senderAddress}` : ""
-    }<br /><a href="${unsubscribeUrl}">Unsubscribe</a></p>`;
+    const footerHtmlParts = [
+      ...footerSenderLines,
+      ...(campaign.workspace.senderAddress ? [campaign.workspace.senderAddress] : []),
+      `<a href="${unsubscribeUrl}">Unsubscribe</a>`,
+    ];
+    const footerHtml = `<hr /><p style="font-size:12px;color:#666">${footerHtmlParts.join("<br />")}</p>`;
     const signatureHtml = signatureText ? `\n${textToHtml(signatureText)}` : "";
     const renderedHtml = variant?.bodyHtml
       ? renderSpintax(renderTemplate(variant.bodyHtml, leadFields), spintaxSeed)

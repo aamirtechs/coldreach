@@ -321,10 +321,54 @@ describe("runSendTick", () => {
     expect(ours).toHaveLength(1);
     // Text: body, then signature, then the "--" compliance footer.
     expect(ours[0].text).toContain("Body 1 for Acme\n\nBest regards,\nAmir Hussain\nAamirTechs\n\n--");
+    // v1.11.7: with a signature present, the footer drops the repeated
+    // sender name but keeps the postal address and unsubscribe link.
+    // ("Test Sender" is the seeded workspace senderName; it appears in
+    // the full message only if the footer repeats it.)
+    expect(ours[0].text).not.toContain("Test Sender");
+    expect(ours[0].text).toContain("1 Test Street, Testville");
+    expect(ours[0].text).toContain("Unsubscribe: http://localhost:3000/u/");
     // HTML: signature paragraphs appear before the footer rule.
     const html = ours[0].html ?? "";
     expect(html.indexOf("Best regards")).toBeGreaterThan(-1);
     expect(html.indexOf("Best regards")).toBeLessThan(html.indexOf("<hr />"));
+    expect(html).not.toContain("Test Sender");
+    expect(html).toContain("1 Test Street, Testville");
+  });
+
+  it("keeps the sender name in the footer when the campaign has no signature", async () => {
+    const account = await makeAccount(100, "nosig");
+    const { list, leads } = await makeListWithLeads("nosig", ["nosig@example.com"]);
+    const campaign = await makeCampaign({
+      suffix: "nosig",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    await enroll(campaign.id, leads[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-nosig-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const ours = captured.filter((input) => input.toEmail === "nosig@example.com");
+    expect(ours).toHaveLength(1);
+    // No signature: the footer is the sign-off, so it keeps the name,
+    // then the postal address, then the unsubscribe link.
+    expect(ours[0].text).toContain("\n--\nTest Sender\n1 Test Street, Testville\nUnsubscribe: ");
+    const html = ours[0].html ?? "";
+    expect(html).toContain("Test Sender<br />1 Test Street, Testville<br />");
   });
 });
 

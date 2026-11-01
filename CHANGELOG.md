@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.11.7 (2026-11-01)
+
+Slimmer compliance footer when a campaign has its own signature.
+
+- **No more double sign-off.** Campaign emails used to stack the
+  per-campaign signature (which already signs off with the sender's
+  name) on top of a compliance footer that repeated the same name.
+  Now, when a campaign carries a signature, the footer keeps only the
+  postal address and the unsubscribe link. Campaigns without a
+  signature are unchanged: their footer still carries the sender
+  name, address, and unsubscribe link.
+
 ## 1.11.3 (2026-10-30)
 
 Reply sync reliability fix.

@@ -181,7 +181,10 @@ One tick, per due enrollment, in order:
 3. Subject and body are rendered with the personalisation engine, and
    the compliance footer is appended: sender name, postal address,
    and a signed unsubscribe link, mirrored in a List-Unsubscribe
-   header.
+   header. When the campaign carries its own signature, the signature
+   is rendered between the body and the footer and the footer omits
+   the sender name it would otherwise repeat, keeping only the postal
+   address and the unsubscribe link (v1.11.7).
 4. The send goes through the provider interface in `src/lib/providers`
    (simulation, SMTP, and, once connected through OAuth, Gmail and
    Microsoft Graph). Before sends, the tick runs a reply sync pass for
