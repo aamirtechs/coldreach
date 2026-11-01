@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findUnknownTokens, listTokens, renderTemplate } from "./personalize";
+import { findUnknownTokens, listTokens, renderTemplate, senderIdentityFields } from "./personalize";
 
 describe("renderTemplate", () => {
   it("substitutes known fields", () => {
@@ -50,5 +50,39 @@ describe("findUnknownTokens", () => {
 describe("listTokens", () => {
   it("lists distinct token names", () => {
     expect(listTokens("{{a}} {{b|x}} {{a}}").sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("senderIdentityFields", () => {
+  it("prefers the campaign identity over the workspace", () => {
+    expect(
+      senderIdentityFields({
+        campaignSenderName: "Chris Blake",
+        campaignCompanyName: "Dispatch Authority",
+        workspaceSenderName: "Amir Hussain",
+        workspaceName: "AamirTechs",
+      }),
+    ).toEqual({ senderName: "Chris Blake", senderCompany: "Dispatch Authority" });
+  });
+
+  it("falls back to the workspace sender name, then the workspace name", () => {
+    expect(
+      senderIdentityFields({ workspaceSenderName: "Amir Hussain", workspaceName: "AamirTechs" }),
+    ).toEqual({ senderName: "Amir Hussain", senderCompany: "AamirTechs" });
+    expect(senderIdentityFields({ workspaceName: "AamirTechs" })).toEqual({
+      senderName: "AamirTechs",
+      senderCompany: "AamirTechs",
+    });
+  });
+
+  it("treats blank campaign values as unset", () => {
+    expect(
+      senderIdentityFields({
+        campaignSenderName: "  ",
+        campaignCompanyName: "",
+        workspaceSenderName: "Amir Hussain",
+        workspaceName: "AamirTechs",
+      }),
+    ).toEqual({ senderName: "Amir Hussain", senderCompany: "AamirTechs" });
   });
 });

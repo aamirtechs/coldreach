@@ -12,7 +12,7 @@
  * and this function renders the verdict.
  */
 
-import { findUnknownTokens } from "./personalize";
+import { findUnknownTokens, SENDER_IDENTITY_TOKENS } from "./personalize";
 
 export type PreflightStatus = "pass" | "warn" | "fail";
 
@@ -184,6 +184,12 @@ export function runPreflight(input: PreflightInput): PreflightResult {
     const available: Record<string, string> = {};
     for (const fieldName of input.availableFields) {
       available[fieldName] = "value";
+    }
+    // Sender identity tokens always resolve at send time from the
+    // campaign or workspace identity (v1.12.1), so they are known
+    // even though no lead carries them as fields.
+    for (const token of SENDER_IDENTITY_TOKENS) {
+      available[token] = "value";
     }
     const unknown = new Set<string>();
     for (const step of input.steps) {

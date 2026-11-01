@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { computeCampaignMetricsFromCounts } from "@/lib/domain/metrics";
-import { listTokens } from "@/lib/domain/personalize";
+import { listTokens, senderIdentityFields } from "@/lib/domain/personalize";
 import { CampaignActions } from "@/components/campaigns/CampaignActions";
 import { EnrolledLeads } from "@/components/campaigns/EnrolledLeads";
 import { CampaignSettingsForm } from "@/components/campaigns/CampaignSettingsForm";
@@ -99,6 +99,17 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       sampleFields[key] = String(value);
     }
   }
+  // Sender identity tokens resolve in the step preview exactly as
+  // they will at send time (v1.12.1).
+  Object.assign(
+    sampleFields,
+    senderIdentityFields({
+      campaignSenderName: campaign.senderName,
+      campaignCompanyName: campaign.companyName,
+      workspaceSenderName: session.workspace.senderName,
+      workspaceName: session.workspace.name,
+    }),
+  );
 
   const editable = campaign.status !== "RUNNING" && campaign.status !== "ARCHIVED";
   const metricCards: { label: string; value: string; note: string }[] = [

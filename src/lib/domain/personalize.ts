@@ -11,6 +11,32 @@
 
 export type LeadFields = Record<string, string | number | null | undefined>;
 
+/**
+ * Sender identity tokens (v1.12.1). Step copy and signatures can use
+ * {{senderName}} and {{senderCompany}} and they resolve at send time
+ * from the campaign's own identity, falling back to the workspace:
+ * senderName to the workspace sender name, then the workspace name;
+ * senderCompany to the workspace name. Both therefore always resolve
+ * to a non-empty value, which is why preflight treats them as known.
+ * Note {{company}} stays the lead's company, a different thing.
+ */
+export const SENDER_IDENTITY_TOKENS = ["senderName", "senderCompany"] as const;
+
+export function senderIdentityFields(input: {
+  campaignSenderName?: string | null;
+  campaignCompanyName?: string | null;
+  workspaceSenderName?: string | null;
+  workspaceName: string;
+}): Record<string, string> {
+  const campaignSender = input.campaignSenderName?.trim() ?? "";
+  const workspaceSender = input.workspaceSenderName?.trim() ?? "";
+  const campaignCompany = input.campaignCompanyName?.trim() ?? "";
+  return {
+    senderName: campaignSender || workspaceSender || input.workspaceName,
+    senderCompany: campaignCompany || input.workspaceName,
+  };
+}
+
 const TOKEN_PATTERN = /\{\{\s*([A-Za-z0-9_.-]+)\s*(?:\|([^{}]*))?\}\}/g;
 
 function lookup(fields: LeadFields, key: string): string | null {

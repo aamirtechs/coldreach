@@ -84,6 +84,15 @@ describe("runPreflight", () => {
     expect(result.canLaunch).toBe(false);
   });
 
+  it("passes sender identity tokens with no lead field behind them", () => {
+    const result = runPreflight(
+      baseInput({
+        steps: [{ subject: "Hi", body: "I am {{senderName}} with {{senderCompany}}." }],
+      }),
+    );
+    expect(check(result, "tokens").status).toBe("pass");
+  });
+
   it("passes tokens that resolve from fields or fallbacks", () => {
     const result = runPreflight(
       baseInput({

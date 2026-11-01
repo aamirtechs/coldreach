@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.12.1 (2026-11-01)
+
+Sender identity tokens for sequence copy.
+
+- **{{senderName}} and {{senderCompany}}** now work in sequence
+  subjects, step bodies, A/B variants, and signatures. They resolve
+  at send time from the campaign's sender identity, falling back to
+  the workspace identity, so an intro line like "I am
+  {{senderName}} with {{senderCompany}}" always matches the
+  campaign's From name and sign-off. {{company}} still means the
+  lead's company.
+- Preflight treats both tokens as always resolvable, and the step
+  editor offers them in its Insert token row and renders them in the
+  live preview.
+
 ## 1.12.0 (2026-11-01)
 
 Per-campaign sender identity: name, company, and signature.

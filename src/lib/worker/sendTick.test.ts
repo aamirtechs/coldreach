@@ -452,6 +452,64 @@ describe("runSendTick", () => {
     // The identity sign-off is not composed on top of the signature.
     expect(ours[0].text).not.toContain("Chris Blake\nDispatch Authority");
   });
+
+  it("resolves sender identity tokens in step copy from the campaign identity, then the workspace", async () => {
+    // Campaign identity set: tokens render the campaign's values.
+    const accountA = await makeAccount(100, "tok1");
+    const first = await makeListWithLeads("tok1", ["tok1@example.com"]);
+    const campaignA = await makeCampaign({
+      suffix: "tok1",
+      accountIds: [accountA.id],
+      listId: first.list.id,
+    });
+    await db.sequenceStep.updateMany({
+      where: { campaignId: campaignA.id, order: 0 },
+      data: { body: "I am {{senderName}} with {{senderCompany}}." },
+    });
+    await db.campaign.update({
+      where: { id: campaignA.id },
+      data: { senderName: "Chris Blake", companyName: "Dispatch Authority" },
+    });
+    await enroll(campaignA.id, first.leads[0].id);
+
+    // No campaign identity: tokens fall back to the workspace
+    // (senderName "Test Sender", workspace name "Test Workspace").
+    const accountB = await makeAccount(100, "tok2");
+    const second = await makeListWithLeads("tok2", ["tok2@example.com"]);
+    const campaignB = await makeCampaign({
+      suffix: "tok2",
+      accountIds: [accountB.id],
+      listId: second.list.id,
+    });
+    await db.sequenceStep.updateMany({
+      where: { campaignId: campaignB.id, order: 0 },
+      data: { body: "I am {{senderName}} with {{senderCompany}}." },
+    });
+    await enroll(campaignB.id, second.leads[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-tok-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const oursA = captured.filter((input) => input.toEmail === "tok1@example.com");
+    expect(oursA).toHaveLength(1);
+    expect(oursA[0].text).toContain("I am Chris Blake with Dispatch Authority.");
+    const oursB = captured.filter((input) => input.toEmail === "tok2@example.com");
+    expect(oursB).toHaveLength(1);
+    expect(oursB[0].text).toContain("I am Test Sender with Test Workspace.");
+  });
 });
 
 describe("runSendTick per-lead timezone window (v1.5.0)", () => {

@@ -145,8 +145,11 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
       <p className="mt-1 text-xs text-muted">
         Optional. Give this campaign its own name and company, separate from the workspace
         identity. The sender name becomes the From name on this campaign's emails, and the
-        name and company form the sign-off whenever the signature below is empty. Leave both
-        blank to send with the workspace identity as before.
+        name and company form the sign-off whenever the signature below is empty. You can
+        also use {"{{senderName}}"} and {"{{senderCompany}}"} anywhere in the sequence steps
+        or the signature, for example "I am {"{{senderName}}"} with {"{{senderCompany}}"}",
+        and they fill in from these fields at send time. Leave both blank to send with the
+        workspace identity as before.
       </p>
       <div className="mt-3 grid gap-4 sm:grid-cols-2">
         <div>

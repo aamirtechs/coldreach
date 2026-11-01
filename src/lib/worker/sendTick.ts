@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { computeNextSendAt } from "@/lib/domain/scheduling";
 import { resolveLeadTimezone } from "@/lib/domain/leadTimezone";
 import { findSuppression, type SuppressionEntry } from "@/lib/domain/suppression";
-import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
+import { renderTemplate, senderIdentityFields, type LeadFields } from "@/lib/domain/personalize";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { hourlyBudget, hourlySendCap, tickSendCeiling } from "@/lib/domain/pacing";
 import { effectiveDailyLimit as warmupDailyLimit } from "@/lib/domain/warmup";
@@ -564,6 +564,19 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
         ? { ...(lead.fields as Record<string, string>), email: lead.email }
         : { email: lead.email };
+    // Sender identity tokens (v1.12.1): {{senderName}} and
+    // {{senderCompany}} in subjects, bodies, and signatures resolve
+    // from the campaign identity with workspace fallbacks. Identity
+    // values win over any same-named lead field.
+    const renderFields: LeadFields = {
+      ...leadFields,
+      ...senderIdentityFields({
+        campaignSenderName: campaign.senderName,
+        campaignCompanyName: campaign.companyName,
+        workspaceSenderName: campaign.workspace.senderName,
+        workspaceName: campaign.workspace.name,
+      }),
+    };
     // Spintax (v1.11.0): after template rendering, resolve any
     // {a|b|c} groups in the subject and body. The seed is the
     // enrollment and step, so a retry of this send renders the
@@ -571,11 +584,11 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     // Copy without spintax syntax passes through unchanged.
     const spintaxSeed = `${enrollment.id}:${stepIndex}`;
     const subject = renderSpintax(
-      renderTemplate(variant?.subject ?? step.subject, leadFields),
+      renderTemplate(variant?.subject ?? step.subject, renderFields),
       spintaxSeed,
     );
     const bodyText = renderSpintax(
-      renderTemplate(variant ? variant.bodyText : step.body, leadFields),
+      renderTemplate(variant ? variant.bodyText : step.body, renderFields),
       spintaxSeed,
     );
     const unsubscribeUrl = `${appUrl}/u/${createUnsubscribeToken(workspaceId, lead.id, campaign.id)}`;
@@ -585,7 +598,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     // so it applies to every step and A/B variant without editing
     // any step copy, and takes effect from the next send onward.
     const signatureText = campaign.signatureText
-      ? renderTemplate(campaign.signatureText, leadFields).trim()
+      ? renderTemplate(campaign.signatureText, renderFields).trim()
       : "";
     // Per-campaign sender identity (v1.12.0): when the campaign has
     // no signature of its own, its senderName and companyName compose
@@ -622,7 +635,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     const footerHtml = `<hr /><p style="font-size:12px;color:#666">${footerHtmlParts.join("<br />")}</p>`;
     const signatureHtml = effectiveSignature ? `\n${textToHtml(effectiveSignature)}` : "";
     const renderedHtml = variant?.bodyHtml
-      ? renderSpintax(renderTemplate(variant.bodyHtml, leadFields), spintaxSeed)
+      ? renderSpintax(renderTemplate(variant.bodyHtml, renderFields), spintaxSeed)
       : textToHtml(bodyText);
     const fullHtml = `${renderedHtml}${signatureHtml}\n${footerHtml}`;
     // Tracking base (v1.11.0): the workspace's custom tracking
