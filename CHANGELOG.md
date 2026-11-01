@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.1 (2026-11-01)
+
+Redeploy release, no behavior change. Picks up the
+PLATFORM_OWNER_EMAIL environment configuration so the platform
+admin panel activates for the owner account.
+
 ## 1.13.0 (2026-11-01)
 
 Platform admin (super admin) panel.
