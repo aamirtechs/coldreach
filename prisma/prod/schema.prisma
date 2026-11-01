@@ -282,6 +282,14 @@ model Campaign {
   // step body and the compliance footer on every send, so editing it
   // never rewrites sequence steps and applies from the next send on.
   signatureText    String?
+  // Per-campaign sender identity (v1.12.0): when set, senderName
+  // overrides the sending account's From display name on this
+  // campaign's sends, and senderName / companyName compose the
+  // sign-off block whenever the campaign has no signatureText of its
+  // own. Null means fall back to the account name and the workspace
+  // identity, exactly as before.
+  senderName       String?
+  companyName      String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

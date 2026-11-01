@@ -184,7 +184,11 @@ One tick, per due enrollment, in order:
    header. When the campaign carries its own signature, the signature
    is rendered between the body and the footer and the footer omits
    the sender name it would otherwise repeat, keeping only the postal
-   address and the unsubscribe link (v1.11.7).
+   address and the unsubscribe link (v1.11.7). A campaign may carry
+   its own sender identity (v1.12.0): its senderName overrides the
+   sending account's From display name, and when the campaign has no
+   signatureText, its senderName and companyName compose the
+   sign-off block in the signature's place.
 4. The send goes through the provider interface in `src/lib/providers`
    (simulation, SMTP, and, once connected through OAuth, Gmail and
    Microsoft Graph). Before sends, the tick runs a reply sync pass for

@@ -34,6 +34,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         windowEnd: campaign.windowEnd,
         businessDaysOnly: campaign.businessDaysOnly,
         signatureText: campaign.signatureText,
+        senderName: campaign.senderName,
+        companyName: campaign.companyName,
         leadList: campaign.leadList,
         enrollmentCount: campaign._count.enrollments,
         createdAt: campaign.createdAt,
@@ -62,6 +64,8 @@ interface PatchBody {
   windowEnd?: unknown;
   businessDaysOnly?: unknown;
   signatureText?: unknown;
+  senderName?: unknown;
+  companyName?: unknown;
   accountIds?: unknown;
   status?: unknown;
 }
@@ -166,6 +170,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         return NextResponse.json({ error: "signatureText must be 2000 characters or fewer" }, { status: 400 });
       }
       data.signatureText = signature === "" ? null : signature;
+    }
+    // Per-campaign sender identity (v1.12.0): short single-line
+    // fields. An empty value clears the override back to the account
+    // and workspace fallbacks.
+    for (const key of ["senderName", "companyName"] as const) {
+      if (body[key] !== undefined) {
+        const value = typeof body[key] === "string" ? (body[key] as string).trim() : "";
+        if (value.length > 120) {
+          return NextResponse.json({ error: `${key} must be 120 characters or fewer` }, { status: 400 });
+        }
+        if (value.includes("\n")) {
+          return NextResponse.json({ error: `${key} must be a single line` }, { status: 400 });
+        }
+        data[key] = value === "" ? null : value;
+      }
     }
     let listChanged = false;
     if (body.leadListId !== undefined) {

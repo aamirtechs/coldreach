@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.12.0 (2026-11-01)
+
+Per-campaign sender identity: name, company, and signature.
+
+- **Each campaign can carry its own identity.** Campaign Settings
+  gains Sender name and Company fields next to the existing Email
+  signature. A workspace running several brands no longer has to
+  send every campaign under one name.
+- **From name.** When a campaign sets a sender name, that name is
+  the From display name on the campaign's emails, overriding the
+  sending account's display name.
+- **Sign-off.** The signature text, when filled in, is used exactly
+  as written. When it is empty, the sender name and company compose
+  the sign-off block (name line, then company line). When neither is
+  set, sends behave exactly as before, with the workspace identity
+  in the compliance footer.
+
 ## 1.11.7 (2026-11-01)
 
 Slimmer compliance footer when a campaign has its own signature.

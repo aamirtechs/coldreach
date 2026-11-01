@@ -20,6 +20,8 @@ interface CampaignSettingsFormProps {
     windowEnd: string;
     businessDaysOnly: boolean;
     signatureText: string;
+    senderName: string;
+    companyName: string;
     accountIds: string[];
   };
   lists: { id: string; name: string }[];
@@ -50,6 +52,8 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
   const [windowEnd, setWindowEnd] = useState(initial.windowEnd);
   const [businessDaysOnly, setBusinessDaysOnly] = useState(initial.businessDaysOnly);
   const [signatureText, setSignatureText] = useState(initial.signatureText);
+  const [senderName, setSenderName] = useState(initial.senderName);
+  const [companyName, setCompanyName] = useState(initial.companyName);
   const [accountIds, setAccountIds] = useState<string[]>(initial.accountIds);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,6 +77,8 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
         windowEnd,
         businessDaysOnly,
         signatureText,
+        senderName,
+        companyName,
         accountIds,
       }),
     });
@@ -135,6 +141,40 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
         </label>
       </div>
 
+      <h3 className="mt-6 text-sm font-semibold">Sender identity for this campaign</h3>
+      <p className="mt-1 text-xs text-muted">
+        Optional. Give this campaign its own name and company, separate from the workspace
+        identity. The sender name becomes the From name on this campaign's emails, and the
+        name and company form the sign-off whenever the signature below is empty. Leave both
+        blank to send with the workspace identity as before.
+      </p>
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="label" htmlFor="cs-sender-name">Sender name</label>
+          <input
+            id="cs-sender-name"
+            className="input"
+            value={senderName}
+            disabled={!editable}
+            maxLength={120}
+            placeholder="e.g. Chris Blake"
+            onChange={(e) => setSenderName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label" htmlFor="cs-company">Company</label>
+          <input
+            id="cs-company"
+            className="input"
+            value={companyName}
+            disabled={!editable}
+            maxLength={120}
+            placeholder="e.g. Dispatch Authority"
+            onChange={(e) => setCompanyName(e.target.value)}
+          />
+        </div>
+      </div>
+
       <div className="mt-4">
         <label className="label" htmlFor="cs-signature">Email signature</label>
         <textarea
@@ -148,9 +188,11 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
         />
         <p className="mt-1 text-xs text-muted">
           Printed under the body of every email this campaign sends, above the unsubscribe
-          footer. Personalisation tokens such as {"{{firstName}}"} render per lead. Leave
-          empty for no signature. Changes apply from the next send onward and never rewrite
-          sequence steps.
+          footer. Personalisation tokens such as {"{{firstName}}"} render per lead. When this
+          is filled in it is used exactly as written, so the sender name and company above do
+          not compose a separate sign-off. Leave empty to sign off with the sender name and
+          company above, or with nothing when those are empty too. Changes apply from the
+          next send onward and never rewrite sequence steps.
         </p>
       </div>
 

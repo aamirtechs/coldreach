@@ -152,6 +152,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           windowEnd: campaign.windowEnd,
           businessDaysOnly: campaign.businessDaysOnly,
           signatureText: campaign.signatureText ?? "",
+          senderName: campaign.senderName ?? "",
+          companyName: campaign.companyName ?? "",
           accountIds: campaign.accounts.map((entry) => entry.sendingAccount.id),
         }}
         lists={lists}

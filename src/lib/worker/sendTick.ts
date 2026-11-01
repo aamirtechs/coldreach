@@ -587,13 +587,23 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     const signatureText = campaign.signatureText
       ? renderTemplate(campaign.signatureText, leadFields).trim()
       : "";
+    // Per-campaign sender identity (v1.12.0): when the campaign has
+    // no signature of its own, its senderName and companyName compose
+    // the sign-off block (name line, then company line, whichever are
+    // set). An explicit signature always wins and is used as written.
+    const identitySignature = signatureText
+      ? ""
+      : [campaign.senderName?.trim(), campaign.companyName?.trim()]
+          .filter((line): line is string => Boolean(line))
+          .join("\n");
+    const effectiveSignature = signatureText || identitySignature;
     // Footer slimming (v1.11.7): when the campaign carries its own
     // signature, the signature already signs off with the sender's
     // name, so the compliance footer drops the repeated name line and
     // keeps only the postal address and the unsubscribe link. Without
     // a signature the footer keeps the name, so the email still signs
     // off properly.
-    const footerSenderLines = signatureText ? [] : [senderLine];
+    const footerSenderLines = effectiveSignature ? [] : [senderLine];
     const footerText = [
       "",
       "--",
@@ -601,8 +611,8 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       ...(campaign.workspace.senderAddress ? [campaign.workspace.senderAddress] : []),
       `Unsubscribe: ${unsubscribeUrl}`,
     ].join("\n");
-    const fullText = signatureText
-      ? `${bodyText}\n\n${signatureText}\n${footerText}`
+    const fullText = effectiveSignature
+      ? `${bodyText}\n\n${effectiveSignature}\n${footerText}`
       : `${bodyText}\n${footerText}`;
     const footerHtmlParts = [
       ...footerSenderLines,
@@ -610,7 +620,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       `<a href="${unsubscribeUrl}">Unsubscribe</a>`,
     ];
     const footerHtml = `<hr /><p style="font-size:12px;color:#666">${footerHtmlParts.join("<br />")}</p>`;
-    const signatureHtml = signatureText ? `\n${textToHtml(signatureText)}` : "";
+    const signatureHtml = effectiveSignature ? `\n${textToHtml(effectiveSignature)}` : "";
     const renderedHtml = variant?.bodyHtml
       ? renderSpintax(renderTemplate(variant.bodyHtml, leadFields), spintaxSeed)
       : textToHtml(bodyText);
@@ -655,7 +665,10 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     try {
       const result = await provider.send({
         fromEmail: chosen.email,
-        fromName: chosen.displayName,
+        // Per-campaign identity (v1.12.0): the campaign's own sender
+        // name, when set, is the From display name for its sends,
+        // overriding the sending account's display name.
+        fromName: campaign.senderName?.trim() ? campaign.senderName.trim() : chosen.displayName,
         toEmail: lead.email,
         subject,
         text: fullText,

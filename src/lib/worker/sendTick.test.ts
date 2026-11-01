@@ -370,6 +370,88 @@ describe("runSendTick", () => {
     const html = ours[0].html ?? "";
     expect(html).toContain("Test Sender<br />1 Test Street, Testville<br />");
   });
+
+  it("uses the campaign sender identity for the From name and sign-off when no signature is set", async () => {
+    const account = await makeAccount(100, "ident");
+    const { list, leads } = await makeListWithLeads("ident", ["ident@example.com"]);
+    const campaign = await makeCampaign({
+      suffix: "ident",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    await db.campaign.update({
+      where: { id: campaign.id },
+      data: { senderName: "Chris Blake", companyName: "Dispatch Authority" },
+    });
+    await enroll(campaign.id, leads[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-ident-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const ours = captured.filter((input) => input.toEmail === "ident@example.com");
+    expect(ours).toHaveLength(1);
+    // From name is the campaign's sender name, not the account's.
+    expect(ours[0].fromName).toBe("Chris Blake");
+    // Sign-off is composed from the identity: name, then company,
+    // then the slim footer (address + unsubscribe, no repeated name).
+    expect(ours[0].text).toContain("Body 1 for Acme\n\nChris Blake\nDispatch Authority\n\n--\n1 Test Street, Testville\nUnsubscribe: ");
+    expect(ours[0].text).not.toContain("Test Sender");
+  });
+
+  it("prefers an explicit signature over the identity sign-off but keeps the identity From name", async () => {
+    const account = await makeAccount(100, "ident2");
+    const { list, leads } = await makeListWithLeads("ident2", ["ident2@example.com"]);
+    const campaign = await makeCampaign({
+      suffix: "ident2",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    await db.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        senderName: "Chris Blake",
+        companyName: "Dispatch Authority",
+        signatureText: "Best regards,\nAmir Hussain\nAamirTechs",
+      },
+    });
+    await enroll(campaign.id, leads[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-ident2-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const ours = captured.filter((input) => input.toEmail === "ident2@example.com");
+    expect(ours).toHaveLength(1);
+    expect(ours[0].fromName).toBe("Chris Blake");
+    expect(ours[0].text).toContain("Best regards,\nAmir Hussain\nAamirTechs");
+    // The identity sign-off is not composed on top of the signature.
+    expect(ours[0].text).not.toContain("Chris Blake\nDispatch Authority");
+  });
 });
 
 describe("runSendTick per-lead timezone window (v1.5.0)", () => {
