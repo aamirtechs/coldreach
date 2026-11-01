@@ -391,6 +391,12 @@ the committed migrations.
   at signup are gated; pre-enforcement accounts instead get an
   announcement bar (VerificationBar in the app layout) prompting
   them to verify, and are never blocked.
+- **Account deletion (v1.15.0).** `src/lib/auth/deleteAccount.ts`:
+  deleting a user also deletes every workspace they solely own,
+  relying on the schema cascades for all workspace data; shared
+  workspaces lose only the membership. The Settings Danger zone
+  requires the password plus a typed DELETE, and a tombstone audit
+  row (null workspace) is written first so the record survives.
 
 ## Known limitations after Phase 4
 

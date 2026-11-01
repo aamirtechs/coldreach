@@ -5,6 +5,8 @@ import { WorkspaceSettingsForm } from "@/components/settings/WorkspaceSettingsFo
 import { SuppressionManager } from "@/components/settings/SuppressionManager";
 import { ExportPanel } from "@/components/settings/ExportPanel";
 import { IntegrationsStatusPanel } from "@/components/settings/IntegrationsStatusPanel";
+import { DeleteAccountPanel } from "@/components/settings/DeleteAccountPanel";
+import { getAccountDeletionSummary } from "@/lib/auth/deleteAccount";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,7 @@ export default async function SettingsPage({
     orderBy: { createdAt: "desc" },
     take: 500,
   });
+  const deletionSummary = await getAccountDeletionSummary(prisma, session.user.id);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -68,6 +71,7 @@ export default async function SettingsPage({
           createdAt: row.createdAt.toISOString(),
         }))}
       />
+      <DeleteAccountPanel summary={deletionSummary} />
     </div>
   );
 }

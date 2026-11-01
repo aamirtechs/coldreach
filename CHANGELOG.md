@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.15.0 (2026-11-01)
+
+Account deletion with a full, explicit warning.
+
+- Settings gains a Danger zone. Deleting an account requires the
+  account password plus typing DELETE, and the confirmation panel
+  lists exactly what will be destroyed: each solely owned workspace
+  by name with its campaign, lead, and sending account counts, and
+  a warning that all campaigns, leads, enrollments, sequences, and
+  sent and received emails in them are permanently deleted.
+- Shared workspaces are never deleted under their other members:
+  the departing user is removed from them and they keep running.
+- A tombstone audit row records the deletion before the cascade
+  runs; the session is cleared on success. Rate limited like the
+  other auth endpoints.
+
 ## 1.14.0 (2026-11-01)
 
 Email verification for new signups, via Resend.
