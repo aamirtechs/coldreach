@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { isPlatformOwner } from "@/lib/admin/platform";
+import { verificationRequired } from "@/lib/auth/emailVerification";
+import { VerificationBar } from "@/components/VerificationBar";
 import { listUserWorkspaces } from "@/lib/auth/workspaces";
 import { getTourCompletedAt } from "@/lib/tour";
 import { ProductTour } from "@/components/ProductTour";
@@ -43,6 +45,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             />
           </div>
         </header>
+        {verificationRequired() && !session.user.emailVerifiedAt ? (
+          <VerificationBar email={session.user.email} />
+        ) : null}
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
       <Suspense fallback={null}>

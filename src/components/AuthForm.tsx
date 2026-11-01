@@ -17,10 +17,37 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Email verification (v1.14.0): after a signup that requires
+  // verification, the form swaps to a check-your-inbox panel. On
+  // login, an unverified account gets a resend option.
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState(false);
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+
+  async function resendVerification(targetEmail: string) {
+    setResending(true);
+    setResendNotice(null);
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: targetEmail }),
+      });
+      setResendNotice(
+        "If this address has an unverified account, a fresh verification link is on its way.",
+      );
+    } catch {
+      setResendNotice("Could not reach the server. Please try again in a moment.");
+    } finally {
+      setResending(false);
+    }
+  }
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    setUnverified(false);
     setSubmitting(true);
     try {
       const response = await fetch(isSignup ? "/api/auth/signup" : "/api/auth/login", {
@@ -30,9 +57,21 @@ export function AuthForm({ mode }: AuthFormProps) {
           isSignup ? { name, email, password, workspaceName } : { email, password },
         ),
       });
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as {
+        error?: string;
+        code?: string;
+        verificationRequired?: boolean;
+        email?: string;
+      };
       if (!response.ok) {
+        if (data.code === "email_unverified") {
+          setUnverified(true);
+        }
         setError(data.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+      if (isSignup && data.verificationRequired) {
+        setVerificationEmail(data.email ?? email);
         return;
       }
       router.push("/app");
@@ -54,6 +93,38 @@ export function AuthForm({ mode }: AuthFormProps) {
           <span className="font-display text-xl font-semibold tracking-tight">ColdReach</span>
         </div>
         <div className="card p-8">
+          {isSignup && verificationEmail ? (
+            <div>
+              <h1 className="font-display text-2xl font-semibold tracking-tight">
+                Verify your email
+              </h1>
+              <p className="mt-2 text-sm text-muted">
+                We sent a verification link to <strong>{verificationEmail}</strong>. Click it to
+                finish creating your account, then sign in. The link works once and expires in
+                24 hours.
+              </p>
+              <button
+                type="button"
+                disabled={resending}
+                onClick={() => resendVerification(verificationEmail)}
+                className="btn-primary mt-6 w-full py-2.5"
+              >
+                {resending ? "Sending" : "Resend verification email"}
+              </button>
+              {resendNotice && (
+                <p className="mt-3 rounded-lg bg-elevated px-3 py-2 text-sm text-muted">
+                  {resendNotice}
+                </p>
+              )}
+              <p className="mt-4 text-center text-sm text-muted">
+                Already verified?{" "}
+                <Link href="/login" className="font-medium text-accent hover:underline">
+                  Sign in
+                </Link>
+              </p>
+            </div>
+          ) : (
+            <>
           <h1 className="font-display text-2xl font-semibold tracking-tight">
             {isSignup ? "Create your workspace" : "Welcome back"}
           </h1>
@@ -129,6 +200,23 @@ export function AuthForm({ mode }: AuthFormProps) {
                 {error}
               </p>
             )}
+            {!isSignup && unverified && (
+              <div>
+                <button
+                  type="button"
+                  disabled={resending}
+                  onClick={() => resendVerification(email)}
+                  className="btn-ghost w-full py-2"
+                >
+                  {resending ? "Sending" : "Resend verification email"}
+                </button>
+                {resendNotice && (
+                  <p className="mt-2 rounded-lg bg-elevated px-3 py-2 text-sm text-muted">
+                    {resendNotice}
+                  </p>
+                )}
+              </div>
+            )}
             <button type="submit" disabled={submitting} className="btn-primary w-full py-2.5">
               {submitting
                 ? isSignup
@@ -139,6 +227,8 @@ export function AuthForm({ mode }: AuthFormProps) {
                   : "Sign in"}
             </button>
           </form>
+            </>
+          )}
         </div>
         <p className="mt-4 text-center text-sm text-muted">
           {isSignup ? (

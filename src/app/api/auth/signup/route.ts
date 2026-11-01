@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken, setSessionCookie } from "@/lib/auth/session";
 import { authRateLimitKey, checkAuthRateLimit, rateLimitedResponse } from "@/lib/auth/rateLimit";
+import { sendVerificationEmail, verificationRequired } from "@/lib/auth/emailVerification";
 import { writeAuditLog } from "@/lib/audit";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -60,9 +61,13 @@ export async function POST(request: Request) {
   const passwordHash = await bcrypt.hash(password, 12);
   const slug = `${slugify(workspaceName)}-${Math.random().toString(36).slice(2, 8)}`;
 
+  // Accounts created while verification enforcement is on are gated
+  // at login until they verify (v1.14.0); older accounts never are.
+  const gateAtLogin = verificationRequired();
+
   const { user, workspace } = await prisma.$transaction(async (tx) => {
     const createdUser = await tx.user.create({
-      data: { name, email, passwordHash },
+      data: { name, email, passwordHash, requiresEmailVerification: gateAtLogin },
     });
     const createdWorkspace = await tx.workspace.create({
       data: { name: workspaceName, slug },
@@ -79,6 +84,23 @@ export async function POST(request: Request) {
     workspaceId: workspace.id,
     metadata: { email: user.email },
   });
+
+  // Email verification (v1.14.0): while product mail is configured,
+  // the account starts unverified and no session is issued. The user
+  // clicks the emailed link, then signs in normally.
+  if (gateAtLogin) {
+    const mail = await sendVerificationEmail(prisma, user);
+    await writeAuditLog({
+      action: "auth.verification_sent",
+      userId: user.id,
+      workspaceId: workspace.id,
+      metadata: { email: user.email, sent: mail.sent },
+    });
+    return NextResponse.json(
+      { verificationRequired: true, email: user.email, emailSent: mail.sent },
+      { status: 201 },
+    );
+  }
 
   const token = await createSessionToken(user.id, workspace.id);
   await setSessionCookie(token);

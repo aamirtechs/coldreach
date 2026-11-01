@@ -363,3 +363,30 @@ also depends on the sending server's IP reputation and on list
 quality, which no application can control or guarantee. A shared
 hosting IP with a poor history, or a purchased list, will land in
 spam no matter how correct the headers and authentication are.
+
+## Signup email verification (product mail via Resend)
+
+Since v1.14.0, new accounts verify their email address before they
+can sign in. Product mail (the verification email today, password
+resets later) is sent through [Resend](https://resend.com), whose
+free tier (3,000 emails a month, 100 a day) is far beyond signup
+volume. Setup, all in the Resend dashboard and Vercel:
+
+1. Create a Resend account (free, no card) and add the sending
+   domain under Domains. Add every DNS record Resend shows (DKIM,
+   and the `send` subdomain MX and SPF records) to the domain's DNS
+   zone exactly as given, then click Verify in Resend. Resend's
+   records are designed to sit alongside an existing root SPF
+   record; do not edit the existing SPF or DKIM records for your
+   mailbox sending.
+2. Create an API key in Resend (API Keys, sending access is fine).
+3. In Vercel, set `RESEND_API_KEY` to that key and
+   `PRODUCT_MAIL_FROM` to an address on the verified domain, for
+   example `ColdReach <no-reply@aamirtechs.com>`. Redeploy.
+
+Enforcement is configuration-gated: the moment `RESEND_API_KEY`
+exists in the deployment, new signups must verify before signing
+in. Accounts created earlier are never locked out; while signed in
+they see an announcement bar offering a verification link, and
+verifying marks their address verified. Removing the variable
+disables enforcement again.

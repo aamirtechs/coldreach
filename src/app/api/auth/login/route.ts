@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken, setSessionCookie } from "@/lib/auth/session";
 import { authRateLimitKey, checkAuthRateLimit, rateLimitedResponse } from "@/lib/auth/rateLimit";
+import { isLoginBlockedByVerification } from "@/lib/auth/emailVerification";
 import { writeAuditLog } from "@/lib/audit";
 
 export async function POST(request: Request) {
@@ -50,6 +51,23 @@ export async function POST(request: Request) {
   const membership = user.memberships[0];
   if (!membership) {
     return invalid;
+  }
+
+  // Email verification gate (v1.14.0): the password is proven, so it
+  // is safe to say plainly that the address is not verified yet and
+  // offer a fresh link. Only accounts created under enforcement are
+  // gated; pre-enforcement accounts are prompted by the announcement
+  // bar instead and never blocked.
+  if (isLoginBlockedByVerification(user)) {
+    return NextResponse.json(
+      {
+        error:
+          "Your email address is not verified yet. Use the verification link we emailed you, or request a new one below.",
+        code: "email_unverified",
+        email: user.email,
+      },
+      { status: 403 },
+    );
   }
 
   await writeAuditLog({

@@ -380,6 +380,17 @@ the committed migrations.
   nobody). It renders aggregates only (totals, 30-day signup and
   send series, plan mix, recent-workspace summary) and reads no
   tenant content.
+- **Signup email verification (v1.14.0).** Product mail goes
+  through Resend (`src/lib/mail/productMail.ts`) when
+  RESEND_API_KEY is set. Signup issues a hashed, single-use,
+  24-hour token (`EmailVerificationToken`) and withholds the
+  session until the address verifies; login gates unverified
+  accounts with the same condition (`verificationRequired()` in
+  `src/lib/auth/emailVerification.ts`). The gate follows the
+  configuration. Only accounts flagged `requiresEmailVerification`
+  at signup are gated; pre-enforcement accounts instead get an
+  announcement bar (VerificationBar in the app layout) prompting
+  them to verify, and are never blocked.
 
 ## Known limitations after Phase 4
 

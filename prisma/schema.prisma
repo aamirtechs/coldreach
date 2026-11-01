@@ -30,6 +30,14 @@ model User {
   // Product tour (v1.6.0): when the user finished or skipped the
   // first-run tour. Null means the tour is still offered.
   tourCompletedAt DateTime?
+  // Email verification (v1.14.0): when the account's email address
+  // was verified. Null means unverified. Accounts that predate
+  // enforcement keep null until they verify through the announcement
+  // bar; they are never locked out, because requiresEmailVerification
+  // is set only on accounts created while enforcement was on, and
+  // only those are gated at login.
+  emailVerifiedAt DateTime?
+  requiresEmailVerification Boolean @default(false)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
   memberships  Membership[]
@@ -39,6 +47,22 @@ model User {
   snippets     Snippet[]
   invitesSent  Invite[]     @relation("InviteSender")
   apiKeysCreated ApiKey[]   @relation("ApiKeyCreator")
+  verificationTokens EmailVerificationToken[]
+}
+
+// Single-use email verification tokens (v1.14.0). Only the SHA-256
+// hash of the token is stored; the raw token exists only in the
+// emailed link. Issuing a new token deletes the user's earlier ones.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Workspace {

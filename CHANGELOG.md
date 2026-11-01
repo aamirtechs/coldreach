@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.14.0 (2026-11-01)
+
+Email verification for new signups, via Resend.
+
+- **Product mail.** A transactional sender for ColdReach's own
+  email (src/lib/mail/productMail.ts) using the Resend API when
+  RESEND_API_KEY is configured; PRODUCT_MAIL_FROM sets the From
+  address. Free tier covers signup volume comfortably.
+- **Verification flow.** Signup now creates the account unverified
+  and emails a single-use verification link (24 hour expiry, only
+  the token hash is stored). No session is issued until the address
+  is verified; login refuses unverified accounts with a resend
+  option, and /verify-email completes the flow. Resends are rate
+  limited and answer generically to avoid account enumeration.
+- **Safe rollout.** Enforcement is configuration-gated: until
+  RESEND_API_KEY is set, signup behaves exactly as before. Accounts
+  created under enforcement are flagged and gated at login until
+  verified. Earlier accounts are never locked out; instead, while
+  signed in they get an announcement bar offering a verification
+  link, and verifying simply marks their address verified.
+
 ## 1.13.1 (2026-11-01)
 
 Redeploy release, no behavior change. Picks up the
