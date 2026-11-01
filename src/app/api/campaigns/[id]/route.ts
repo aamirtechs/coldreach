@@ -8,7 +8,10 @@ async function loadCampaign(workspaceId: string, id: string) {
   return prisma.campaign.findFirst({
     where: { id, workspaceId },
     include: {
-      steps: { orderBy: { order: "asc" } },
+      steps: {
+        orderBy: { order: "asc" },
+        include: { variants: { orderBy: { createdAt: "asc" } } },
+      },
       accounts: { include: { sendingAccount: true } },
       leadList: { select: { id: true, name: true } },
       _count: { select: { enrollments: true } },

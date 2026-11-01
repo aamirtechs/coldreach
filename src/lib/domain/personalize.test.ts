@@ -62,16 +62,17 @@ describe("senderIdentityFields", () => {
         workspaceSenderName: "Amir Hussain",
         workspaceName: "AamirTechs",
       }),
-    ).toEqual({ senderName: "Chris Blake", senderCompany: "Dispatch Authority" });
+    ).toEqual({ senderName: "Chris Blake", senderCompany: "Dispatch Authority", senderFirstName: "Chris" });
   });
 
   it("falls back to the workspace sender name, then the workspace name", () => {
     expect(
       senderIdentityFields({ workspaceSenderName: "Amir Hussain", workspaceName: "AamirTechs" }),
-    ).toEqual({ senderName: "Amir Hussain", senderCompany: "AamirTechs" });
+    ).toEqual({ senderName: "Amir Hussain", senderCompany: "AamirTechs", senderFirstName: "Amir" });
     expect(senderIdentityFields({ workspaceName: "AamirTechs" })).toEqual({
       senderName: "AamirTechs",
       senderCompany: "AamirTechs",
+      senderFirstName: "AamirTechs",
     });
   });
 
@@ -83,6 +84,6 @@ describe("senderIdentityFields", () => {
         workspaceSenderName: "Amir Hussain",
         workspaceName: "AamirTechs",
       }),
-    ).toEqual({ senderName: "Amir Hussain", senderCompany: "AamirTechs" });
+    ).toEqual({ senderName: "Amir Hussain", senderCompany: "AamirTechs", senderFirstName: "Amir" });
   });
 });

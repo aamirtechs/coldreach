@@ -464,7 +464,7 @@ describe("runSendTick", () => {
     });
     await db.sequenceStep.updateMany({
       where: { campaignId: campaignA.id, order: 0 },
-      data: { body: "I am {{senderName}} with {{senderCompany}}." },
+      data: { body: "I am {{senderFirstName}} with {{senderCompany}}." },
     });
     await db.campaign.update({
       where: { id: campaignA.id },
@@ -505,7 +505,7 @@ describe("runSendTick", () => {
     expect(summary.failed).toBe(0);
     const oursA = captured.filter((input) => input.toEmail === "tok1@example.com");
     expect(oursA).toHaveLength(1);
-    expect(oursA[0].text).toContain("I am Chris Blake with Dispatch Authority.");
+    expect(oursA[0].text).toContain("I am Chris with Dispatch Authority.");
     const oursB = captured.filter((input) => input.toEmail === "tok2@example.com");
     expect(oursB).toHaveLength(1);
     expect(oursB[0].text).toContain("I am Test Sender with Test Workspace.");

@@ -16,11 +16,13 @@ export type LeadFields = Record<string, string | number | null | undefined>;
  * {{senderName}} and {{senderCompany}} and they resolve at send time
  * from the campaign's own identity, falling back to the workspace:
  * senderName to the workspace sender name, then the workspace name;
- * senderCompany to the workspace name. Both therefore always resolve
- * to a non-empty value, which is why preflight treats them as known.
- * Note {{company}} stays the lead's company, a different thing.
+ * senderCompany to the workspace name. {{senderFirstName}} is the
+ * first word of the resolved senderName, for copy written in first
+ * name terms. All three therefore always resolve to a non-empty
+ * value, which is why preflight treats them as known. Note
+ * {{company}} stays the lead's company, a different thing.
  */
-export const SENDER_IDENTITY_TOKENS = ["senderName", "senderCompany"] as const;
+export const SENDER_IDENTITY_TOKENS = ["senderName", "senderCompany", "senderFirstName"] as const;
 
 export function senderIdentityFields(input: {
   campaignSenderName?: string | null;
@@ -31,9 +33,11 @@ export function senderIdentityFields(input: {
   const campaignSender = input.campaignSenderName?.trim() ?? "";
   const workspaceSender = input.workspaceSenderName?.trim() ?? "";
   const campaignCompany = input.campaignCompanyName?.trim() ?? "";
+  const senderName = campaignSender || workspaceSender || input.workspaceName;
   return {
-    senderName: campaignSender || workspaceSender || input.workspaceName,
+    senderName,
     senderCompany: campaignCompany || input.workspaceName,
+    senderFirstName: senderName.split(/\s+/)[0] ?? senderName,
   };
 }
 

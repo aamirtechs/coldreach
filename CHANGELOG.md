@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.12.2 (2026-11-01)
+
+First-name identity token, and complete step data in the API.
+
+- **{{senderFirstName}}** joins the identity tokens: the first word
+  of the resolved sender name, for copy written in first name terms
+  ("I am {{senderFirstName}} with {{senderCompany}}").
+- GET /api/campaigns/[id] now returns each step's A/B variants as
+  well, so API consumers see the full sequence, matching the
+  campaign page.
+
 ## 1.12.1 (2026-11-01)
 
 Sender identity tokens for sequence copy.

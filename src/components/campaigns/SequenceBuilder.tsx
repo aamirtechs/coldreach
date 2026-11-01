@@ -30,7 +30,7 @@ interface SequenceBuilderProps {
   availableTokens: string[];
 }
 
-const TOKEN_SNIPPETS = ["firstName", "lastName", "company", "email", "senderName", "senderCompany"];
+const TOKEN_SNIPPETS = ["firstName", "lastName", "company", "email", "senderName", "senderCompany", "senderFirstName"];
 const VARIANT_LABELS = ["B", "C"];
 const REWRITE_PRESETS = ["shorter", "more direct", "friendlier"] as const;
 
