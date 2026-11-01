@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionWorkspace } from "@/lib/auth/session";
+import { isPlatformOwner } from "@/lib/admin/platform";
 import { listUserWorkspaces } from "@/lib/auth/workspaces";
 import { getTourCompletedAt } from "@/lib/tour";
 import { ProductTour } from "@/components/ProductTour";
@@ -20,7 +21,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
+      <Sidebar showPlatformAdmin={isPlatformOwner(session.user.email)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-line bg-surface px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">

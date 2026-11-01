@@ -374,6 +374,12 @@ the committed migrations.
   in total. Users who own one workspace see an explainer plus a
   create-workspace action instead; workspace creation makes the
   creator OWNER, and switching reuses the Phase 3 switcher.
+- **Platform admin (v1.13.0).** The one cross-tenant surface:
+  `/app/admin`, gated by `isPlatformOwner` in `src/lib/admin/platform.ts`
+  (the signed-in email must equal PLATFORM_OWNER_EMAIL; unset means
+  nobody). It renders aggregates only (totals, 30-day signup and
+  send series, plan mix, recent-workspace summary) and reads no
+  tenant content.
 
 ## Known limitations after Phase 4
 

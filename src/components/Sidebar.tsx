@@ -15,6 +15,7 @@ import {
   Plug,
   Send,
   Settings,
+  ShieldCheck,
   SquarePen,
   Users,
   type LucideIcon,
@@ -43,9 +44,12 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar() {
+const ADMIN_ITEM: NavItem = { href: "/app/admin", label: "Platform Admin", icon: ShieldCheck };
+
+export function Sidebar({ showPlatformAdmin = false }: { showPlatformAdmin?: boolean }) {
   const pathname = usePathname();
   const [composeOpen, setComposeOpen] = useState(false);
+  const navItems = showPlatformAdmin ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS;
 
   return (
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-line bg-surface md:flex">
@@ -56,7 +60,7 @@ export function Sidebar() {
         <span className="font-display text-lg font-semibold tracking-tight">ColdReach</span>
       </div>
       <nav className="flex-1 space-y-1 px-3" aria-label="Primary">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active =
             item.href === "/app" ? pathname === "/app" : pathname.startsWith(item.href);
           const Icon = item.icon;

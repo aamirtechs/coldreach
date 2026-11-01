@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.13.0 (2026-11-01)
+
+Platform admin (super admin) panel.
+
+- **New /app/admin page**, visible only to the platform owner: the
+  account whose email matches the PLATFORM_OWNER_EMAIL environment
+  variable. Everyone else gets a 404, and the sidebar gains a
+  Platform Admin entry only for the owner. When the variable is
+  unset, the panel does not exist for anyone.
+- Shows platform-wide aggregates only: user and workspace totals,
+  campaigns (with running count), sending accounts, leads,
+  enrollments, all-time email event totals, signups and sends per
+  day for the last 30 days, the plan mix across workspaces, and the
+  10 most recent workspaces with their owner, plan, and counts.
+- No other workspace's leads, message content, or campaign details
+  are read or shown. Tenant isolation everywhere else is unchanged.
+
 ## 1.12.2 (2026-11-01)
 
 First-name identity token, and complete step data in the API.
