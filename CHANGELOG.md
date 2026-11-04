@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.15.1 (2026-11-04)
+
+Temporary diagnostic release, no behaviour change.
+
+- Adds an OWNER-only diagnostic route, GET /api/diag/dashboard, that
+  re-runs the dashboard page's data steps in isolation and reports
+  which one throws. Added to find the root cause of the dashboard
+  rendering error (production digest 2624295446) reported on
+  2026-11-04 after a campaign resume. This route is removed in the
+  fix release that follows.
+
 ## 1.15.0 (2026-11-01)
 
 Account deletion with a full, explicit warning.
