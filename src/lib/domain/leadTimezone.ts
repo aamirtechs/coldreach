@@ -492,6 +492,64 @@ export function countryCodeFor(value: string): string | null {
   return COUNTRY_NAME_TO_CODE[normalized] ?? null;
 }
 
+/** Flag emoji for an ISO 3166-1 alpha-2 code, or null when invalid. */
+export function countryFlagEmoji(code: string | null | undefined): string | null {
+  if (!code || !/^[A-Z]{2}$/.test(code)) {
+    return null;
+  }
+  return String.fromCodePoint(...[...code].map((char) => 127397 + char.charCodeAt(0)));
+}
+
+/** English country name for an ISO code, falling back to the code. */
+export function countryNameFor(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+export interface LeadCountry {
+  /** ISO 3166-1 alpha-2 code, for example "US". */
+  code: string;
+  /** Display name, for example "United States". */
+  name: string;
+  /** Flag emoji for the code, for example the US flag. */
+  flag: string;
+  /** The lead's raw country value as imported, when one exists. */
+  raw: string | null;
+  /** US state value as imported, when one exists. */
+  state: string | null;
+}
+
+/**
+ * The lead's country for display (v1.16.0, dashboard Upcoming sends).
+ * Resolution mirrors resolveLeadTimezone: the country field first,
+ * and a recognisable US state with no country counts as the United
+ * States, because US imports routinely carry a state and no country.
+ * Returns null when nothing resolves; callers show the campaign
+ * timezone alone rather than inventing a country.
+ */
+export function resolveLeadCountry(fields: LeadFields | null | undefined): LeadCountry | null {
+  if (!fields || typeof fields !== "object") {
+    return null;
+  }
+  const raw = getField(fields, "country");
+  const state = getField(fields, "state");
+  let code = raw ? countryCodeFor(raw) : null;
+  if (!code && state) {
+    const normalized = normalizeKey(state);
+    const stateCode = /^[A-Z]{2}$/.test(normalized) ? normalized : US_STATE_NAME_TO_CODE[normalized];
+    if (stateCode && US_STATE_TIMEZONES[stateCode]) {
+      code = "US";
+    }
+  }
+  if (!code) {
+    return null;
+  }
+  return { code, name: countryNameFor(code), flag: countryFlagEmoji(code) ?? "", raw, state };
+}
+
 /**
  * The lead's own IANA timezone, or null when nothing on the lead
  * resolves. See the module comment for the resolution order.

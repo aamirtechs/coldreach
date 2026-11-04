@@ -3,14 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { computeNextSendAt } from "@/lib/domain/scheduling";
 import { resolveLeadTimezone } from "@/lib/domain/leadTimezone";
 import { findSuppression, type SuppressionEntry } from "@/lib/domain/suppression";
-import { renderTemplate, senderIdentityFields, type LeadFields } from "@/lib/domain/personalize";
+import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
+import { renderEmailCopy } from "@/lib/campaigns/previewEmail";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { hourlyBudget, hourlySendCap, tickSendCeiling } from "@/lib/domain/pacing";
 import { effectiveDailyLimit as warmupDailyLimit } from "@/lib/domain/warmup";
 import { resolveProvider as defaultResolveProvider, type MailProvider } from "@/lib/providers";
 import { loadSuppressions } from "@/lib/suppressions";
 import { syncAllConnectedAccounts, type AccountSyncSummary } from "@/lib/sync/syncService";
-import { pickVariant } from "@/lib/domain/abtest";
 import { canSend, type Plan } from "@/lib/domain/plans";
 import { countMonthlySends, getPlanForWorkspace } from "@/lib/billing/subscription";
 import { processDueDeliveries, type ProcessDueSummary } from "@/lib/webhooks/service";
@@ -549,84 +549,32 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       continue;
     }
 
-    // A/B variant (Phase 4): deterministic per enrollment and step,
-    // so a retry after a provider failure renders the identical copy.
-    // Variant A is the step's own subject and body.
-    const variantLabel = pickVariant(enrollment.id, stepIndex, [
-      { label: "A", weight: 1 },
-      ...step.variants.map((variant) => ({ label: variant.label, weight: variant.weight })),
-    ]);
-    const variant = step.variants.find((entry) => entry.label === variantLabel) ?? null;
-
-    // Render with the lead's real fields and append the compliance
-    // footer: sender identity, postal address, and the unsubscribe link.
-    const leadFields: LeadFields =
-      lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
-        ? { ...(lead.fields as Record<string, string>), email: lead.email }
-        : { email: lead.email };
-    // Sender identity tokens (v1.12.1): {{senderName}} and
-    // {{senderCompany}} in subjects, bodies, and signatures resolve
-    // from the campaign identity with workspace fallbacks. Identity
-    // values win over any same-named lead field.
-    const renderFields: LeadFields = {
-      ...leadFields,
-      ...senderIdentityFields({
-        campaignSenderName: campaign.senderName,
-        campaignCompanyName: campaign.companyName,
-        workspaceSenderName: campaign.workspace.senderName,
-        workspaceName: campaign.workspace.name,
-      }),
-    };
-    // Spintax (v1.11.0): after template rendering, resolve any
-    // {a|b|c} groups in the subject and body. The seed is the
-    // enrollment and step, so a retry of this send renders the
-    // identical variant while different leads get different ones.
-    // Copy without spintax syntax passes through unchanged.
-    const spintaxSeed = `${enrollment.id}:${stepIndex}`;
-    const subject = renderSpintax(
-      renderTemplate(variant?.subject ?? step.subject, renderFields),
-      spintaxSeed,
-    );
-    const bodyText = renderSpintax(
-      renderTemplate(variant ? variant.bodyText : step.body, renderFields),
-      spintaxSeed,
-    );
+    // Copy rendering lives in renderEmailCopy (v1.16.0), shared
+    // with the dashboard's Upcoming sends preview, so the previewed
+    // email and the sent email are produced by the same code.
     const unsubscribeUrl = `${appUrl}/u/${createUnsubscribeToken(workspaceId, lead.id, campaign.id)}`;
-    const senderLine = campaign.workspace.senderName ?? campaign.workspace.name;
-    // Per-campaign signature (v1.4.0): rendered with the same lead
-    // fields and placed between the body and the compliance footer,
-    // so it applies to every step and A/B variant without editing
-    // any step copy, and takes effect from the next send onward.
-    const signatureText = campaign.signatureText
-      ? renderTemplate(campaign.signatureText, renderFields).trim()
-      : "";
-    // Per-campaign sender identity (v1.12.0): when the campaign has
-    // no signature of its own, its senderName and companyName compose
-    // the sign-off block (name line, then company line, whichever are
-    // set). An explicit signature always wins and is used as written.
-    const identitySignature = signatureText
-      ? ""
-      : [campaign.senderName?.trim(), campaign.companyName?.trim()]
-          .filter((line): line is string => Boolean(line))
-          .join("\n");
-    const effectiveSignature = signatureText || identitySignature;
-    // Footer slimming (v1.11.7): when the campaign carries its own
-    // signature, the signature already signs off with the sender's
-    // name, so the compliance footer drops the repeated name line and
-    // keeps only the postal address and the unsubscribe link. Without
-    // a signature the footer keeps the name, so the email still signs
-    // off properly.
-    const footerSenderLines = effectiveSignature ? [] : [senderLine];
-    const footerText = [
-      "",
-      "--",
-      ...footerSenderLines,
-      ...(campaign.workspace.senderAddress ? [campaign.workspace.senderAddress] : []),
-      `Unsubscribe: ${unsubscribeUrl}`,
-    ].join("\n");
-    const fullText = effectiveSignature
-      ? `${bodyText}\n\n${effectiveSignature}\n${footerText}`
-      : `${bodyText}\n${footerText}`;
+    const renderedCopy = renderEmailCopy({
+      enrollmentId: enrollment.id,
+      stepIndex,
+      step,
+      leadEmail: lead.email,
+      leadFields:
+        lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
+          ? (lead.fields as LeadFields)
+          : {},
+      campaign,
+      workspace: campaign.workspace,
+      unsubscribeUrl,
+    });
+    const variantLabel = renderedCopy.variantLabel;
+    const variant = renderedCopy.variant;
+    const renderFields = renderedCopy.renderFields;
+    const spintaxSeed = renderedCopy.spintaxSeed;
+    const subject = renderedCopy.subject;
+    const bodyText = renderedCopy.bodyText;
+    const effectiveSignature = renderedCopy.effectiveSignature;
+    const footerSenderLines = renderedCopy.footerSenderLines;
+    const fullText = renderedCopy.fullText;
     const footerHtmlParts = [
       ...footerSenderLines,
       ...(campaign.workspace.senderAddress ? [campaign.workspace.senderAddress] : []),

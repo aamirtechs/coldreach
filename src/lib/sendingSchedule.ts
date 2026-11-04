@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { effectiveDailyLimit as warmupDailyLimit } from "@/lib/domain/warmup";
-import { resolveLeadTimezone } from "@/lib/domain/leadTimezone";
+import { resolveLeadCountry, resolveLeadTimezone } from "@/lib/domain/leadTimezone";
 import type { LeadFields } from "@/lib/domain/personalize";
 
 /**
@@ -22,6 +22,7 @@ import type { LeadFields } from "@/lib/domain/personalize";
 
 export interface UpcomingSend {
   enrollmentId: string;
+  campaignId: string;
   /** The enrollment's nextSendAt stamp. */
   at: Date;
   campaignName: string;
@@ -31,9 +32,20 @@ export interface UpcomingSend {
   stepNumber: number;
   /** The lead's resolved timezone, falling back to the campaign's. */
   timezone: string;
+  /** The lead's country as imported, when one is recorded. */
+  country: string | null;
+  /** ISO code for the lead's country, for example "US", when resolved. */
+  countryCode: string | null;
+  /** Flag emoji for countryCode, when resolved. */
+  countryFlag: string | null;
+  /** The lead's state as imported, when one is recorded. */
+  state: string | null;
   /** True when the stamp is already past and the send awaits a tick. */
   due: boolean;
 }
+
+/** How many upcoming sends the dashboard schedule lists (v1.16.0: 50). */
+export const UPCOMING_SENDS_LIMIT = 50;
 
 export interface SendingSchedule {
   /** Most recent recorded SENT event, or null when nothing sent yet. */
@@ -49,7 +61,7 @@ export interface SendingSchedule {
     /** Accounts counted towards the cap (not paused or in error). */
     accounts: number;
   };
-  /** The next sends to come due, soonest first, at most 8. */
+  /** The next sends to come due, soonest first, at most 50. */
   upcoming: UpcomingSend[];
 }
 
@@ -103,11 +115,12 @@ export async function getSendingSchedule(
         campaign: { workspaceId, status: "RUNNING" },
       },
       orderBy: { nextSendAt: "asc" },
-      take: 8,
+      take: UPCOMING_SENDS_LIMIT,
       select: {
         id: true,
         nextSendAt: true,
         currentStep: true,
+        campaignId: true,
         campaign: { select: { name: true, timezone: true } },
         lead: { select: { email: true, fields: true } },
       },
@@ -126,17 +139,25 @@ export async function getSendingSchedule(
     return sum + Math.min(rampLimit, warmupDailyLimit(account, now));
   }, 0);
 
-  const upcoming: UpcomingSend[] = upcomingRows.map((row) => ({
-    enrollmentId: row.id,
-    at: row.nextSendAt as Date,
-    campaignName: row.campaign.name,
-    leadEmail: row.lead.email,
-    company: companyOf(row.lead.fields),
-    stepNumber: row.currentStep + 1,
-    timezone:
-      resolveLeadTimezone(row.lead.fields as LeadFields | null) ?? row.campaign.timezone,
-    due: (row.nextSendAt as Date).getTime() <= now.getTime(),
-  }));
+  const upcoming: UpcomingSend[] = upcomingRows.map((row) => {
+    const fields = row.lead.fields as LeadFields | null;
+    const country = resolveLeadCountry(fields);
+    return {
+      enrollmentId: row.id,
+      campaignId: row.campaignId,
+      at: row.nextSendAt as Date,
+      campaignName: row.campaign.name,
+      leadEmail: row.lead.email,
+      company: companyOf(row.lead.fields),
+      stepNumber: row.currentStep + 1,
+      timezone: resolveLeadTimezone(fields) ?? row.campaign.timezone,
+      country: country?.raw ?? (country ? country.name : null),
+      countryCode: country?.code ?? null,
+      countryFlag: country?.flag ?? null,
+      state: country?.state ?? null,
+      due: (row.nextSendAt as Date).getTime() <= now.getTime(),
+    };
+  });
 
   return {
     lastSentAt: lastSent?.occurredAt ?? null,

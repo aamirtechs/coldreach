@@ -22,6 +22,8 @@ import { getOnboardingState } from "@/lib/onboarding";
 import { getSendingSchedule } from "@/lib/sendingSchedule";
 import { computeAccountHealthForAccounts } from "@/lib/accountHealth";
 import { LocalTime } from "@/components/LocalTime";
+import { UpcomingPreviewButton } from "@/components/dashboard/UpcomingPreviewButton";
+import { NewSinceLastCheck } from "@/components/dashboard/NewSinceLastCheck";
 
 /** "Wed 28 Oct, 09:00" in the given IANA timezone, for schedule rows. */
 function formatInZone(date: Date, timeZone: string): string {
@@ -80,6 +82,9 @@ interface Stat {
   value: number;
   icon: LucideIcon;
   note: string;
+  /** When set, the card shows a "+N new since your last check" badge
+   *  (v1.16.0) tracked per workspace and metric in the browser. */
+  newMetric?: { key: string; label: string };
 }
 
 export default async function DashboardPage() {
@@ -150,18 +155,21 @@ export default async function DashboardPage() {
       value: sentCount,
       icon: Send,
       note: "Recorded SENT events, all time",
+      newMetric: { key: "sent", label: "new sends" },
     },
     {
       label: "Opened",
       value: openedCount,
       icon: Eye,
       note: "Recorded OPENED events, all time",
+      newMetric: { key: "opened", label: "new opens" },
     },
     {
       label: "Replied",
       value: humanRepliedCount,
       icon: Reply,
       note: `Replies: ${humanRepliedCount} human · ${automatedRepliedCount} automated`,
+      newMetric: { key: "replied", label: "new replies" },
     },
     {
       label: "Suspended accounts",
@@ -260,6 +268,14 @@ export default async function DashboardPage() {
               </div>
               <p className="mt-2 font-display text-3xl font-semibold">{stat.value}</p>
               <p className="mt-1 text-xs text-muted">{stat.note}</p>
+              {stat.newMetric ? (
+                <NewSinceLastCheck
+                  workspaceId={workspaceId}
+                  metric={stat.newMetric.key}
+                  value={stat.value}
+                  label={stat.newMetric.label}
+                />
+              ) : null}
             </section>
           );
         })}
@@ -368,7 +384,7 @@ export default async function DashboardPage() {
             )}
           </div>
           {schedule.upcoming.length > 0 ? (
-            <div className="relative mt-3">
+            <div className="relative mt-3 max-h-[720px] overflow-y-auto pr-1">
               <div aria-hidden="true" className="absolute bottom-3 left-[5px] top-3 w-px bg-line" />
               <ol>
                 {schedule.upcoming.map((send) => (
@@ -386,11 +402,21 @@ export default async function DashboardPage() {
                             : "border-accent bg-surface"
                       }`}
                     />
-                    <div className="w-44 shrink-0">
+                    <div className="w-48 shrink-0">
                       <p className="text-sm font-semibold leading-tight">
                         {formatInZone(send.at, send.timezone)}
                       </p>
-                      <p className="mt-0.5 text-xs text-muted">{send.timezone}</p>
+                      <p className="mt-0.5 flex items-center gap-1 text-xs text-muted">
+                        {send.countryFlag ? (
+                          <span aria-hidden="true" className="text-sm leading-none">{send.countryFlag}</span>
+                        ) : null}
+                        <span>
+                          {send.countryCode
+                            ? `${send.country ?? send.countryCode}${send.state ? `, ${send.state}` : ""} · `
+                            : ""}
+                          {send.timezone}
+                        </span>
+                      </p>
                       <p className="text-xs text-muted">
                         <LocalTime
                           iso={send.at.toISOString()}
@@ -401,6 +427,9 @@ export default async function DashboardPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
+                        {send.countryFlag ? (
+                          <span aria-hidden="true" className="mr-1">{send.countryFlag}</span>
+                        ) : null}
                         {send.company ?? send.leadEmail}
                         {send.company && (
                           <span className="font-normal text-muted"> · {send.leadEmail}</span>
@@ -426,6 +455,9 @@ export default async function DashboardPage() {
                         )}
                       </p>
                     </div>
+                    <div className="shrink-0 self-center">
+                      <UpcomingPreviewButton enrollmentId={send.enrollmentId} />
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -438,7 +470,8 @@ export default async function DashboardPage() {
           )}
           <p className="mt-4 text-xs text-muted">
             Times are the moment each lead's local sending window opens. A due send leaves on the
-            next scheduler tick after its time.
+            next scheduler tick after its time. Preview email shows the exact email that will be
+            sent to that lead.
           </p>
         </div>
       </section>

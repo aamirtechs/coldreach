@@ -134,10 +134,16 @@ describe("getSendingSchedule", () => {
     expect(first.company).toBe("Acme Hauling");
     expect(first.stepNumber).toBe(2);
     expect(first.timezone).toBe("America/Chicago");
+    expect(first.country).toBe("United States");
+    expect(first.countryCode).toBe("US");
+    expect(first.countryFlag).toBe("🇺🇸");
+    expect(first.state).toBe("TX");
     expect(first.due).toBe(true);
     expect(second.leadEmail).toBe("plain@example.test");
     expect(second.stepNumber).toBe(1);
     expect(second.timezone).toBe("UTC");
+    expect(second.countryCode).toBeNull();
+    expect(second.countryFlag).toBeNull();
     expect(second.due).toBe(false);
   });
 

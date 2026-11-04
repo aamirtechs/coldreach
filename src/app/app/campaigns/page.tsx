@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { CreateCampaignForm } from "@/components/campaigns/CreateCampaignForm";
+import { DeleteCampaignButton } from "@/components/campaigns/DeleteCampaignButton";
 import { EmptyState, StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -114,10 +115,17 @@ export default async function CampaignsPage() {
                       </>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link href={`/app/campaigns/${campaign.id}`} className="btn-secondary !px-3 !py-1.5 text-xs">
-                      Open
-                    </Link>
+                  <td className="relative px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <DeleteCampaignButton
+                        campaignId={campaign.id}
+                        campaignName={campaign.name}
+                        status={campaign.status}
+                      />
+                      <Link href={`/app/campaigns/${campaign.id}`} className="btn-secondary !px-3 !py-1.5 text-xs">
+                        Open
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

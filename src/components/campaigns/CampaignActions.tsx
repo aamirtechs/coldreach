@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { DeleteCampaignButton } from "@/components/campaigns/DeleteCampaignButton";
 
 interface PreflightCheck {
   id: string;
@@ -55,7 +56,15 @@ interface EnrollConflict {
   contacted: boolean;
 }
 
-export function CampaignActions({ campaignId, status }: { campaignId: string; status: string }) {
+export function CampaignActions({
+  campaignId,
+  status,
+  campaignName = "this campaign",
+}: {
+  campaignId: string;
+  status: string;
+  campaignName?: string;
+}) {
   const router = useRouter();
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -203,6 +212,22 @@ export function CampaignActions({ campaignId, status }: { campaignId: string; st
         </div>
       ) : null}
       {preflight ? <PreflightView preflight={preflight} /> : null}
+      <div className="mt-6 border-t border-line pt-5">
+        <h3 className="text-sm font-semibold text-red-700 dark:text-red-300">Danger zone</h3>
+        <p className="mt-1 text-sm text-muted">
+          Deleting a campaign is permanent. Its sequence and enrollments are removed; leads and
+          past sending history stay in this workspace.
+          {status === "RUNNING" ? " Pause this campaign before deleting it." : ""}
+        </p>
+        <div className="relative mt-3">
+          <DeleteCampaignButton
+            campaignId={campaignId}
+            campaignName={campaignName}
+            status={status}
+            variant="detail"
+          />
+        </div>
+      </div>
     </section>
   );
 }

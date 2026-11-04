@@ -3,7 +3,9 @@ import {
   COUNTRY_TIMEZONES,
   US_STATE_TIMEZONES,
   countryCodeFor,
+  countryFlagEmoji,
   isValidTimezone,
+  resolveLeadCountry,
   resolveLeadTimezone,
 } from "./leadTimezone";
 
@@ -67,6 +69,39 @@ describe("countryCodeFor", () => {
     expect(countryCodeFor("England")).toBe("GB");
     expect(countryCodeFor("Czech Republic")).toBe("CZ");
     expect(countryCodeFor("Atlantis")).toBeNull();
+  });
+});
+
+describe("countryFlagEmoji", () => {
+  it("builds flag emoji from ISO codes and rejects anything else", () => {
+    expect(countryFlagEmoji("US")).toBe("🇺🇸");
+    expect(countryFlagEmoji("GB")).toBe("🇬🇧");
+    expect(countryFlagEmoji("PK")).toBe("🇵🇰");
+    expect(countryFlagEmoji("USA")).toBeNull();
+    expect(countryFlagEmoji("")).toBeNull();
+    expect(countryFlagEmoji(null)).toBeNull();
+  });
+});
+
+describe("resolveLeadCountry", () => {
+  it("resolves the imported country with its flag and state", () => {
+    const country = resolveLeadCountry({ country: "United States", state: "TX" });
+    expect(country?.code).toBe("US");
+    expect(country?.name).toBe("United States");
+    expect(country?.flag).toBe("🇺🇸");
+    expect(country?.raw).toBe("United States");
+    expect(country?.state).toBe("TX");
+  });
+
+  it("treats a US state with no country as the United States", () => {
+    expect(resolveLeadCountry({ state: "Florida" })?.code).toBe("US");
+    expect(resolveLeadCountry({ state: "CA" })?.code).toBe("US");
+  });
+
+  it("returns null when nothing resolves", () => {
+    expect(resolveLeadCountry({})).toBeNull();
+    expect(resolveLeadCountry({ country: "Atlantis" })).toBeNull();
+    expect(resolveLeadCountry(null)).toBeNull();
   });
 });
 

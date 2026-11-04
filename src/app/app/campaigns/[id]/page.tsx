@@ -148,7 +148,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         {enrollmentGroups.length === 0 ? <span>No enrollments yet.</span> : null}
       </div>
 
-      <CampaignActions campaignId={campaign.id} status={campaign.status} />
+      <CampaignActions campaignId={campaign.id} status={campaign.status} campaignName={campaign.name} />
 
       <EnrolledLeads campaignId={campaign.id} />
 

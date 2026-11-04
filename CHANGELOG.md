@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.16.0 (2026-11-04)
+
+Five dashboard and campaign fixes requested by Amir.
+
+- Upcoming sends now lists the next 50 sends (was 8), in a
+  scrollable panel, soonest first.
+- Every Upcoming sends row has a Preview email button. It opens the
+  exact email that will be sent to that lead: subject and complete
+  plain-text body with signature and compliance footer, rendered by
+  renderEmailCopy in src/lib/campaigns/previewEmail.ts, the same
+  function the sending worker now uses, with the lead's real fields,
+  A/B variant, spintax, campaign identity, and unsubscribe link
+  (GET /api/enrollments/[id]/preview). Editing the sequence,
+  signature, or lead after previewing changes the send, and the
+  preview says so.
+- Every Upcoming sends row shows the lead's country flag and country
+  (plus state when imported) next to its resolved timezone
+  (resolveLeadCountry in leadTimezone.ts; a US state with no country
+  counts as the United States).
+- Campaigns can be deleted from the UI: a Delete button on every
+  campaigns list row and a Danger zone on the campaign detail page,
+  both with a two-step confirmation naming what is removed (the
+  campaign, its steps, and its enrollments) and what stays (leads,
+  and past sent and reply history in workspace totals and the
+  inbox). The DELETE API already existed and still refuses RUNNING
+  campaigns with 409: pause first, then delete.
+- Live sending cards for Emails sent, Opened, and Replied show a
+  "+N new since your last check" badge when the count has grown
+  since this browser last saw it. The baseline is kept per workspace
+  and metric in localStorage, so the badge appears on the next
+  refresh or the next sign-in on the same browser, and that visit
+  becomes the new baseline. The first visit sets the baseline and
+  shows nothing.
+
 ## 1.15.2 (2026-11-04)
 
 Fix: dashboard rendering crash (and a sending stall) caused by two
