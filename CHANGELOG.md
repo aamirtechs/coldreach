@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.15.2 (2026-11-04)
+
+Fix: dashboard rendering crash (and a sending stall) caused by two
+invalid IANA timezone names in the lead timezone map.
+
+- The country map carried GE as "Europe/Tbilisi" and AM as
+  "Europe/Yerevan". Neither zone exists; the real zones are
+  Asia/Tbilisi and Asia/Yerevan. Mapped zones were returned without
+  validation, so once a lead from Georgia entered the running
+  campaigns' due queue (the WordPress Bug Fixes & Repair campaign
+  was resumed on 2026-11-04), the dashboard's schedule panel threw
+  "RangeError: Invalid time zone specified: Europe/Tbilisi" and the
+  whole dashboard rendered the error page. The same bad value could
+  abort the sending tick's timezone re-stamp for that enrollment.
+  While the campaign was paused the record was dormant, which is
+  why the crash appeared exactly on resume.
+- Map corrected (GE to Asia/Tbilisi, AM to Asia/Yerevan).
+- resolveLeadTimezone now validates every mapped zone with
+  isValidTimezone before returning it; an invalid entry resolves to
+  null (the campaign timezone fallback) instead of a crash.
+- The dashboard's formatInZone helper falls back to UTC instead of
+  throwing, so a display value can never take down the page.
+- Regression tests sweep every value in the country and US state
+  maps through Intl validation, and pin Georgia and Armenia to
+  their Asia zones.
+- The v1.15.1 diagnostic route is retired: it now returns 404.
+
 ## 1.15.1 (2026-11-04)
 
 Temporary diagnostic release, no behaviour change.

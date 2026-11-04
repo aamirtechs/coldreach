@@ -25,15 +25,32 @@ import { LocalTime } from "@/components/LocalTime";
 
 /** "Wed 28 Oct, 09:00" in the given IANA timezone, for schedule rows. */
 function formatInZone(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone,
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
+  // A display helper must never crash the page: an unrecognised zone
+  // (a bad lead field or a stale map entry) falls back to UTC rather
+  // than throwing a RangeError out of the render. Zone data is
+  // validated at resolution time in leadTimezone; this is the
+  // belt-and-braces guard added after the 2026-11-04 dashboard crash.
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "UTC",
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
 }
 
 /** "in 5h 12m", "in 24m", "in 2d 3h", or "due now" for a future stamp. */

@@ -27,7 +27,7 @@ import type { LeadFields } from "./personalize";
  * America/Toronto, and Australia uses Australia/Sydney.
  */
 
-const COUNTRY_TIMEZONES: Record<string, string> = {
+export const COUNTRY_TIMEZONES: Record<string, string> = {
   // North and South America
   US: "America/Chicago",
   CA: "America/Toronto",
@@ -100,8 +100,8 @@ const COUNTRY_TIMEZONES: Record<string, string> = {
   TR: "Europe/Istanbul",
   CY: "Europe/Nicosia",
   MT: "Europe/Malta",
-  GE: "Europe/Tbilisi",
-  AM: "Europe/Yerevan",
+  GE: "Asia/Tbilisi",
+  AM: "Asia/Yerevan",
   AZ: "Asia/Baku",
   MD: "Europe/Chisinau",
   // Middle East and Asia
@@ -401,7 +401,7 @@ const US_STATE_NAME_TO_CODE: Record<string, string> = {
 };
 
 /** Primary IANA zone per US state (the zone covering most of its population). */
-const US_STATE_TIMEZONES: Record<string, string> = {
+export const US_STATE_TIMEZONES: Record<string, string> = {
   AL: "America/Chicago",
   AK: "America/Anchorage",
   AZ: "America/Phoenix",
@@ -515,14 +515,22 @@ export function resolveLeadTimezone(fields: LeadFields | null | undefined): stri
       const normalized = normalizeKey(stateRaw);
       const code = /^[A-Z]{2}$/.test(normalized) ? normalized : US_STATE_NAME_TO_CODE[normalized];
       const zone = code ? US_STATE_TIMEZONES[code] : undefined;
-      if (zone) {
+      if (zone && isValidTimezone(zone)) {
         return zone;
       }
     }
   }
 
   if (countryCode) {
-    return COUNTRY_TIMEZONES[countryCode] ?? null;
+    // Mapped zones are validated before they are returned, so a bad
+    // map entry can never reach an Intl formatter in a caller (the
+    // dashboard crash of 2026-11-04: GE and AM carried Europe/
+    // prefixes for zones that only exist as Asia/Tbilisi and
+    // Asia/Yerevan, and the invalid value crashed rendering).
+    // An invalid entry resolves to null, meaning the caller falls
+    // back to the campaign timezone.
+    const zone = COUNTRY_TIMEZONES[countryCode];
+    return zone && isValidTimezone(zone) ? zone : null;
   }
   return null;
 }

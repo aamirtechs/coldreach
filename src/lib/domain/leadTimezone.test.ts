@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { countryCodeFor, isValidTimezone, resolveLeadTimezone } from "./leadTimezone";
+import {
+  COUNTRY_TIMEZONES,
+  US_STATE_TIMEZONES,
+  countryCodeFor,
+  isValidTimezone,
+  resolveLeadTimezone,
+} from "./leadTimezone";
 
 describe("resolveLeadTimezone", () => {
   it("resolves full country names as they appear in real imports", () => {
@@ -68,5 +74,27 @@ describe("isValidTimezone", () => {
   it("accepts real zones and rejects invented ones", () => {
     expect(isValidTimezone("America/New_York")).toBe(true);
     expect(isValidTimezone("Mars/Olympus")).toBe(false);
+  });
+});
+
+describe("mapped zones are real IANA zones", () => {
+  it("resolves Georgia and Armenia to their Asia zones", () => {
+    // Regression: these two entries carried Europe/ prefixes until
+    // 2026-11-04. Neither Europe/Tbilisi nor Europe/Yerevan exists,
+    // and the invalid value crashed the dashboard render (and could
+    // abort the sending tick) once a Georgian lead became due.
+    expect(resolveLeadTimezone({ country: "Georgia" })).toBe("Asia/Tbilisi");
+    expect(resolveLeadTimezone({ country: "GE" })).toBe("Asia/Tbilisi");
+    expect(resolveLeadTimezone({ country: "Armenia" })).toBe("Asia/Yerevan");
+    expect(resolveLeadTimezone({ country: "AM" })).toBe("Asia/Yerevan");
+  });
+
+  it("every country and US state map value passes Intl validation", () => {
+    for (const [code, zone] of Object.entries(COUNTRY_TIMEZONES)) {
+      expect(isValidTimezone(zone), `${code} -> ${zone}`).toBe(true);
+    }
+    for (const [code, zone] of Object.entries(US_STATE_TIMEZONES)) {
+      expect(isValidTimezone(zone), `${code} -> ${zone}`).toBe(true);
+    }
   });
 });
