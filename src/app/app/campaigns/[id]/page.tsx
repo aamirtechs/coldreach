@@ -138,6 +138,11 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         {campaign.businessDaysOnly ? " · business days only" : ""} · {totalLeadsInList} leads in the
         attached list
       </p>
+      <p className="mt-1 text-xs text-muted">
+        Follow-up rule: step 2 and later send only to leads who opened the previous email. A lead
+        who has not opened it when the follow-up comes due is completed instead of emailed. Opens
+        are approximate, since some mail apps prefetch images and others block them.
+      </p>
 
       <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted">
         {enrollmentGroups.map((group) => (

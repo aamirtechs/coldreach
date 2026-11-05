@@ -2,6 +2,7 @@
   "dependencies": {
     "@prisma/client": "^6.16.0",
     "bcryptjs": "^2.4.3",
+    "flag-icons": "^7.2.3",
     "imapflow": "^2.9.1",
     "jose": "^6.1.0",
     "lucide-react": "^0.544.0",
@@ -45,5 +46,5 @@
     "typecheck": "tsc --noEmit",
     "worker:once": "tsx scripts/worker-once.ts"
   },
-  "version": "1.16.0"
+  "version": "1.17.0"
 }

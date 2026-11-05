@@ -151,7 +151,7 @@ export async function getSendingSchedule(
       company: companyOf(row.lead.fields),
       stepNumber: row.currentStep + 1,
       timezone: resolveLeadTimezone(fields) ?? row.campaign.timezone,
-      country: country?.raw ?? (country ? country.name : null),
+      country: country ? country.name : null,
       countryCode: country?.code ?? null,
       countryFlag: country?.flag ?? null,
       state: country?.state ?? null,

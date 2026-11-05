@@ -21,6 +21,15 @@ import type { PrismaClient } from "@prisma/client";
  * the signal exist at all.
  */
 
+/**
+ * Open tracking went live with v1.9.0 at this moment. Sends before
+ * it carried no pixel, so no open could ever be recorded for them.
+ * The open-gated follow-ups rule (v1.17.0) exempts those legacy
+ * sends: a lead is only held back for not opening when opening was
+ * actually trackable.
+ */
+export const OPEN_TRACKING_SINCE = new Date("2026-10-28T16:23:00.000Z");
+
 function hmacSecret(): Buffer {
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 16) {

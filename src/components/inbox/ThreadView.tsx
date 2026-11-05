@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { DemoBadge } from "@/components/ui";
+import { RelativeTime } from "@/components/RelativeTime";
 
 interface ThreadMessage {
   id: string;
@@ -287,7 +288,11 @@ export function ThreadView({ threadId }: { threadId: string }) {
           >
             <p className="text-xs text-muted">
               {message.direction === "INBOUND" ? "From" : "Sent by"} {message.fromEmail} to{" "}
-              {message.toEmail} · {new Date(message.occurredAt).toLocaleString()}
+              {message.toEmail} ·{" "}
+              <RelativeTime
+                iso={message.occurredAt}
+                fallback={new Date(message.occurredAt).toLocaleString()}
+              />
             </p>
             {message.subject ? <p className="mt-1 text-sm font-medium">{message.subject}</p> : null}
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{message.body}</p>
@@ -393,7 +398,11 @@ export function ThreadView({ threadId }: { threadId: string }) {
             <li key={entry.id} className="rounded-lg bg-elevated p-3 text-sm">
               <p className="whitespace-pre-wrap">{entry.body}</p>
               <p className="mt-1 text-xs text-muted">
-                {entry.author.name ?? entry.author.email} · {new Date(entry.createdAt).toLocaleString()}
+                {entry.author.name ?? entry.author.email} ·{" "}
+                <RelativeTime
+                  iso={entry.createdAt}
+                  fallback={new Date(entry.createdAt).toLocaleString()}
+                />
               </p>
             </li>
           ))}

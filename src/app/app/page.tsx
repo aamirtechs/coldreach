@@ -23,6 +23,7 @@ import { getSendingSchedule } from "@/lib/sendingSchedule";
 import { computeAccountHealthForAccounts } from "@/lib/accountHealth";
 import { LocalTime } from "@/components/LocalTime";
 import { UpcomingPreviewButton } from "@/components/dashboard/UpcomingPreviewButton";
+import { CountryFlag } from "@/components/CountryFlag";
 import { NewSinceLastCheck } from "@/components/dashboard/NewSinceLastCheck";
 
 /** "Wed 28 Oct, 09:00" in the given IANA timezone, for schedule rows. */
@@ -406,10 +407,8 @@ export default async function DashboardPage() {
                       <p className="text-sm font-semibold leading-tight">
                         {formatInZone(send.at, send.timezone)}
                       </p>
-                      <p className="mt-0.5 flex items-center gap-1 text-xs text-muted">
-                        {send.countryFlag ? (
-                          <span aria-hidden="true" className="text-sm leading-none">{send.countryFlag}</span>
-                        ) : null}
+                      <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+                        <CountryFlag code={send.countryCode} className="text-sm" />
                         <span>
                           {send.countryCode
                             ? `${send.country ?? send.countryCode}${send.state ? `, ${send.state}` : ""} · `
@@ -426,11 +425,11 @@ export default async function DashboardPage() {
                       </p>
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {send.countryFlag ? (
-                          <span aria-hidden="true" className="mr-1">{send.countryFlag}</span>
-                        ) : null}
-                        {send.company ?? send.leadEmail}
+                      <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                        <CountryFlag code={send.countryCode} className="shrink-0 text-sm" />
+                        <span className="truncate">
+                          {send.company ?? send.leadEmail}
+                        </span>
                         {send.company && (
                           <span className="font-normal text-muted"> · {send.leadEmail}</span>
                         )}

@@ -16,7 +16,7 @@ import { countMonthlySends, getPlanForWorkspace } from "@/lib/billing/subscripti
 import { processDueDeliveries, type ProcessDueSummary } from "@/lib/webhooks/service";
 import { logger, newRequestId } from "@/lib/log";
 import { createUnsubscribeToken } from "./unsubscribe";
-import { createOpenToken } from "./openTracking";
+import { createOpenToken, OPEN_TRACKING_SINCE } from "./openTracking";
 import { resolveTrackingBase, rewriteLinksForTracking } from "./clickTracking";
 import { renderSpintax } from "@/lib/domain/spintax";
 import { computeAccountHealthForAccounts, type AccountHealth } from "@/lib/accountHealth";
@@ -80,6 +80,10 @@ export interface SendTickSummary {
   failed: number;
   /** Sends refused because the workspace hit its plan's monthly quota. */
   quotaBlocked: number;
+  /** Follow-ups (step 2 and later) not sent because the lead never
+   *  opened the previous step; the enrollment is completed instead
+   *  (open-gated follow-ups, v1.17.0, at Amir's instruction). */
+  skippedNotOpened: number;
   /** Reply sync pass that runs before sends (empty when skipped). */
   sync: AccountSyncSummary[];
   /** Outbound webhook delivery pass that runs after sends. */
@@ -172,6 +176,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     deferredTickPacing: 0,
     failed: 0,
     quotaBlocked: 0,
+    skippedNotOpened: 0,
     sync: syncSummaries,
     webhooks: { attempted: 0, delivered: 0, failed: 0, retrying: 0 },
   };
@@ -358,6 +363,57 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       });
       summary.completed += 1;
       continue;
+    }
+
+    // Gate: open-gated follow-ups (v1.17.0, at Amir's instruction).
+    // Step 2 and later send only to leads who opened the previous
+    // step. The open is the recorded OPENED event for the previous
+    // step index (one per enrollment and step, recorded by the
+    // tracking pixel). A due follow-up with no such open completes
+    // the enrollment instead of sending: the sequence ends for that
+    // lead, with the reason kept on the enrollment. One exemption:
+    // a previous step sent before open tracking existed (v1.9.0,
+    // 2026-10-28 16:23 UTC) carried no pixel, so no open could ever
+    // be recorded for it; those legacy follow-ups still send.
+    // Opens are an approximate signal (privacy prefetch invents
+    // them, image blocking hides real ones); that caveat is Amir's
+    // accepted trade-off for this rule and is stated in the UI copy
+    // on the campaign page.
+    if (enrollment.currentStep >= 1) {
+      const previousStepIndex = enrollment.currentStep - 1;
+      const opened = await db.emailEvent.findUnique({
+        where: { idempotencyKey: `evt:${enrollment.id}:${previousStepIndex}:OPENED` },
+        select: { id: true },
+      });
+      // Crash recovery exemption: when this step's send is already
+      // recorded (a previous tick sent it but crashed before
+      // advancing), there is nothing left to gate; the already-sent
+      // path below advances the enrollment as before.
+      const currentAlreadySent = await db.emailEvent.findUnique({
+        where: { idempotencyKey: `send:${enrollment.id}:${enrollment.currentStep}` },
+        select: { id: true },
+      });
+      if (!opened && !currentAlreadySent) {
+        const previousSent = await db.emailEvent.findUnique({
+          where: { idempotencyKey: `send:${enrollment.id}:${previousStepIndex}` },
+          select: { occurredAt: true },
+        });
+        const legacySend =
+          previousSent !== null && previousSent.occurredAt.getTime() < OPEN_TRACKING_SINCE.getTime();
+        if (!legacySend) {
+          await db.enrollment.update({
+            where: { id: enrollment.id },
+            data: {
+              status: "COMPLETED",
+              nextSendAt: null,
+              lastError:
+                "Follow-up not sent: the lead did not open the previous email. Steps 2 and later go only to leads who opened the previous step.",
+            },
+          });
+          summary.skippedNotOpened += 1;
+          continue;
+        }
+      }
     }
 
     // Gate: send pacing (v1.11.4). Deferred enrollments stay due and
@@ -760,6 +816,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     // and zero in every logged counter, which left the real bucket
     // (suppressed, no-capacity, or outside-window) invisible.
     skippedSuppressed: summary.skippedSuppressed,
+    skippedNotOpened: summary.skippedNotOpened,
     deferredNoCapacity: summary.deferredNoCapacity,
     deferredOutsideWindow: summary.deferredOutsideWindow,
     webhooksAttempted: summary.webhooks.attempted,

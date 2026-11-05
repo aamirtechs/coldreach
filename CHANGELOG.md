@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.17.0 (2026-11-04)
+
+Three changes requested by Amir.
+
+- Country flags are real icons now, not emoji. Windows renders
+  flag emoji as the two plain letters (a US flag showed as the
+  text "US"), so Upcoming sends and the preview modal now use the
+  bundled flag-icons SVG set through a CountryFlag component.
+  Font Awesome, which Amir suggested, ships no per-country flags,
+  only a generic flag icon. The country label also always shows
+  the full country name instead of the raw imported value, so a
+  lead imported with country "US" reads "United States" next to
+  its flag and timezone.
+- Follow-ups are open-gated. Step 2 and later now send only to
+  leads who opened the previous step, checked in the sending
+  worker against the recorded OPENED event for the previous step
+  index. A due follow-up with no recorded open completes the
+  enrollment instead of sending, with the reason stored on the
+  enrollment, and the tick summary counts it as skippedNotOpened.
+  Two exemptions: a previous step sent before open tracking existed
+  (v1.9.0, 2026-10-28 16:23 UTC) carried no pixel, so no open
+  could ever be recorded; those legacy follow-ups still send. And
+  a step whose send is already recorded (crash recovery) is never
+  gated; it advances as before.
+  The campaign page states the rule and the standing caveat that
+  opens are approximate (prefetching invents some, image blocking
+  hides real ones).
+- Inbox and Outbox times are relative: "just now", "5 mins ago",
+  "3 hrs ago", "2 days ago", falling back to the absolute date at
+  a week old. Shown in the inbox list, in thread messages and
+  notes, and on every Outbox card, through a shared RelativeTime
+  component (formatRelativeTime in src/lib/relativeTime.ts) that
+  refreshes every minute and keeps the exact timestamp as the
+  hover title.
+
 ## 1.16.0 (2026-11-04)
 
 Five dashboard and campaign fixes requested by Amir.

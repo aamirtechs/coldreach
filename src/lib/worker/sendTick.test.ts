@@ -809,3 +809,130 @@ describe("runSendTick account balancing (v1.8.2)", () => {
     expect(summary.deferredTickPacing).toBe(0);
   });
 });
+
+describe("open-gated follow-ups (v1.17.0)", () => {
+  async function seedFollowUp(args: {
+    suffix: string;
+    currentStep: number;
+    prevSentAt: Date;
+    openedPrevStep?: boolean;
+    openedStepIndexes?: number[];
+  }) {
+    const account = await makeAccount(100, `gate-${args.suffix}`);
+    const { list, leads } = await makeListWithLeads(`gate-${args.suffix}`, [
+      `gate-${args.suffix}@example.com`,
+    ]);
+    const campaign = await makeCampaign({
+      suffix: `gate-${args.suffix}`,
+      accountIds: [account.id],
+      listId: list.id,
+      stepDelays: [
+        { days: 0, hours: 0 },
+        { days: 1, hours: 0 },
+        { days: 1, hours: 0 },
+      ],
+    });
+    const enrollment = await db.enrollment.create({
+      data: {
+        campaignId: campaign.id,
+        leadId: leads[0].id,
+        status: "ACTIVE",
+        currentStep: args.currentStep,
+        nextSendAt: past(),
+      },
+    });
+    const prevStepIndex = args.currentStep - 1;
+    await db.emailEvent.create({
+      data: {
+        workspaceId,
+        campaignId: campaign.id,
+        enrollmentId: enrollment.id,
+        sendingAccountId: account.id,
+        type: "SENT",
+        idempotencyKey: `send:${enrollment.id}:${prevStepIndex}`,
+        occurredAt: args.prevSentAt,
+      },
+    });
+    const opens = args.openedStepIndexes ?? (args.openedPrevStep ? [prevStepIndex] : []);
+    for (const stepIndex of opens) {
+      await db.emailEvent.create({
+        data: {
+          workspaceId,
+          campaignId: campaign.id,
+          enrollmentId: enrollment.id,
+          type: "OPENED",
+          idempotencyKey: `evt:${enrollment.id}:${stepIndex}:OPENED`,
+          occurredAt: new Date(),
+        },
+      });
+    }
+    return { campaign, enrollment };
+  }
+
+  it("does not send step 2 when the lead never opened step 1, and completes the enrollment", async () => {
+    const { enrollment } = await seedFollowUp({
+      suffix: "noopen",
+      currentStep: 1,
+      prevSentAt: new Date("2026-11-01T10:00:00Z"),
+    });
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true });
+    expect(summary.skippedNotOpened).toBeGreaterThanOrEqual(1);
+    const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(after?.status).toBe("COMPLETED");
+    expect(after?.nextSendAt).toBeNull();
+    expect(after?.lastError).toContain("did not open the previous email");
+    const sentStep2 = await db.emailEvent.findUnique({
+      where: { idempotencyKey: `send:${enrollment.id}:1` },
+    });
+    expect(sentStep2).toBeNull();
+  });
+
+  it("sends step 2 when the lead opened step 1", async () => {
+    const { enrollment } = await seedFollowUp({
+      suffix: "opened",
+      currentStep: 1,
+      prevSentAt: new Date("2026-11-01T10:00:00Z"),
+      openedPrevStep: true,
+    });
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true });
+    expect(summary.sent).toBeGreaterThanOrEqual(1);
+    const sentStep2 = await db.emailEvent.findUnique({
+      where: { idempotencyKey: `send:${enrollment.id}:1` },
+    });
+    expect(sentStep2).not.toBeNull();
+    const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(after?.status).toBe("ACTIVE");
+    expect(after?.currentStep).toBe(2);
+  });
+
+  it("does not send step 3 when only step 1 was opened, not step 2", async () => {
+    const { enrollment } = await seedFollowUp({
+      suffix: "partial",
+      currentStep: 2,
+      prevSentAt: new Date("2026-11-02T10:00:00Z"),
+      openedStepIndexes: [0],
+    });
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true });
+    expect(summary.skippedNotOpened).toBeGreaterThanOrEqual(1);
+    const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(after?.status).toBe("COMPLETED");
+    const sentStep3 = await db.emailEvent.findUnique({
+      where: { idempotencyKey: `send:${enrollment.id}:2` },
+    });
+    expect(sentStep3).toBeNull();
+  });
+
+  it("still sends the follow-up when the previous step was sent before open tracking existed", async () => {
+    const { enrollment } = await seedFollowUp({
+      suffix: "legacy",
+      currentStep: 1,
+      prevSentAt: new Date("2026-10-20T10:00:00Z"),
+    });
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true });
+    expect(summary.sent).toBeGreaterThanOrEqual(1);
+    const sentStep2 = await db.emailEvent.findUnique({
+      where: { idempotencyKey: `send:${enrollment.id}:1` },
+    });
+    expect(sentStep2).not.toBeNull();
+  });
+});

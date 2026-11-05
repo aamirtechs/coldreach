@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Eye, X } from "lucide-react";
+import { CountryFlag } from "@/components/CountryFlag";
 
 interface Preview {
   to: string;
@@ -112,7 +113,7 @@ export function UpcomingPreviewButton({ enrollmentId }: { enrollmentId: string }
                     <div>
                       <dt className="text-xs font-medium uppercase tracking-wide text-muted">To</dt>
                       <dd className="mt-0.5 font-medium">
-                        {preview.country ? <span aria-hidden="true">{preview.country.flag} </span> : null}
+                        {preview.country ? <CountryFlag code={preview.country.code} className="mr-1.5" /> : null}
                         {preview.to}
                         {preview.company ? <span className="font-normal text-muted"> · {preview.company}</span> : null}
                       </dd>

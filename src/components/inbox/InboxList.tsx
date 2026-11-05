@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { DemoBadge } from "@/components/ui";
+import { RelativeTime } from "@/components/RelativeTime";
 
 interface ThreadRow {
   id: string;
@@ -360,7 +361,11 @@ export function InboxList() {
                     {thread.status}
                   </span>
                   <span className="text-xs text-muted">
-                    {thread._count.messages} msg · {new Date(thread.lastMessageAt).toLocaleString()}
+                    {thread._count.messages} msg ·{" "}
+                    <RelativeTime
+                      iso={thread.lastMessageAt}
+                      fallback={new Date(thread.lastMessageAt).toLocaleString()}
+                    />
                   </span>
                   <span className="text-xs text-muted">
                     {thread.assignee ? (thread.assignee.name ?? thread.assignee.email) : "Unassigned"}
