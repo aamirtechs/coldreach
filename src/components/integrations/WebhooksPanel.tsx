@@ -188,7 +188,8 @@ export function WebhooksPanel({ canManage }: { canManage: boolean }) {
               </div>
               {endpoint.recentDeliveries.length > 0 ? (
                 <>
-                  <table className="mt-3 w-full text-left text-xs">
+                  <div className="overflow-x-auto">
+                  <table className="mt-3 w-full min-w-[520px] text-left text-xs">
                     <thead className="text-muted">
                       <tr>
                         <th className="py-1 font-medium">Event</th>
@@ -212,6 +213,7 @@ export function WebhooksPanel({ canManage }: { canManage: boolean }) {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                   <button type="button" className="btn-ghost mt-1 !px-2 !py-1 text-xs" onClick={() => toggleLog(endpoint.id)}>
                     {expandedLog === endpoint.id ? "Show recent only" : "Full delivery log"}
                   </button>

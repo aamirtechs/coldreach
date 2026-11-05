@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.18.0 (2026-11-05)
+
+ColdReach is now an installable PWA, with the mobile navigation to
+match, requested by Amir.
+
+- Installable app. A web app manifest (src/app/manifest.ts, data in
+  src/lib/pwa.ts) gives ColdReach a name, standalone display,
+  theme colors, and PNG icons rendered from the existing app
+  artwork by generated routes under /icons (src/lib/iconImage.tsx):
+  192 and 512, a full bleed maskable 512, and a 180 Apple touch
+  icon. The root layout exports a proper
+  viewport (device width, viewport fit cover, per scheme theme
+  colors) and Apple web app metadata. Chrome and Android offer a
+  real install, iPhone users get an install card inside the app
+  explaining Share, then Add to Home Screen, and a dismissal is
+  honored for 30 days.
+- Service worker (public/sw.js, registered in production by
+  PwaRegister). It precaches only the public offline page and the
+  icons, cache firsts fingerprinted static assets, and answers a
+  failed navigation with the offline page. Privacy rule, pinned by
+  tests: API traffic is never intercepted and no signed in page is
+  ever cached, because a cache hit on a shared device could leak
+  one workspace's data to another. next.config.ts serves /sw.js
+  with no cache headers so updates land, and the icons immutable.
+- Mobile navigation. The desktop sidebar hides below the md
+  breakpoint and, until now, nothing replaced it on phones. A
+  bottom tab bar (Dashboard, Campaigns, Inbox, Outbox) plus a More
+  sheet with the remaining destinations and Compose now covers
+  every sidebar destination, with safe area padding and active
+  states. Main content carries bottom padding on small screens so
+  the bar never covers it.
+- Responsive tables. The wide tables that squeezed on phones now
+  scroll horizontally inside their cards with sensible minimum
+  widths: campaigns, lead lists, sending accounts, enrolled leads,
+  suppressions, team members and invitations, and the webhook
+  delivery log.
+
 ## 1.17.0 (2026-11-04)
 
 Three changes requested by Amir.

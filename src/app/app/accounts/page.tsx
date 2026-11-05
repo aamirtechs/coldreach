@@ -87,8 +87,8 @@ export default async function AccountsPage({
           body="Add a simulation account to exercise campaigns end to end in DEMO mode, an SMTP account whose credentials live in the server environment, or connect a Gmail or Microsoft 365 mailbox above."
         />
       ) : (
-        <div className="card mt-6 overflow-hidden">
-          <table className="w-full text-left text-sm">
+        <div className="card mt-6 overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-3 font-medium">Account</th>

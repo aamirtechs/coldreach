@@ -207,8 +207,8 @@ export function TeamPanel() {
 
       {tab === "members" ? (
         <>
-          <div className="card mt-4 overflow-hidden">
-            <table className="w-full text-left text-sm">
+          <div className="card mt-4 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-4 py-3 font-medium">Member</th>
@@ -305,12 +305,12 @@ export function TeamPanel() {
                 </p>
               </form>
 
-              <div className="card mt-6 overflow-hidden">
+              <div className="card mt-6 overflow-x-auto">
                 <h2 className="px-4 pt-4 font-display text-base font-semibold">Invitations</h2>
                 {invites.length === 0 ? (
                   <p className="p-4 text-sm text-muted">No invitations yet.</p>
                 ) : (
-                  <table className="mt-2 w-full text-left text-sm">
+                  <table className="mt-2 w-full min-w-[560px] text-left text-sm">
                     <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
                       <tr>
                         <th className="px-4 py-3 font-medium">Email</th>

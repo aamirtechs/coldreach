@@ -42,8 +42,8 @@ export default async function LeadsPage() {
           body="Create a list, then import a CSV or add leads by hand. Every import reports exactly what was kept, what was a duplicate, what was invalid, and what was suppressed."
         />
       ) : (
-        <div className="card mt-6 overflow-hidden">
-          <table className="w-full text-left text-sm">
+        <div className="card mt-6 overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
             <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-3 font-medium">List</th>

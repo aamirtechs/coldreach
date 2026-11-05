@@ -9,6 +9,8 @@ import { listUserWorkspaces } from "@/lib/auth/workspaces";
 import { getTourCompletedAt } from "@/lib/tour";
 import { ProductTour } from "@/components/ProductTour";
 import { Sidebar } from "@/components/Sidebar";
+import { MobileNav } from "@/components/MobileNav";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/components/UserMenu";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -48,8 +50,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {verificationRequired() && !session.user.emailVerifiedAt ? (
           <VerificationBar email={session.user.email} />
         ) : null}
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main className="flex-1 px-4 pb-24 pt-6 sm:px-6 md:pb-8 lg:px-8">{children}</main>
       </div>
+      <MobileNav showPlatformAdmin={isPlatformOwner(session.user.email)} />
+      <InstallPrompt />
       <Suspense fallback={null}>
         <ProductTour tourCompleted={tourCompletedAt !== null} />
       </Suspense>

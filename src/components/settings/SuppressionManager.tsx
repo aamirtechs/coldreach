@@ -65,8 +65,8 @@ export function SuppressionManager({ initial, canEdit }: { initial: SuppressionR
       {initial.length === 0 ? (
         <p className="mt-4 text-sm text-muted">No suppression entries in force.</p>
       ) : (
-        <div className="mt-4 max-h-80 overflow-y-auto">
-          <table className="w-full text-left text-sm">
+        <div className="mt-4 max-h-80 overflow-auto">
+          <table className="w-full min-w-[520px] text-left text-sm">
             <thead className="border-b border-line text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="py-2 pr-3 font-medium">Entry</th>

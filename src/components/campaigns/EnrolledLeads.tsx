@@ -195,7 +195,7 @@ export function EnrolledLeads({ campaignId }: { campaignId: string }) {
         </div>
       ) : null}
 
-      <div className="mt-4 overflow-hidden rounded-lg border border-line">
+      <div className="mt-4 overflow-x-auto rounded-lg border border-line">
         {loading ? (
           <p className="p-5 text-sm text-muted">Loading enrolled leads...</p>
         ) : enrollments.length === 0 ? (
@@ -203,7 +203,7 @@ export function EnrolledLeads({ campaignId }: { campaignId: string }) {
             No leads are enrolled in this campaign yet.
           </p>
         ) : (
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-3">

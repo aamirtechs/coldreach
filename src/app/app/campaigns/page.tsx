@@ -75,8 +75,8 @@ export default async function CampaignsPage() {
           body="Create a campaign, attach a lead list, write the sequence, and run preflight. Launch is blocked until every safety check passes."
         />
       ) : (
-        <div className="card mt-6 overflow-hidden" data-tour="campaigns-table">
-          <table className="w-full text-left text-sm">
+        <div className="card mt-6 overflow-x-auto" data-tour="campaigns-table">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-3 font-medium">Campaign</th>

@@ -3,48 +3,13 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  BarChart3,
-  Building2,
-  CreditCard,
-  Inbox,
-  LayoutDashboard,
-  MailCheck,
-  ListChecks,
-  Mail,
-  Plug,
-  Send,
-  Settings,
-  ShieldCheck,
-  SquarePen,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { SquarePen } from "lucide-react";
 import { ComposeEmail } from "@/components/inbox/ComposeEmail";
 import { SidebarStatus } from "@/components/SidebarStatus";
+import { APP_NAV_ITEMS, PLATFORM_ADMIN_NAV_ITEM } from "@/lib/navigation";
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { href: "/app", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/app/campaigns", label: "Campaigns", icon: Send },
-  { href: "/app/leads", label: "Leads", icon: ListChecks },
-  { href: "/app/inbox", label: "Inbox", icon: Inbox },
-  { href: "/app/outbox", label: "Outbox", icon: MailCheck },
-  { href: "/app/accounts", label: "Sending Accounts", icon: Mail },
-  { href: "/app/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/app/team", label: "Team", icon: Users },
-  { href: "/app/agency", label: "Agency", icon: Building2 },
-  { href: "/app/integrations", label: "Integrations", icon: Plug },
-  { href: "/app/billing", label: "Billing", icon: CreditCard },
-  { href: "/app/settings", label: "Settings", icon: Settings },
-];
-
-const ADMIN_ITEM: NavItem = { href: "/app/admin", label: "Platform Admin", icon: ShieldCheck };
+const NAV_ITEMS = APP_NAV_ITEMS;
+const ADMIN_ITEM = PLATFORM_ADMIN_NAV_ITEM;
 
 export function Sidebar({ showPlatformAdmin = false }: { showPlatformAdmin?: boolean }) {
   const pathname = usePathname();
