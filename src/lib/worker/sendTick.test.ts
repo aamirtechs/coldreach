@@ -935,4 +935,62 @@ describe("open-gated follow-ups (v1.17.0)", () => {
     });
     expect(sentStep2).not.toBeNull();
   });
+
+  it("sends a step's attachments with that step only (v1.19.0)", async () => {
+    const account = await makeAccount(100, "attach");
+    const { list, leads } = await makeListWithLeads("attach", ["attach@example.com"]);
+    const campaign = await makeCampaign({
+      suffix: "attach",
+      accountIds: [account.id],
+      listId: list.id,
+    });
+    await db.stepAttachment.create({
+      data: {
+        workspaceId,
+        campaignId: campaign.id,
+        stepOrder: 0,
+        filename: "one-pager.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 5,
+        data: Buffer.from("hello"),
+      },
+    });
+    await db.stepAttachment.create({
+      data: {
+        workspaceId,
+        campaignId: campaign.id,
+        stepOrder: 1,
+        filename: "follow-up.txt",
+        contentType: "text/plain",
+        sizeBytes: 5,
+        data: Buffer.from("world"),
+      },
+    });
+    await enroll(campaign.id, leads[0].id);
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-attach-1" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+    });
+    expect(summary.failed).toBe(0);
+    const ours = captured.filter((input) => input.toEmail === "attach@example.com");
+    expect(ours).toHaveLength(1);
+    // Step 1 (order 0) sends now: it carries only its own file, not
+    // the follow-up step's file.
+    expect(ours[0].attachments).toHaveLength(1);
+    expect(ours[0].attachments?.[0].filename).toBe("one-pager.pdf");
+    expect(ours[0].attachments?.[0].contentType).toBe("application/pdf");
+    expect(ours[0].attachments?.[0].content.toString()).toBe("hello");
+  });
 });

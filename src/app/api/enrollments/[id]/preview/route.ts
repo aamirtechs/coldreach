@@ -71,6 +71,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       unsubscribeUrl,
     });
     const country = resolveLeadCountry(leadFields);
+    // Per-step attachments (v1.19.0): metadata only, so the preview
+    // shows exactly which files will ride on this send.
+    const attachments = await prisma.stepAttachment.findMany({
+      where: { campaignId: enrollment.campaign.id, stepOrder: stepIndex },
+      select: { id: true, filename: true, contentType: true, sizeBytes: true },
+      orderBy: { createdAt: "asc" },
+    });
     return NextResponse.json({
       preview: {
         enrollmentId: enrollment.id,
@@ -84,6 +91,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         subject: copy.subject,
         bodyText: copy.bodyText,
         fullText: copy.fullText,
+        attachments,
         scheduledAt: enrollment.nextSendAt?.toISOString() ?? null,
         timezone: resolveLeadTimezone(leadFields) ?? enrollment.campaign.timezone,
         country: country ? { code: country.code, name: country.name, flag: country.flag, state: country.state } : null,

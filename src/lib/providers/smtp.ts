@@ -281,6 +281,15 @@ export class SmtpProvider implements MailProvider {
       text: input.text,
       html: input.html,
       headers: input.headers,
+      ...(input.attachments && input.attachments.length > 0
+        ? {
+            attachments: input.attachments.map((attachment) => ({
+              filename: attachment.filename,
+              content: attachment.content,
+              contentType: attachment.contentType,
+            })),
+          }
+        : {}),
     });
     return { providerMessageId: info.messageId };
   }

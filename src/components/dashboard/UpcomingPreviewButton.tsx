@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eye, X } from "lucide-react";
+import { Eye, Paperclip, X } from "lucide-react";
 import { CountryFlag } from "@/components/CountryFlag";
+import { formatBytes } from "@/lib/attachments";
+
+interface PreviewAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+}
 
 interface Preview {
   to: string;
@@ -12,6 +20,7 @@ interface Preview {
   variantLabel: string;
   subject: string;
   fullText: string;
+  attachments?: PreviewAttachment[];
   scheduledAt: string | null;
   timezone: string;
   country: { code: string; name: string; flag: string; state: string | null } | null;
@@ -137,6 +146,20 @@ export function UpcomingPreviewButton({ enrollmentId }: { enrollmentId: string }
                       </dd>
                     </div>
                   </dl>
+                  {preview.attachments && preview.attachments.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted">Attachments</p>
+                      <ul className="mt-1 space-y-1">
+                        {preview.attachments.map((attachment) => (
+                          <li key={attachment.id} className="flex items-center gap-2 text-sm">
+                            <Paperclip className="h-3.5 w-3.5 text-muted" />
+                            <span className="font-medium">{attachment.filename}</span>
+                            <span className="text-muted">{formatBytes(attachment.sizeBytes)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-muted">Email body</p>
                     <pre className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-elevated p-4 font-sans text-sm leading-relaxed">

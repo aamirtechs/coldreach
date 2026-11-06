@@ -68,6 +68,11 @@ export interface PreflightInput {
    *  launches, but its first day sends will be throttled to the
    *  warm-up schedule. */
   warmupCaps?: { email: string; cap: number }[];
+  /** Per-step attachment summary (v1.19.0). Optional; when a step
+   *  carries files, preflight reports them, and files on the first
+   *  step produce a WARN because attachments on a first cold email
+   *  are a classic spam signal. */
+  stepAttachments?: { stepOrder: number; count: number; totalBytes: number }[];
   /** Plan quota context (Phase 4). Optional so older callers and tests
    *  keep working; when present, a campaign whose projected total
    *  sends would exceed the month's remaining quota fails preflight. */
@@ -119,6 +124,33 @@ export function runPreflight(input: PreflightInput): PreflightResult {
         "Step subjects",
         "warn",
         `Step ${emptySubjects.join(", ")} ${emptySubjects.length === 1 ? "has" : "have"} an empty subject. Follow-ups can thread onto the previous subject, but a subjectless first step usually performs badly.`,
+      );
+    }
+  }
+
+  // Attachments (v1.19.0) ---------------------------------------------------
+  const attachmentSteps = (input.stepAttachments ?? []).filter((entry) => entry.count > 0);
+  if (attachmentSteps.length > 0) {
+    const totalFiles = attachmentSteps.reduce((sum, entry) => sum + entry.count, 0);
+    const totalKb = Math.max(
+      1,
+      Math.round(attachmentSteps.reduce((sum, entry) => sum + entry.totalBytes, 0) / 1024),
+    );
+    const firstStep = attachmentSteps.find((entry) => entry.stepOrder === 0);
+    if (firstStep) {
+      add(
+        "first-step-attachments",
+        "First step attachments",
+        "warn",
+        `Step 1 carries ${firstStep.count} attachment${firstStep.count === 1 ? "" : "s"}. Attachments on a first cold email are a classic spam signal and many filters scan them, so replies usually drop. They perform far better on a follow-up step after interest.`,
+      );
+    } else {
+      const stepList = attachmentSteps.map((entry) => entry.stepOrder + 1).join(", ");
+      add(
+        "attachments",
+        "Step attachments",
+        "pass",
+        `${totalFiles} file${totalFiles === 1 ? "" : "s"} (${totalKb} KB total) attached on step${attachmentSteps.length === 1 ? "" : "s"} ${stepList}. Follow-up attachments are fine.`,
       );
     }
   }

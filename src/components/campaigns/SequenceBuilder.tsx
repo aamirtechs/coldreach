@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
 import { renderSpintax } from "@/lib/domain/spintax";
+import { StepAttachmentsPanel } from "@/components/campaigns/StepAttachmentsPanel";
 
 export interface VariantDraft {
   label: string;
@@ -507,6 +508,13 @@ export function SequenceBuilder({
                   )}
                 </div>
               ) : null}
+              <StepAttachmentsPanel
+                key={activeStep}
+                campaignId={campaignId}
+                stepOrder={activeStep}
+                stepNumber={activeStep + 1}
+                editable={editable}
+              />
             </div>
             <div>
               <h3 className="text-sm font-semibold">

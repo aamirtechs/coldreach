@@ -7,6 +7,13 @@
  * simulate under an explicit DEMO label.
  */
 
+/** One file attachment on an outgoing email (v1.19.0). */
+export interface SendAttachment {
+  filename: string;
+  contentType: string;
+  content: Buffer;
+}
+
 export interface SendInput {
   fromEmail: string;
   fromName?: string | null;
@@ -15,6 +22,8 @@ export interface SendInput {
   text: string;
   html: string;
   headers?: Record<string, string>;
+  /** Per-step campaign attachments; absent means no attachments. */
+  attachments?: SendAttachment[];
 }
 
 export interface SendResult {

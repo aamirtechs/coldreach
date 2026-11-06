@@ -19,6 +19,7 @@ export async function getCampaignPreflight(
     where: { id: args.campaignId, workspaceId: args.workspaceId },
     include: {
       steps: { orderBy: { order: "asc" } },
+      stepAttachments: { select: { stepOrder: true, sizeBytes: true } },
       accounts: { include: { sendingAccount: true } },
       workspace: true,
     },
@@ -79,8 +80,22 @@ export async function getCampaignPreflight(
     countMonthlySends(db, args.workspaceId),
   ]);
 
+  // Per-step attachment summary for the attachment checks (v1.19.0).
+  const attachmentByStep = new Map<number, { stepOrder: number; count: number; totalBytes: number }>();
+  for (const attachment of campaign.stepAttachments) {
+    const entry = attachmentByStep.get(attachment.stepOrder) ?? {
+      stepOrder: attachment.stepOrder,
+      count: 0,
+      totalBytes: 0,
+    };
+    entry.count += 1;
+    entry.totalBytes += attachment.sizeBytes;
+    attachmentByStep.set(attachment.stepOrder, entry);
+  }
+
   return runPreflight({
     steps: campaign.steps.map((step) => ({ subject: step.subject, body: step.body })),
+    stepAttachments: [...attachmentByStep.values()],
     enrolledCount: enrollments.length,
     suppressedEnrolledCount,
     accounts,

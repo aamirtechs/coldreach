@@ -316,6 +316,7 @@ model Campaign {
   leadList         LeadList?      @relation(fields: [leadListId], references: [id], onDelete: SetNull)
   accounts         CampaignAccount[]
   steps            SequenceStep[]
+  stepAttachments  StepAttachment[]
   enrollments      Enrollment[]
   threads          Thread[]
   emailEvents      EmailEvent[]
@@ -375,6 +376,33 @@ model StepVariant {
 
   @@unique([stepId, label])
   @@index([stepId])
+}
+
+// Per-step file attachments (v1.19.0). An attachment belongs to a step
+// position inside a campaign rather than to a SequenceStep row,
+// because the sequence builder replaces step rows wholesale on every
+// save; keying by (campaignId, stepOrder) keeps a step's files across
+// those saves. Reordering steps in the builder therefore keeps files
+// with the step number, and the builder warns about that. File bytes
+// live in the database so no external storage service is needed; the
+// 1 MB per file cap enforced by src/lib/attachments.ts keeps rows
+// small and messages deliverable.
+model StepAttachment {
+  id          String   @id @default(cuid())
+  workspaceId String
+  campaignId  String
+  // Zero based position of the step in the sequence, matching
+  // SequenceStep.order.
+  stepOrder   Int
+  filename    String
+  contentType String
+  sizeBytes   Int
+  data        Bytes
+  createdAt   DateTime @default(now())
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([campaignId, stepOrder])
 }
 
 enum EnrollmentStatus {

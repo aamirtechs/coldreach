@@ -160,4 +160,35 @@ describe("runPreflight", () => {
     const result = runPreflight(baseInput({ warmupCaps: [] }));
     expect(result.checks.find((entry) => entry.id === "warmup")).toBeUndefined();
   });
+
+  it("warns but allows launch when step 1 carries attachments (v1.19.0)", () => {
+    const result = runPreflight(
+      baseInput({ stepAttachments: [{ stepOrder: 0, count: 1, totalBytes: 2048 }] }),
+    );
+    const found = check(result, "first-step-attachments");
+    expect(found.status).toBe("warn");
+    expect(found.message).toContain("Step 1 carries 1 attachment");
+    expect(result.canLaunch).toBe(true);
+  });
+
+  it("passes when attachments sit only on follow-up steps (v1.19.0)", () => {
+    const result = runPreflight(
+      baseInput({
+        stepAttachments: [
+          { stepOrder: 1, count: 2, totalBytes: 4096 },
+          { stepOrder: 2, count: 1, totalBytes: 1024 },
+        ],
+      }),
+    );
+    const found = check(result, "attachments");
+    expect(found.status).toBe("pass");
+    expect(found.message).toContain("3 files");
+    expect(result.checks.find((entry) => entry.id === "first-step-attachments")).toBeUndefined();
+  });
+
+  it("omits attachment checks when no step carries files (v1.19.0)", () => {
+    const result = runPreflight(baseInput({ stepAttachments: [] }));
+    expect(result.checks.find((entry) => entry.id === "attachments")).toBeUndefined();
+    expect(result.checks.find((entry) => entry.id === "first-step-attachments")).toBeUndefined();
+  });
 });

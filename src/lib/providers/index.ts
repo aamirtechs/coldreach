@@ -6,7 +6,7 @@ import { SmtpProvider, resolveMailboxCredentials } from "./smtp";
 import { GmailProvider } from "./gmail";
 import { GraphProvider } from "./graph";
 
-export type { MailProvider, SendInput, SendResult } from "./types";
+export type { MailProvider, SendAttachment, SendInput, SendResult } from "./types";
 export { SimulationProvider } from "./simulation";
 export {
   SmtpProvider,

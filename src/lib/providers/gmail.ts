@@ -22,10 +22,14 @@ function base64UrlEncode(value: string): string {
     .replace(/=+$/, "");
 }
 
+function foldBase64(content: Buffer): string {
+  return content.toString("base64").replace(/(.{76})/g, "$1\r\n");
+}
+
 function buildMime(input: SendInput, messageId: string): string {
   const boundary = `coldreach-${randomUUID()}`;
   const from = input.fromName ? `${input.fromName} <${input.fromEmail}>` : input.fromEmail;
-  const headers = [
+  const baseHeaders = [
     `From: ${from}`,
     `To: ${input.toEmail}`,
     `Subject: ${input.subject}`,
@@ -34,9 +38,8 @@ function buildMime(input: SendInput, messageId: string): string {
     ...(input.headers
       ? Object.entries(input.headers).map(([key, value]) => `${key}: ${value}`)
       : []),
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ];
-  const parts = [
+  const alternativeParts = [
     `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
     "",
@@ -48,7 +51,42 @@ function buildMime(input: SendInput, messageId: string): string {
     `--${boundary}--`,
     "",
   ];
-  return [...headers, "", ...parts].join("\r\n");
+  const attachments = input.attachments ?? [];
+  if (attachments.length === 0) {
+    return [
+      ...baseHeaders,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      ...alternativeParts,
+    ].join("\r\n");
+  }
+  // With attachments the message becomes multipart/mixed: the first
+  // part carries the text and HTML alternatives, the rest are files.
+  const mixedBoundary = `coldreach-mixed-${randomUUID()}`;
+  const parts = [
+    `--${mixedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    ...alternativeParts.slice(0, -1),
+    "",
+  ];
+  for (const attachment of attachments) {
+    parts.push(
+      `--${mixedBoundary}`,
+      `Content-Type: ${attachment.contentType}; name="${attachment.filename}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${attachment.filename}"`,
+      "",
+      foldBase64(attachment.content),
+    );
+  }
+  parts.push(`--${mixedBoundary}--`, "");
+  return [
+    ...baseHeaders,
+    `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
+    "",
+    ...parts,
+  ].join("\r\n");
 }
 
 export class GmailProvider implements MailProvider {

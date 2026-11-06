@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.19.0 (2026-11-06)
+
+Per-step file attachments for campaigns, requested by Amir, with his
+hard cap of 1 MB per file.
+
+- Attachments per step. The sequence builder gains an Attachments
+  panel on every step (src/components/campaigns/
+  StepAttachmentsPanel.tsx): upload, download, and remove files
+  without leaving the step. Files save immediately and belong to the
+  step number, so they survive sequence saves, which replace step
+  rows wholesale; the panel warns that reordering steps keeps files
+  with the step position. Allowed formats are documents and images
+  only (PDF, Word, Excel, PowerPoint, PNG, JPG, GIF, WebP, TXT,
+  CSV), at most 3 files per step and 1 MB per file, enforced by
+  src/lib/attachments.ts on the server, never trusting the client.
+- Storage and API. Bytes live in the database in a new
+  StepAttachment table (dev migration 20261106174725, prod migration
+  0012), so no external storage service is needed. Routes under
+  /api/campaigns/[id]/step-attachments list metadata, accept
+  multipart uploads, download bytes, and delete, all scoped to the
+  signed in workspace, and edits are refused while a campaign is
+  RUNNING or ARCHIVED, matching the sequence rules. Uploads and
+  removals are audit logged.
+- Sending. The worker loads a step's files once per campaign and
+  step per tick and passes them through the provider contract
+  (SendInput.attachments): Nodemailer on SMTP, multipart/mixed MIME
+  on Gmail, and fileAttachment entries on Microsoft Graph. A worker
+  integration test proves step 1 sends carry only step 1 files.
+- Preview and preflight. The Upcoming sends preview lists the exact
+  attachments that will ride on the send (name and size), and
+  preflight warns when step 1 carries attachments (a classic spam
+  signal on a first cold email) while passing follow-up attachments
+  with a summary.
+
 ## 1.18.0 (2026-11-05)
 
 ColdReach is now an installable PWA, with the mobile navigation to

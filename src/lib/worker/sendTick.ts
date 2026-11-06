@@ -8,7 +8,11 @@ import { renderEmailCopy } from "@/lib/campaigns/previewEmail";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { hourlyBudget, hourlySendCap, tickSendCeiling } from "@/lib/domain/pacing";
 import { effectiveDailyLimit as warmupDailyLimit } from "@/lib/domain/warmup";
-import { resolveProvider as defaultResolveProvider, type MailProvider } from "@/lib/providers";
+import {
+  resolveProvider as defaultResolveProvider,
+  type MailProvider,
+  type SendAttachment,
+} from "@/lib/providers";
 import { loadSuppressions } from "@/lib/suppressions";
 import { syncAllConnectedAccounts, type AccountSyncSummary } from "@/lib/sync/syncService";
 import { canSend, type Plan } from "@/lib/domain/plans";
@@ -212,6 +216,9 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   const suppressionCache = new Map<string, SuppressionEntry[]>();
   const sentTodayCache = new Map<string, number>();
   const providerCache = new Map<string, MailProvider>();
+  // Per-step attachment bytes (v1.19.0), loaded at most once per
+  // campaign and step per tick, however many emails share the step.
+  const attachmentCache = new Map<string, SendAttachment[]>();
   const dayStart = startOfUtcDay(now);
 
   // Account health gate state (v1.11.0): health is computed once per
@@ -679,6 +686,23 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       providerCache.set(chosen.id, provider);
     }
 
+    // Per-step attachments (v1.19.0): the step's files ride on every
+    // send of that step, for every variant, exactly as uploaded.
+    const attachmentKey = `${campaign.id}:${stepIndex}`;
+    let stepAttachments = attachmentCache.get(attachmentKey);
+    if (!stepAttachments) {
+      const rows = await db.stepAttachment.findMany({
+        where: { campaignId: campaign.id, stepOrder: stepIndex },
+        orderBy: { createdAt: "asc" },
+      });
+      stepAttachments = rows.map((row) => ({
+        filename: row.filename,
+        contentType: row.contentType,
+        content: Buffer.from(row.data),
+      }));
+      attachmentCache.set(attachmentKey, stepAttachments);
+    }
+
     try {
       const result = await provider.send({
         fromEmail: chosen.email,
@@ -690,6 +714,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         subject,
         text: fullText,
         html: trackedHtml,
+        attachments: stepAttachments.length > 0 ? stepAttachments : undefined,
         headers: {
           "List-Unsubscribe": `<${unsubscribeUrl}>`,
           // RFC 8058 one-click unsubscribe, required by the Gmail and

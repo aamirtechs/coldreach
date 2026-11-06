@@ -39,6 +39,16 @@ export class GraphProvider implements MailProvider {
       body: JSON.stringify({
         subject: input.subject,
         body: { contentType: "HTML", content: input.html },
+        ...(input.attachments && input.attachments.length > 0
+          ? {
+              attachments: input.attachments.map((attachment) => ({
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                name: attachment.filename,
+                contentType: attachment.contentType,
+                contentBytes: attachment.content.toString("base64"),
+              })),
+            }
+          : {}),
         toRecipients: [{ emailAddress: { address: input.toEmail } }],
         from: { emailAddress: { address: input.fromEmail } },
         internetMessageHeaders: input.headers
