@@ -140,8 +140,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       </p>
       <p className="mt-1 text-xs text-muted">
         Follow-up rule: step 2 and later send only to leads who opened the previous email. A lead
-        who has not opened it when the follow-up comes due is completed instead of emailed. Opens
-        are approximate, since some mail apps prefetch images and others block them.
+        who has not opened it when the follow-up comes due is completed instead of emailed.
+        Automatic opens (a mail app or scanner loading the email within a minute of sending) do
+        not count as opens. Opens are still approximate, since some mail apps prefetch images
+        more slowly and others block them.
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted">

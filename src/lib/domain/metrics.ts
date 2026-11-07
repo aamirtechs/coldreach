@@ -132,6 +132,13 @@ function addToTallies(
       tallies.clicks += count;
       break;
     case "OPENED":
+      // Machine opens (v1.20.0): pixel loads within a minute of the
+      // send are privacy prefetch or scanner fetches, classified
+      // MACHINE by the open tracker. They are not human opens and
+      // stay out of every open figure.
+      if (classification?.toUpperCase() === "MACHINE") {
+        break;
+      }
       tallies.opens += count;
       break;
     default:

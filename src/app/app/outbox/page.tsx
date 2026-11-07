@@ -101,10 +101,12 @@ export default async function OutboxPage({
     enrollmentIds.length
       ? prisma.emailEvent.findMany({
           where: { enrollmentId: { in: enrollmentIds }, type: "OPENED" },
-          select: { enrollmentId: true },
-          distinct: ["enrollmentId"],
+          select: { enrollmentId: true, occurredAt: true, classification: true },
+          orderBy: { occurredAt: "asc" },
         })
-      : Promise.resolve([] as { enrollmentId: string | null }[]),
+      : Promise.resolve(
+          [] as { enrollmentId: string | null; occurredAt: Date; classification: string | null }[],
+        ),
     enrollmentIds.length
       ? prisma.emailEvent.findMany({
           where: { enrollmentId: { in: enrollmentIds }, type: "REPLIED" },
@@ -121,11 +123,29 @@ export default async function OutboxPage({
       : Promise.resolve([] as { threadId: string }[]),
   ]);
 
-  const openedPairs = new Set(
-    openedEvents
-      .map((event) => (event.enrollmentId ? enrollmentPairById.get(event.enrollmentId) : undefined))
-      .filter(Boolean),
-  );
+  // Per enrollment, the earliest human open and the earliest
+  // machine open (v1.20.0). An open classified MACHINE was a mail
+  // app or scanner loading the pixel within a minute of the send;
+  // it is shown as Auto-open and never counts as Opened.
+  const openInfoByPair = new Map<string, { humanAt: Date | null; machineAt: Date | null }>();
+  for (const event of openedEvents) {
+    if (!event.enrollmentId) {
+      continue;
+    }
+    const pair = enrollmentPairById.get(event.enrollmentId);
+    if (!pair) {
+      continue;
+    }
+    const info = openInfoByPair.get(pair) ?? { humanAt: null, machineAt: null };
+    if (event.classification === "MACHINE") {
+      if (!info.machineAt || event.occurredAt < info.machineAt) {
+        info.machineAt = event.occurredAt;
+      }
+    } else if (!info.humanAt || event.occurredAt < info.humanAt) {
+      info.humanAt = event.occurredAt;
+    }
+    openInfoByPair.set(pair, info);
+  }
   const repliedPairs = new Set(
     repliedEvents
       .map((event) => (event.enrollmentId ? enrollmentPairById.get(event.enrollmentId) : undefined))
@@ -138,9 +158,12 @@ export default async function OutboxPage({
       message.thread.campaignId && message.thread.leadId
         ? `${message.thread.campaignId}:${message.thread.leadId}`
         : null;
+    const openInfo = pairKey ? openInfoByPair.get(pairKey) : undefined;
     return {
       message,
-      opened: pairKey ? openedPairs.has(pairKey) : false,
+      opened: Boolean(openInfo?.humanAt),
+      openedAt: openInfo?.humanAt ?? null,
+      autoOpenedAt: openInfo && !openInfo.humanAt ? openInfo.machineAt : null,
       replied: repliedThreads.has(message.threadId) || (pairKey ? repliedPairs.has(pairKey) : false),
     };
   });
@@ -159,7 +182,9 @@ export default async function OutboxPage({
       <h1 className="font-display text-2xl font-semibold tracking-tight">Outbox</h1>
       <p className="mt-1 text-sm text-muted">
         Emails sent from {session.workspace.name}, read from recorded sends. Opened and replied
-        badges come from tracked events, never estimates.
+        badges come from tracked events, never estimates. Opens a mail app or security scanner
+        triggers automatically within a minute of sending are labelled Auto-open and do not
+        count as opened.
       </p>
 
       <form method="GET" className="card mt-6 flex flex-wrap items-end gap-3 p-4">
@@ -212,12 +237,33 @@ export default async function OutboxPage({
             No sent emails match these filters yet. Sends appear here as soon as a campaign sends.
           </section>
         ) : (
-          shown.map(({ message, opened, replied }) => (
+          shown.map(({ message, opened, openedAt, autoOpenedAt, replied }) => (
             <article key={message.id} className="card p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{message.subject ?? "(no subject)"}</span>
                 {opened ? (
                   <span className="badge bg-accent-soft text-accent">Opened</span>
+                ) : null}
+                {opened && openedAt ? (
+                  <span className="text-xs text-muted">
+                    opened{" "}
+                    <RelativeTime
+                      iso={openedAt.toISOString()}
+                      fallback={`${openedAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}
+                    />
+                  </span>
+                ) : null}
+                {!opened && autoOpenedAt ? (
+                  <>
+                    <span className="badge bg-surface text-muted">Auto-open</span>
+                    <span className="text-xs text-muted">
+                      auto-opened{" "}
+                      <RelativeTime
+                        iso={autoOpenedAt.toISOString()}
+                        fallback={`${autoOpenedAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}
+                      />
+                    </span>
+                  </>
                 ) : null}
                 {replied ? (
                   <span className="badge bg-accent-soft text-accent">Replied</span>

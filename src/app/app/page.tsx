@@ -106,7 +106,14 @@ export default async function DashboardPage() {
     await Promise.all([
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
       prisma.emailEvent.count({ where: { workspaceId, type: "SENT" } }),
-      prisma.emailEvent.count({ where: { workspaceId, type: "OPENED" } }),
+      prisma.emailEvent.count({
+        where: {
+          workspaceId,
+          type: "OPENED",
+          // Machine opens (v1.20.0) are not human opens.
+          OR: [{ classification: null }, { classification: { not: "MACHINE" } }],
+        },
+      }),
       prisma.emailEvent.count({ where: { workspaceId, type: "REPLIED" } }),
       prisma.emailEvent.count({
         where: { workspaceId, type: "REPLIED", classification: "AUTOMATED" },
@@ -162,7 +169,7 @@ export default async function DashboardPage() {
       label: "Opened",
       value: openedCount,
       icon: Eye,
-      note: "Recorded OPENED events, all time",
+      note: "Human opens, all time (automatic scanner opens excluded)",
       newMetric: { key: "opened", label: "new opens" },
     },
     {

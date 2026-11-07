@@ -43,6 +43,17 @@ describe("computeCampaignMetrics", () => {
     expect(metrics.rates.complaintRate).toBeCloseTo(1 / 9);
   });
 
+  it("keeps MACHINE opens out of the open count", () => {
+    const metrics = computeCampaignMetrics([
+      ...repeat("SENT", 10),
+      ...repeat("DELIVERED", 10),
+      { type: "OPENED" },
+      { type: "OPENED", classification: "MACHINE" },
+      { type: "OPENED", classification: "machine" },
+    ]);
+    expect(metrics.opens.count).toBe(1);
+  });
+
   it("counts clicks and derives clickRate on delivered volume", () => {
     const metrics = computeCampaignMetrics([
       ...repeat("SENT", 10),

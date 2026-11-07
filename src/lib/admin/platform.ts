@@ -118,6 +118,7 @@ export async function getPlatformStats(db: PrismaClient, now: Date): Promise<Pla
     subscriptionGroups,
     subscriptionTotal,
     recent,
+    machineOpenedCount,
   ] = await Promise.all([
     db.user.count(),
     db.workspace.count(),
@@ -150,6 +151,7 @@ export async function getPlatformStats(db: PrismaClient, now: Date): Promise<Pla
         _count: { select: { memberships: true, campaigns: true } },
       },
     }),
+    db.emailEvent.count({ where: { type: "OPENED", classification: "MACHINE" } }),
   ]);
 
   const campaigns = campaignGroups.reduce((sum, group) => sum + group._count._all, 0);
@@ -160,6 +162,9 @@ export async function getPlatformStats(db: PrismaClient, now: Date): Promise<Pla
   for (const type of EVENT_TYPES) {
     events[type] = eventGroups.find((group) => group.type === type)?._count._all ?? 0;
   }
+  // Machine opens (v1.20.0) stay out of the platform OPENED total,
+  // matching every other open figure in the product.
+  events.OPENED = Math.max(0, (events.OPENED ?? 0) - machineOpenedCount);
 
   // A workspace with no Subscription row runs on the FREE tier (the
   // plan engine's default), so the unsubscribed remainder is FREE.

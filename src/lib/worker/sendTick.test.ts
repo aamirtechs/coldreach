@@ -817,6 +817,7 @@ describe("open-gated follow-ups (v1.17.0)", () => {
     prevSentAt: Date;
     openedPrevStep?: boolean;
     openedStepIndexes?: number[];
+    openedClassification?: string;
   }) {
     const account = await makeAccount(100, `gate-${args.suffix}`);
     const { list, leads } = await makeListWithLeads(`gate-${args.suffix}`, [
@@ -862,6 +863,7 @@ describe("open-gated follow-ups (v1.17.0)", () => {
           enrollmentId: enrollment.id,
           type: "OPENED",
           idempotencyKey: `evt:${enrollment.id}:${stepIndex}:OPENED`,
+          classification: args.openedClassification ?? null,
           occurredAt: new Date(),
         },
       });
@@ -881,6 +883,25 @@ describe("open-gated follow-ups (v1.17.0)", () => {
     expect(after?.status).toBe("COMPLETED");
     expect(after?.nextSendAt).toBeNull();
     expect(after?.lastError).toContain("did not open the previous email");
+    const sentStep2 = await db.emailEvent.findUnique({
+      where: { idempotencyKey: `send:${enrollment.id}:1` },
+    });
+    expect(sentStep2).toBeNull();
+  });
+
+  it("does not send step 2 when the only open of step 1 was a machine open", async () => {
+    const { enrollment } = await seedFollowUp({
+      suffix: "machineopen",
+      currentStep: 1,
+      prevSentAt: new Date("2026-11-01T10:00:00Z"),
+      openedPrevStep: true,
+      openedClassification: "MACHINE",
+    });
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true });
+    expect(summary.skippedNotOpened).toBeGreaterThanOrEqual(1);
+    const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(after?.status).toBe("COMPLETED");
+    expect(after?.lastError).toContain("automatic open");
     const sentStep2 = await db.emailEvent.findUnique({
       where: { idempotencyKey: `send:${enrollment.id}:1` },
     });

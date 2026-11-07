@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.20.0 (2026-11-06)
+
+Machine-open filter, built after a day where every sent email showed
+as Opened (29 of 29, all machine prefetch).
+
+- Classification. The open tracker (src/lib/worker/openTracking.ts)
+  compares each open against its step's send time. An open recorded
+  within 60 seconds of the send is classified MACHINE on the OPENED
+  event (Apple Mail Privacy Protection and security scanners load
+  the pixel on delivery, before any human could read). No schema
+  change: the flag rides the event's classification field, the same
+  mechanism AUTOMATED replies use.
+- Metrics. Machine opens are excluded from every open figure:
+  campaign metrics and analytics (src/lib/domain/metrics.ts), the
+  dashboard Opened card, and the platform admin totals.
+- Follow-up gate. A machine open no longer satisfies the open-gated
+  follow-ups rule in the worker; the enrollment completes with a
+  reason that says only an automatic open was recorded, so machines
+  stop deciding who gets follow-ups.
+- Outbox. Human opens keep the Opened badge and now show when the
+  open happened next to it. Machine-only opens show a muted
+  Auto-open badge with its time, and the Not opened filter treats
+  them as not opened, because the lead never opened anything.
+
 ## 1.19.0 (2026-11-06)
 
 Per-step file attachments for campaigns, requested by Amir, with his

@@ -390,8 +390,13 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       const previousStepIndex = enrollment.currentStep - 1;
       const opened = await db.emailEvent.findUnique({
         where: { idempotencyKey: `evt:${enrollment.id}:${previousStepIndex}:OPENED` },
-        select: { id: true },
+        select: { id: true, classification: true },
       });
+      // Machine opens (v1.20.0) do not satisfy the gate: an open
+      // the tracker classified MACHINE was a mail app or scanner
+      // loading the pixel within a minute of the send, not the
+      // lead reading the email.
+      const humanOpened = opened !== null && opened.classification !== "MACHINE";
       // Crash recovery exemption: when this step's send is already
       // recorded (a previous tick sent it but crashed before
       // advancing), there is nothing left to gate; the already-sent
@@ -400,7 +405,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         where: { idempotencyKey: `send:${enrollment.id}:${enrollment.currentStep}` },
         select: { id: true },
       });
-      if (!opened && !currentAlreadySent) {
+      if (!humanOpened && !currentAlreadySent) {
         const previousSent = await db.emailEvent.findUnique({
           where: { idempotencyKey: `send:${enrollment.id}:${previousStepIndex}` },
           select: { occurredAt: true },
@@ -414,7 +419,9 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
               status: "COMPLETED",
               nextSendAt: null,
               lastError:
-                "Follow-up not sent: the lead did not open the previous email. Steps 2 and later go only to leads who opened the previous step.",
+                opened !== null
+                  ? "Follow-up not sent: the previous email shows only an automatic open (a mail app or security scanner loaded it within a minute of sending), which does not count as the lead opening it. Steps 2 and later go only to leads who opened the previous step."
+                  : "Follow-up not sent: the lead did not open the previous email. Steps 2 and later go only to leads who opened the previous step.",
             },
           });
           summary.skippedNotOpened += 1;

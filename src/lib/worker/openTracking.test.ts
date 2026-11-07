@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
-import { createOpenToken, recordOpen, verifyOpenToken } from "./openTracking";
+import { createOpenToken, isMachineOpen, recordOpen, verifyOpenToken } from "./openTracking";
 import { createUnsubscribeToken } from "./unsubscribe";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 
@@ -57,6 +57,50 @@ afterAll(async () => {
   await dropTestDb(db, DB_NAME);
 });
 
+/** Creates a fresh enrollment in the seeded campaign with one SENT
+ *  event for step 0 keyed the way the worker keys it, at the given
+ *  send time. Returns the enrollment id. */
+async function seedEnrollmentWithSend(sentAt: Date): Promise<string> {
+  const lead = await db.lead.create({
+    data: {
+      workspaceId,
+      listId: (await db.leadList.findFirstOrThrow({ where: { workspaceId } })).id,
+      email: `reader-${Math.random().toString(36).slice(2)}@example.com`,
+      fields: {},
+      tags: [],
+      status: "NEW",
+    },
+  });
+  const enrollment = await db.enrollment.create({
+    data: { campaignId, leadId: lead.id, status: "ACTIVE", currentStep: 1, nextSendAt: null },
+  });
+  await db.emailEvent.create({
+    data: {
+      workspaceId,
+      campaignId,
+      enrollmentId: enrollment.id,
+      type: "SENT",
+      idempotencyKey: `send:${enrollment.id}:0`,
+      occurredAt: sentAt,
+    },
+  });
+  return enrollment.id;
+}
+
+describe("isMachineOpen", () => {
+  const sentAt = new Date("2026-11-06T10:00:00.000Z");
+  it("treats opens inside the 60 second window as machine", () => {
+    expect(isMachineOpen(sentAt, new Date(sentAt.getTime()))).toBe(true);
+    expect(isMachineOpen(sentAt, new Date(sentAt.getTime() + 30_000))).toBe(true);
+    expect(isMachineOpen(sentAt, new Date(sentAt.getTime() + 60_000))).toBe(true);
+  });
+  it("treats later opens, and opens before the send, as human", () => {
+    expect(isMachineOpen(sentAt, new Date(sentAt.getTime() + 60_001))).toBe(false);
+    expect(isMachineOpen(sentAt, new Date(sentAt.getTime() + 10 * 60_000))).toBe(false);
+    expect(isMachineOpen(sentAt, new Date(sentAt.getTime() - 1_000))).toBe(false);
+  });
+});
+
 describe("open tokens", () => {
   it("round-trips workspace, enrollment and step", () => {
     const token = createOpenToken(workspaceId, enrollmentId, 0);
@@ -103,6 +147,26 @@ describe("recordOpen", () => {
     expect(result.recorded).toBe(true);
     const count = await db.emailEvent.count({ where: { enrollmentId, type: "OPENED" } });
     expect(count).toBe(2);
+  });
+
+  it("classifies an open within a minute of the step's send as MACHINE", async () => {
+    const enrollment = await seedEnrollmentWithSend(new Date());
+    const result = await recordOpen(db, { workspaceId, enrollmentId: enrollment, stepIndex: 0 });
+    expect(result.recorded).toBe(true);
+    const event = await db.emailEvent.findFirst({
+      where: { enrollmentId: enrollment, type: "OPENED" },
+    });
+    expect(event?.classification).toBe("MACHINE");
+  });
+
+  it("leaves an open well after the send unclassified (human)", async () => {
+    const enrollment = await seedEnrollmentWithSend(new Date(Date.now() - 10 * 60_000));
+    const result = await recordOpen(db, { workspaceId, enrollmentId: enrollment, stepIndex: 0 });
+    expect(result.recorded).toBe(true);
+    const event = await db.emailEvent.findFirst({
+      where: { enrollmentId: enrollment, type: "OPENED" },
+    });
+    expect(event?.classification).toBeNull();
   });
 
   it("records nothing for an unknown enrollment or a foreign workspace", async () => {

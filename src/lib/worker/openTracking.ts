@@ -30,6 +30,27 @@ import type { PrismaClient } from "@prisma/client";
  */
 export const OPEN_TRACKING_SINCE = new Date("2026-10-28T16:23:00.000Z");
 
+/**
+ * Machine-open filter (v1.20.0, at Amir's instruction).
+ *
+ * Privacy prefetch (Apple Mail Privacy Protection) and corporate
+ * security scanners load the tracking pixel within seconds of
+ * delivery, long before a human could read the email. An open
+ * recorded within this window of its step's send is classified
+ * "MACHINE" on the OPENED event: it stays visible in the Outbox as
+ * an automatic open, but it no longer counts in open rates and no
+ * longer satisfies the open-gated follow-ups rule, so machines stop
+ * deciding who gets follow-ups and stop inflating the numbers.
+ * Opens with no known send time are treated as human: machine is a
+ * claim that needs the timing evidence.
+ */
+export const MACHINE_OPEN_WINDOW_MS = 60_000;
+
+export function isMachineOpen(sentAt: Date, openedAt: Date): boolean {
+  const gap = openedAt.getTime() - sentAt.getTime();
+  return gap >= 0 && gap <= MACHINE_OPEN_WINDOW_MS;
+}
+
 function hmacSecret(): Buffer {
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 16) {
@@ -111,9 +132,20 @@ export async function recordOpen(db: PrismaClient, claims: OpenClaims): Promise<
 
   const sent = await db.emailEvent.findFirst({
     where: { enrollmentId: claims.enrollmentId, type: "SENT" },
-    select: { sendingAccountId: true, variant: true },
+    select: { sendingAccountId: true, variant: true, occurredAt: true },
     orderBy: { createdAt: "desc" },
   });
+
+  // Machine-open classification: compare against this step's own
+  // send when it can be found (the worker keys it send:<id>:<step>),
+  // falling back to the most recent send used for attribution.
+  const stepSent = await db.emailEvent.findUnique({
+    where: { idempotencyKey: `send:${claims.enrollmentId}:${claims.stepIndex}` },
+    select: { occurredAt: true },
+  });
+  const openedAt = new Date();
+  const sentAt = stepSent?.occurredAt ?? sent?.occurredAt ?? null;
+  const classification = sentAt && isMachineOpen(sentAt, openedAt) ? "MACHINE" : null;
 
   await db.emailEvent.create({
     data: {
@@ -123,8 +155,9 @@ export async function recordOpen(db: PrismaClient, claims: OpenClaims): Promise<
       sendingAccountId: sent?.sendingAccountId ?? null,
       type: "OPENED",
       idempotencyKey,
+      classification,
       variant: sent?.variant ?? null,
-      occurredAt: new Date(),
+      occurredAt: openedAt,
     },
   });
   return { recorded: true, duplicate: false };
