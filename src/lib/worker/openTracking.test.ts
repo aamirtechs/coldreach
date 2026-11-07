@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
-import { createOpenToken, isMachineOpen, recordOpen, verifyOpenToken } from "./openTracking";
+import {
+  backfillMachineOpens,
+  createOpenToken,
+  isMachineOpen,
+  recordOpen,
+  verifyOpenToken,
+} from "./openTracking";
 import { createUnsubscribeToken } from "./unsubscribe";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 
@@ -86,6 +92,53 @@ async function seedEnrollmentWithSend(sentAt: Date): Promise<string> {
   });
   return enrollment.id;
 }
+
+describe("backfillMachineOpens", () => {
+  async function seedHistoricalOpen(sentAt: Date, openedAt: Date): Promise<string> {
+    const enrollment = await seedEnrollmentWithSend(sentAt);
+    const event = await db.emailEvent.create({
+      data: {
+        workspaceId,
+        campaignId,
+        enrollmentId: enrollment,
+        type: "OPENED",
+        idempotencyKey: `evt:${enrollment}:0:OPENED`,
+        occurredAt: openedAt,
+      },
+    });
+    return event.id;
+  }
+
+  it("stamps MACHINE on a historical open inside the window and HUMAN outside it", async () => {
+    const base = new Date(Date.now() - 24 * 60 * 60_000);
+    const machineId = await seedHistoricalOpen(base, new Date(base.getTime() + 30_000));
+    const humanId = await seedHistoricalOpen(base, new Date(base.getTime() + 10 * 60_000));
+    await backfillMachineOpens(db);
+    const machine = await db.emailEvent.findUnique({ where: { id: machineId } });
+    const human = await db.emailEvent.findUnique({ where: { id: humanId } });
+    expect(machine?.classification).toBe("MACHINE");
+    expect(human?.classification).toBe("HUMAN");
+  });
+
+  it("never restamps an event that already carries a verdict", async () => {
+    const base = new Date(Date.now() - 48 * 60 * 60_000);
+    const enrollment = await seedEnrollmentWithSend(base);
+    const event = await db.emailEvent.create({
+      data: {
+        workspaceId,
+        campaignId,
+        enrollmentId: enrollment,
+        type: "OPENED",
+        idempotencyKey: `evt:${enrollment}:0:OPENED`,
+        classification: "HUMAN",
+        occurredAt: new Date(base.getTime() + 5_000),
+      },
+    });
+    await backfillMachineOpens(db);
+    const after = await db.emailEvent.findUnique({ where: { id: event.id } });
+    expect(after?.classification).toBe("HUMAN");
+  });
+});
 
 describe("isMachineOpen", () => {
   const sentAt = new Date("2026-11-06T10:00:00.000Z");

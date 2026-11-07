@@ -159,11 +159,18 @@ export default async function OutboxPage({
         ? `${message.thread.campaignId}:${message.thread.leadId}`
         : null;
     const openInfo = pairKey ? openInfoByPair.get(pairKey) : undefined;
+    const humanAt = openInfo?.humanAt ?? null;
+    const machineAt = openInfo && !openInfo.humanAt ? openInfo.machineAt : null;
+    // Open matching is per enrollment, so the earliest open can
+    // belong to an earlier step than this message. A time is only
+    // shown when it falls after this message's own send; an earlier
+    // time would describe a different email.
+    const sentMs = message.occurredAt.getTime();
     return {
       message,
-      opened: Boolean(openInfo?.humanAt),
-      openedAt: openInfo?.humanAt ?? null,
-      autoOpenedAt: openInfo && !openInfo.humanAt ? openInfo.machineAt : null,
+      opened: Boolean(humanAt),
+      openedAt: humanAt && humanAt.getTime() >= sentMs ? humanAt : null,
+      autoOpenedAt: machineAt && machineAt.getTime() >= sentMs ? machineAt : null,
       replied: repliedThreads.has(message.threadId) || (pairKey ? repliedPairs.has(pairKey) : false),
     };
   });

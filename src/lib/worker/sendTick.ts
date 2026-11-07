@@ -20,7 +20,7 @@ import { countMonthlySends, getPlanForWorkspace } from "@/lib/billing/subscripti
 import { processDueDeliveries, type ProcessDueSummary } from "@/lib/webhooks/service";
 import { logger, newRequestId } from "@/lib/log";
 import { createUnsubscribeToken } from "./unsubscribe";
-import { createOpenToken, OPEN_TRACKING_SINCE } from "./openTracking";
+import { backfillMachineOpens, createOpenToken, OPEN_TRACKING_SINCE } from "./openTracking";
 import { resolveTrackingBase, rewriteLinksForTracking } from "./clickTracking";
 import { renderSpintax } from "@/lib/domain/spintax";
 import { computeAccountHealthForAccounts, type AccountHealth } from "@/lib/accountHealth";
@@ -154,6 +154,18 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   const resolve = deps.resolveProvider ?? defaultResolveProvider;
   const now = deps.now ?? new Date();
   const requestId = newRequestId();
+
+  // Machine-open backfill (v1.20.1): opens recorded before the
+  // filter existed carry no classification. Each tick stamps a
+  // bounded batch with its verdict (MACHINE or HUMAN) before the
+  // gate below reads them, so history converges within a few ticks
+  // and the scan then finds nothing left. Best effort by design: a
+  // failed hygiene pass must never block sending.
+  try {
+    await backfillMachineOpens(db);
+  } catch (error) {
+    logger.error("Machine-open backfill failed before send tick", { error, requestId });
+  }
 
   let syncSummaries: AccountSyncSummary[] = [];
   if (!deps.skipSync) {

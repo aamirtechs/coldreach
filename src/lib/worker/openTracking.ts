@@ -101,6 +101,65 @@ export function verifyOpenToken(token: string): OpenClaims | null {
   return { workspaceId: segments[1], enrollmentId: segments[2], stepIndex };
 }
 
+/**
+ * Backfill for opens recorded before v1.20.0 (v1.20.1).
+ *
+ * Historical OPENED events carry no classification, so the filter
+ * cannot see them. This pass takes the oldest unclassified opens,
+ * pairs each with its step's send (parsed from the event's
+ * idempotency key, falling back to the enrollment's most recent
+ * send, exactly like recordOpen), and stamps the verdict on the
+ * event: MACHINE inside the window, HUMAN outside it. Stamping
+ * HUMAN as well is what lets the pool drain: an event is scanned
+ * once, never again. Events whose send cannot be found stay
+ * unclassified and are retried on later passes; they keep counting
+ * as human everywhere, the same evidence rule as recordOpen.
+ * Returns how many events were stamped MACHINE.
+ */
+export async function backfillMachineOpens(db: PrismaClient, limit = 200): Promise<number> {
+  const events = await db.emailEvent.findMany({
+    where: { type: "OPENED", classification: null },
+    select: { id: true, enrollmentId: true, idempotencyKey: true, occurredAt: true },
+    orderBy: { occurredAt: "asc" },
+    take: limit,
+  });
+  let machine = 0;
+  for (const event of events) {
+    if (!event.enrollmentId) {
+      continue;
+    }
+    const stepMatch = /:(\d+):OPENED$/.exec(event.idempotencyKey);
+    let sentAt: Date | null = null;
+    if (stepMatch) {
+      const stepSent = await db.emailEvent.findUnique({
+        where: { idempotencyKey: `send:${event.enrollmentId}:${Number(stepMatch[1])}` },
+        select: { occurredAt: true },
+      });
+      sentAt = stepSent?.occurredAt ?? null;
+    }
+    if (!sentAt) {
+      const latest = await db.emailEvent.findFirst({
+        where: { enrollmentId: event.enrollmentId, type: "SENT" },
+        select: { occurredAt: true },
+        orderBy: { createdAt: "desc" },
+      });
+      sentAt = latest?.occurredAt ?? null;
+    }
+    if (!sentAt) {
+      continue;
+    }
+    const verdict = isMachineOpen(sentAt, event.occurredAt) ? "MACHINE" : "HUMAN";
+    await db.emailEvent.update({
+      where: { id: event.id },
+      data: { classification: verdict },
+    });
+    if (verdict === "MACHINE") {
+      machine += 1;
+    }
+  }
+  return machine;
+}
+
 export interface RecordOpenResult {
   recorded: boolean;
   duplicate: boolean;

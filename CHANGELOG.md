@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.20.1 (2026-11-06)
+
+Machine-open filter follow-through, from the live verification of
+1.20.0.
+
+- Backfill. Opens recorded before 1.20.0 carried no classification,
+  so the filter could not see them (live check: first-step emails
+  opened 52 to 56 seconds after sending, still badged Opened). The
+  worker tick now stamps a bounded batch of historical opens per
+  tick with their verdict (backfillMachineOpens in openTracking.ts:
+  MACHINE inside the 60 second window, HUMAN outside it), before
+  the follow-up gate reads them. The pass is best effort and can
+  never block sending, and once history is stamped it finds
+  nothing left to do.
+- Outbox honesty. Open matching is per enrollment, so the earliest
+  open can belong to an earlier step than the message on screen.
+  The opened time is now shown only when it falls after that
+  message's own send, so a displayed time always describes the
+  email it sits next to.
+
 ## 1.20.0 (2026-11-06)
 
 Machine-open filter, built after a day where every sent email showed
