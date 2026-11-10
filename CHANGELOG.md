@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Operations note (2026-11-10): Resend transactional mail was
+  enabled in the production configuration (RESEND_API_KEY and
+  PRODUCT_MAIL_FROM saved in Vercel Production, domain
+  send.aamirtechs.com verified in Resend). Support ticket
+  notifications to the support inbox and signup verification
+  emails now send through Resend. No code change in this entry;
+  it exists to trigger the redeploy that loads the new
+  environment variables.
+
 ## 1.22.0 (2026-11-10)
 
 In-app support. A Support entry joins the sidebar (and the mobile
