@@ -22,6 +22,8 @@ export interface ProductMailInput {
   subject: string;
   text: string;
   html?: string;
+  /** Optional Reply-To, so a human can answer the recipient directly. */
+  replyTo?: string;
 }
 
 export interface ProductMailResult {
@@ -65,6 +67,7 @@ export async function sendProductEmail(
         to: [input.to],
         subject: input.subject,
         text: input.text,
+        ...(input.replyTo ? { reply_to: input.replyTo } : {}),
         ...(input.html ? { html: input.html } : {}),
       }),
     });

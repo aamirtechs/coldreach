@@ -45,6 +45,7 @@ model User {
   assignedThreads Thread[]  @relation("ThreadAssignee")
   threadNotes  ThreadNote[]
   snippets     Snippet[]
+  supportTickets SupportTicket[]
   invitesSent  Invite[]     @relation("InviteSender")
   apiKeysCreated ApiKey[]   @relation("ApiKeyCreator")
   verificationTokens EmailVerificationToken[]
@@ -94,6 +95,7 @@ model Workspace {
   invites         Invite[]
   threadNotes     ThreadNote[]
   snippets        Snippet[]
+  supportTickets  SupportTicket[]
   webhookEndpoints WebhookEndpoint[]
   subscription    Subscription?
   crmConnections  CrmConnection[]
@@ -780,4 +782,27 @@ model Subscription {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// Support tickets (v1.22.0). Created from the in-app Support page;
+// the row is the record of truth, and a notification email to the
+// platform support inbox is attempted alongside (see
+// src/lib/support/tickets.ts). userEmail is snapshotted at creation
+// so the ticket stays replyable even if the account email changes.
+model SupportTicket {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  userEmail   String
+  subject     String
+  category    String
+  message     String
+  status      String    @default("OPEN")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([status])
 }

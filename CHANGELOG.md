@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.22.0 (2026-11-10)
+
+In-app support. A Support entry joins the sidebar (and the mobile
+More sheet, from the same navigation list), opening a Support page
+with contact options and a ticket form, and every ticket is
+guaranteed to reach the platform owner even when email is not
+configured.
+
+- Support page and ticket form. The form takes a subject, a
+  category (Sending problem, Billing, Account and login, Feature
+  request, Something else), and a message. The reporter's email,
+  workspace name, and workspace id are attached server-side from
+  the session, never from the request body, and the page lists the
+  workspace's own tickets with their status. The page also shows
+  a WhatsApp contact link with a prefilled greeting and the
+  support email as a mailto link.
+- SupportTicket model and delivery. New SupportTicket table (dev
+  migration 20261110120000_support_tickets, prod migration 0013).
+  Creation always persists the ticket first, then attempts a
+  notification email to the support inbox (SUPPORT_EMAIL, default
+  amir@aamirtechs.com) through the product mail path, with
+  Reply-To set to the reporter's email so a reply goes straight
+  back to them. When Resend is not configured or the send fails,
+  the ticket still saves, the failure is logged, and nothing about
+  it is surfaced to the user as an error. Creation is rate limited
+  to 5 tickets per user per hour and writes an audit log entry.
+- Platform admin visibility. The Platform Admin page gains a
+  Support tickets section (newest first, with an OPEN and CLOSED
+  toggle backed by a platform-owner-only API that answers 404 to
+  everyone else), so no ticket is ever lost when the notification
+  email cannot send.
+- Product mail can set Reply-To. sendProductEmail accepts an
+  optional replyTo, passed through to Resend as reply_to.
+
 ## 1.21.0 (2026-11-10)
 
 Scheduler fixes, from a customer report with four symptoms: one

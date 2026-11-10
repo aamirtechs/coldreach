@@ -34,6 +34,18 @@ describe("sendProductEmail", () => {
     expect(body.subject).toBe("Verify");
   });
 
+  it("passes replyTo through as reply_to when provided", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ id: "msg-2" }), { status: 200 }));
+    const result = await sendProductEmail(
+      { to: "support@example.com", subject: "Ticket", text: "Body", replyTo: "user@example.com" },
+      { env: ENV, fetchImpl },
+    );
+    expect(result.sent).toBe(true);
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { reply_to?: string };
+    expect(body.reply_to).toBe("user@example.com");
+  });
+
   it("reports provider failures without throwing", async () => {
     const fetchImpl = vi.fn(async () => new Response("nope", { status: 500 }));
     await expect(
