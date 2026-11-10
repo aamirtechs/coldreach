@@ -71,12 +71,15 @@ export interface SendTickSummary {
   skippedSuppressed: number;
   deferredNoCapacity: number;
   /** Sends deferred because the enrollment's stamped time falls
-   *  outside the lead's own local window; the enrollment is
-   *  re-stamped to the lead's next window opening (per-lead
-   *  timezone sending, v1.5.0). */
+   *  outside the sending window under the campaign's current
+   *  schedule (checked in the lead's own timezone when one
+   *  resolves); the enrollment is re-stamped to the next window
+   *  opening (per-lead timezone sending, v1.5.0; revalidation
+   *  generalised to every enrollment in v1.21.0). */
   deferredOutsideWindow: number;
-  /** Sends deferred because the workspace reached its rolling
-   *  60 minute send cap (v1.11.4 pacing). */
+  /** Sends deferred because the sending domain reached its
+   *  rolling 60 minute send cap (v1.11.4 pacing; counted per
+   *  sending domain across workspaces since v1.21.0). */
   deferredHourlyCap: number;
   /** Sends deferred because this tick reached its per-tick send
    *  ceiling (v1.11.4 pacing). */
@@ -204,7 +207,12 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   const duePool = await db.enrollment.findMany({
     where: {
       status: "ACTIVE",
-      nextSendAt: { lte: now },
+      // Null stamps are due too (v1.21.0): enrollments created
+      // before their campaign had any sequence steps were stamped
+      // null by enrollCampaign, and a lte filter can never match
+      // null, so those enrollments were stranded permanently. The
+      // schedule gate below stamps them on first sight.
+      OR: [{ nextSendAt: { lte: now } }, { nextSendAt: null }],
       campaign: { status: "RUNNING" },
     },
     include: {
@@ -333,22 +341,46 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   // pool at a window opening can submit it all inside a minute. The
   // host defers the excess, delivery lags, and the deferral notices
   // pollute the sending inboxes. Two budgets keep submission smooth:
-  // a rolling 60 minute cap per workspace and a per-tick ceiling.
+  // a per-tick ceiling per workspace and a rolling 60 minute cap.
   // Only real sends consume them; simulated sends never reach SMTP.
+  //
+  // Two scope corrections (v1.21.0, from a customer report):
+  // - The tick ceiling is counted PER WORKSPACE. It was one global
+  //   counter for the whole tick, so on a shared platform the first
+  //   workspaces processed consumed the entire ceiling (20 sends
+  //   per tick across every tenant) and later campaigns in the
+  //   batch were deferred tick after tick.
+  // - The rolling hour is counted PER SENDING DOMAIN, across every
+  //   workspace that sends from it. The host limit is per domain,
+  //   so two workspaces on one domain could each stay under a
+  //   per-workspace cap while their combined volume breached the
+  //   host's, and the excess was discarded by the server after
+  //   being accepted (and recorded SENT here). Simulated sends are
+  //   excluded from the count: their provider message ids start
+  //   with "demo-" and they never reach an SMTP server.
   const hourlyCap = deps.hourlyCap ?? hourlySendCap();
   const tickCeiling = deps.tickSendCeiling ?? tickSendCeiling();
   const hourStart = new Date(now.getTime() - 60 * 60 * 1000);
-  const hourlyCache = new Map<string, number>();
-  let realSendsThisTick = 0;
-  const sentLastHourFor = async (wsId: string): Promise<number> => {
-    const cached = hourlyCache.get(wsId);
+  const realSendsByWorkspace = new Map<string, number>();
+  const hourlyByDomain = new Map<string, number>();
+  const domainOf = (email: string): string => email.split("@")[1]?.toLowerCase() ?? "";
+  const sentLastHourForDomain = async (domain: string): Promise<number> => {
+    const cached = hourlyByDomain.get(domain);
     if (cached !== undefined) {
       return cached;
     }
     const count = await db.emailEvent.count({
-      where: { workspaceId: wsId, type: "SENT", occurredAt: { gte: hourStart } },
+      where: {
+        type: "SENT",
+        occurredAt: { gte: hourStart },
+        sendingAccount: { email: { endsWith: `@${domain}` } },
+        OR: [
+          { providerMessageId: null },
+          { providerMessageId: { not: { startsWith: "demo-" } } },
+        ],
+      },
     });
-    hourlyCache.set(wsId, count);
+    hourlyByDomain.set(domain, count);
     return count;
   };
 
@@ -442,33 +474,64 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       }
     }
 
-    // Gate: send pacing (v1.11.4). Deferred enrollments stay due and
+    // Gate: send pacing, per-tick ceiling (v1.11.4, counted per
+    // workspace since v1.21.0). Deferred enrollments stay due and
     // are picked up by later ticks as budget frees; nothing is
-    // re-stamped or error-marked, so pacing is invisible to the lead.
-    if (realSendsThisTick >= tickCeiling) {
+    // re-stamped or error-marked, so pacing is invisible to the
+    // lead. The rolling hourly budget is enforced per sending
+    // domain during account selection below, where the account
+    // that would send (and therefore its domain) is known.
+    if ((realSendsByWorkspace.get(workspaceId) ?? 0) >= tickCeiling) {
       summary.deferredTickPacing += 1;
       continue;
     }
-    if (hourlyBudget(await sentLastHourFor(workspaceId), hourlyCap) <= 0) {
-      summary.deferredHourlyCap += 1;
-      continue;
-    }
 
-    // Gate: per-lead timezone window (v1.5.0). The enrollment's
-    // stamped time is the intended send moment. When the lead's own
-    // timezone resolves and differs from the campaign's, check the
-    // stamp itself against the lead's local window: a stamp that
-    // falls outside it (enrollments stamped before per-lead
-    // scheduling carry campaign-zone times) is re-stamped once to
-    // the lead's next window opening. A stamp that is already a
-    // valid lead-local send time always sends when a tick finds it
-    // due, even if the tick itself runs late, so a sparse tick
-    // cadence degrades to late delivery rather than starving a lead
-    // whose window no tick happens to land inside.
+    // Gate: schedule revalidation (v1.21.0, generalising the
+    // per-lead window gate of v1.5.0). The stamp on the enrollment
+    // was computed under the campaign settings in force when it was
+    // stamped; settings edited afterwards never re-stamped it, and
+    // before this version the stamp was only re-checked when the
+    // lead's own timezone differed from the campaign's. A stamp
+    // made before business-days-only was switched on (or under a
+    // wider window) therefore still fired on a Saturday or late at
+    // night. Now every stamp is validated against the campaign's
+    // CURRENT window and business-days rule, in the effective
+    // timezone (the lead's, when one resolves, else the
+    // campaign's): a stamp that is no longer a valid send moment
+    // is re-stamped to the next valid opening and deferred. A
+    // stamp that IS valid always sends when a tick finds it due,
+    // even if the tick itself runs late, so a sparse tick cadence
+    // still degrades to late delivery rather than starving a lead
+    // (the v1.5.0 rule, unchanged).
+    //
+    // The same gate recovers null stamps: enrollments created
+    // before their campaign had any steps carry nextSendAt null
+    // and could never become due. They are stamped now, under the
+    // current schedule; when the next opening is in the future
+    // they defer like any out-of-window enrollment, otherwise
+    // they proceed to send in this same pass.
     const leadTimezone = resolveLeadTimezone(lead.fields as LeadFields);
-    if (leadTimezone && leadTimezone !== campaign.timezone && enrollment.nextSendAt) {
+    const effectiveTimezone = leadTimezone ?? campaign.timezone;
+    if (enrollment.nextSendAt === null) {
+      const slot = computeNextSendAt(now, {
+        timezone: effectiveTimezone,
+        windowStart: campaign.windowStart,
+        windowEnd: campaign.windowEnd,
+        businessDaysOnly: campaign.businessDaysOnly,
+        delayHours: 0,
+      });
+      if (slot.getTime() > now.getTime()) {
+        await db.enrollment.update({
+          where: { id: enrollment.id },
+          data: { nextSendAt: slot },
+        });
+        summary.deferredOutsideWindow += 1;
+        continue;
+      }
+      enrollment.nextSendAt = slot;
+    } else {
       const slot = computeNextSendAt(enrollment.nextSendAt, {
-        timezone: leadTimezone,
+        timezone: effectiveTimezone,
         windowStart: campaign.windowStart,
         windowEnd: campaign.windowEnd,
         businessDaysOnly: campaign.businessDaysOnly,
@@ -496,6 +559,11 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     const healthById = await healthForAccounts(accounts);
     let chosen: SendingAccount | null = null;
     let chosenSentToday = Number.POSITIVE_INFINITY;
+    // Set when a candidate with daily capacity left was skipped
+    // only because its sending domain is at the rolling hourly
+    // cap (v1.21.0); decides which deferral counter a no-choice
+    // outcome is reported under.
+    let domainBlockedEligible = false;
     // Diagnostic detail (v1.11.6): when no account is chosen, record
     // why each candidate was rejected, so a capacity stall can be
     // diagnosed from the tick logs instead of guessed at.
@@ -558,12 +626,32 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         limit,
         sentToday,
       });
-      if (sentToday < limit && sentToday < chosenSentToday) {
+      if (sentToday >= limit) {
+        continue;
+      }
+      // Domain pacing (v1.21.0): the candidate has daily capacity,
+      // but its sending domain may already be at the rolling
+      // hourly cap, counted across every workspace sending from
+      // that domain. A capped candidate is skipped like a full
+      // one, so an account on a quieter domain can still send.
+      if (hourlyBudget(await sentLastHourForDomain(domainOf(candidate.email)), hourlyCap) <= 0) {
+        domainBlockedEligible = true;
+        continue;
+      }
+      if (sentToday < chosenSentToday) {
         chosen = candidate;
         chosenSentToday = sentToday;
       }
     }
     if (!chosen) {
+      if (domainBlockedEligible) {
+        // At least one account could have sent today; only the
+        // domain's hourly budget stopped it. Reported as an hourly
+        // deferral, not a capacity one, so the two stalls stay
+        // distinguishable in the tick logs.
+        summary.deferredHourlyCap += 1;
+        continue;
+      }
       summary.deferredNoCapacity += 1;
       // Cap the detail lines so one stalled tick cannot flood the
       // logs; the first few carry the full picture.
@@ -807,9 +895,12 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       if (provider.isSimulation) {
         summary.simulated += 1;
       } else {
-        // Real sends consume the pacing budgets (v1.11.4).
-        realSendsThisTick += 1;
-        hourlyCache.set(workspaceId, (hourlyCache.get(workspaceId) ?? 0) + 1);
+        // Real sends consume the pacing budgets (v1.11.4): the
+        // per-workspace tick ceiling and the sending domain's
+        // rolling hour (v1.21.0).
+        realSendsByWorkspace.set(workspaceId, (realSendsByWorkspace.get(workspaceId) ?? 0) + 1);
+        const sentDomain = domainOf(chosen.email);
+        hourlyByDomain.set(sentDomain, (hourlyByDomain.get(sentDomain) ?? 0) + 1);
       }
       await advance();
     } catch (error) {

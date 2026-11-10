@@ -12,14 +12,22 @@
  * risks queue expiry on a shared host we do not control.
  *
  * Two cooperating limits keep submission smooth and under the host
- * cap, per workspace (all of a workspace's accounts share one
- * sending domain in practice):
+ * cap:
  *
  * - A rolling 60 minute cap on real sends, default 90, leaving
  *   headroom under the host's 100 for any non-ColdReach mail the
- *   domain sends.
- * - A per-tick ceiling on real sends, default 20, so a single tick
- *   never dumps its whole budget at once; ticks run every few
+ *   domain sends. Enforced per SENDING DOMAIN (v1.21.0): the host
+ *   limit is per domain, so the count follows the domain of the
+ *   account that would send, across every workspace that sends
+ *   from that domain. It was counted per workspace before, which
+ *   let two workspaces on one domain each stay "under" the cap
+ *   while their combined volume breached the host's and the
+ *   excess was discarded after acceptance.
+ * - A per-tick ceiling on real sends, default 20, counted per
+ *   workspace (v1.21.0; it was one global counter for the whole
+ *   tick before, so busy workspaces consumed the entire
+ *   platform's tick budget), so a single tick never dumps a
+ *   workspace's whole budget at once; ticks run every few
  *   minutes, which spreads each hour's sends across the hour.
  *
  * Both are overridable by environment (HOURLY_SEND_CAP,
@@ -42,12 +50,12 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return value;
 }
 
-/** Max real sends per workspace in any rolling 60 minute window. */
+/** Max real sends per sending domain in any rolling 60 minute window. */
 export function hourlySendCap(env: Record<string, string | undefined> = process.env): number {
   return parsePositiveInt(env.HOURLY_SEND_CAP, DEFAULT_HOURLY_SEND_CAP);
 }
 
-/** Max real sends a single worker tick may perform. */
+/** Max real sends one workspace may perform in a single worker tick. */
 export function tickSendCeiling(env: Record<string, string | undefined> = process.env): number {
   return parsePositiveInt(env.SEND_TICK_MAX_SENDS, DEFAULT_TICK_SEND_CEILING);
 }

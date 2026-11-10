@@ -1015,3 +1015,320 @@ describe("open-gated follow-ups (v1.17.0)", () => {
     expect(ours[0].attachments?.[0].content.toString()).toBe("hello");
   });
 });
+
+describe("scheduler fixes (v1.21.0)", () => {
+  async function accountFor(wsId: string, email: string, dailyLimit = 100) {
+    return db.sendingAccount.create({
+      data: {
+        workspaceId: wsId,
+        email,
+        displayName: "Sender",
+        provider: "SIMULATION",
+        status: "CONNECTED",
+        dailyLimit,
+        warmupStatus: "SIMULATED",
+      },
+    });
+  }
+
+  async function campaignFor(
+    wsId: string,
+    args: {
+      name: string;
+      accountId: string;
+      windowStart?: string;
+      windowEnd?: string;
+      businessDaysOnly?: boolean;
+    },
+  ) {
+    const list = await db.leadList.create({ data: { workspaceId: wsId, name: `List ${args.name}` } });
+    const campaign = await db.campaign.create({
+      data: {
+        workspaceId: wsId,
+        name: args.name,
+        status: "RUNNING",
+        timezone: "UTC",
+        windowStart: args.windowStart ?? "00:00",
+        windowEnd: args.windowEnd ?? "23:59",
+        businessDaysOnly: args.businessDaysOnly ?? false,
+        leadListId: list.id,
+      },
+    });
+    await db.sequenceStep.create({
+      data: {
+        campaignId: campaign.id,
+        order: 0,
+        delayDays: 0,
+        delayHours: 0,
+        subject: "Hi {{firstName|there}}",
+        body: "Body",
+      },
+    });
+    await db.campaignAccount.create({
+      data: { campaignId: campaign.id, sendingAccountId: args.accountId },
+    });
+    return { campaign, list };
+  }
+
+  async function leadFor(wsId: string, listId: string, email: string) {
+    return db.lead.create({
+      data: {
+        workspaceId: wsId,
+        listId,
+        email,
+        fields: { firstName: "Test", company: "Acme" },
+        tags: [],
+        status: "NEW",
+      },
+    });
+  }
+
+  it("sends an enrollment whose stamp is null (enrolled before the sequence existed)", async () => {
+    const account = await accountFor(workspaceId, "sender-nullstamp@example.com");
+    const { campaign, list } = await campaignFor(workspaceId, {
+      name: "null-stamp",
+      accountId: account.id,
+    });
+    const lead = await leadFor(workspaceId, list.id, "nullstamp@example.com");
+    // The stranded state enrollCampaign produced before v1.21.0 when
+    // a campaign was enrolled before its first step existed: ACTIVE
+    // with a null stamp, which the due query could never match.
+    const enrollment = await db.enrollment.create({
+      data: { campaignId: campaign.id, leadId: lead.id, status: "ACTIVE", currentStep: 0, nextSendAt: null },
+    });
+
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true });
+    expect(summary.failed).toBe(0);
+    expect(
+      await db.emailEvent.count({ where: { campaignId: campaign.id, type: "SENT" } }),
+    ).toBe(1);
+    const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(after?.status).toBe("COMPLETED");
+  });
+
+  it("stamps a null-stamp enrollment to the next window opening instead of sending outside the window", async () => {
+    const account = await accountFor(workspaceId, "sender-nullwin@example.com");
+    const { campaign, list } = await campaignFor(workspaceId, {
+      name: "null-window",
+      accountId: account.id,
+      windowStart: "09:00",
+      windowEnd: "17:00",
+    });
+    const lead = await leadFor(workspaceId, list.id, "nullwin@example.com");
+    const enrollment = await db.enrollment.create({
+      data: { campaignId: campaign.id, leadId: lead.id, status: "ACTIVE", currentStep: 0, nextSendAt: null },
+    });
+
+    // Monday 2026-10-26 20:00 UTC is after the window closed: the
+    // recovery must stamp the next opening (Tuesday 09:00), not send.
+    const evening = await runSendTick({ db, now: new Date("2026-10-26T20:00:00Z"), skipSync: true });
+    expect(evening.sent).toBe(0);
+    expect(
+      await db.emailEvent.count({ where: { campaignId: campaign.id, type: "SENT" } }),
+    ).toBe(0);
+    const deferred = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(deferred?.nextSendAt?.toISOString()).toBe("2026-10-27T09:00:00.000Z");
+
+    // Inside the window the recovered enrollment sends normally.
+    const morning = await runSendTick({ db, now: new Date("2026-10-27T10:00:00Z"), skipSync: true });
+    expect(morning.failed).toBe(0);
+    expect(
+      await db.emailEvent.count({ where: { campaignId: campaign.id, type: "SENT" } }),
+    ).toBe(1);
+  });
+
+  it("revalidates a stale weekend or night stamp against the current business-days schedule", async () => {
+    const account = await accountFor(workspaceId, "sender-stale@example.com");
+    const { campaign, list } = await campaignFor(workspaceId, {
+      name: "stale-stamp",
+      accountId: account.id,
+      windowStart: "09:00",
+      windowEnd: "17:00",
+      businessDaysOnly: true,
+    });
+    // Leads carry no country, so no per-lead timezone resolves: the
+    // case the v1.5.0 gate never checked. Both stamps predate the
+    // business-days setting (or an equivalent schedule edit): one
+    // sits on a Saturday, one late on Friday night.
+    const saturdayLead = await leadFor(workspaceId, list.id, "stale-sat@example.com");
+    const nightLead = await leadFor(workspaceId, list.id, "stale-night@example.com");
+    const saturday = await db.enrollment.create({
+      data: {
+        campaignId: campaign.id,
+        leadId: saturdayLead.id,
+        status: "ACTIVE",
+        currentStep: 0,
+        nextSendAt: new Date("2026-10-24T10:00:00Z"),
+      },
+    });
+    const night = await db.enrollment.create({
+      data: {
+        campaignId: campaign.id,
+        leadId: nightLead.id,
+        status: "ACTIVE",
+        currentStep: 0,
+        nextSendAt: new Date("2026-10-23T23:30:00Z"),
+      },
+    });
+
+    // A tick on Saturday morning must not send either one: both are
+    // re-stamped to the next valid slot, Monday 09:00.
+    const weekend = await runSendTick({ db, now: new Date("2026-10-24T10:05:00Z"), skipSync: true });
+    expect(weekend.failed).toBe(0);
+    expect(
+      await db.emailEvent.count({ where: { campaignId: campaign.id, type: "SENT" } }),
+    ).toBe(0);
+    expect(weekend.deferredOutsideWindow).toBeGreaterThanOrEqual(2);
+    for (const stale of [saturday, night]) {
+      const after = await db.enrollment.findUnique({ where: { id: stale.id } });
+      expect(after?.nextSendAt?.toISOString()).toBe("2026-10-26T09:00:00.000Z");
+    }
+
+    // Monday inside the window, both send.
+    const monday = await runSendTick({ db, now: new Date("2026-10-26T09:05:00Z"), skipSync: true });
+    expect(monday.failed).toBe(0);
+    expect(
+      await db.emailEvent.count({ where: { campaignId: campaign.id, type: "SENT" } }),
+    ).toBe(2);
+  });
+
+  it("applies the per-tick send ceiling per workspace, not across the whole platform", async () => {
+    const other = await seedWorkspace(db, "ceiling-b");
+    const accountA = await accountFor(workspaceId, "ceil-a@ceila.test");
+    const a = await campaignFor(workspaceId, { name: "ceiling-a", accountId: accountA.id });
+    const leadA = await leadFor(workspaceId, a.list.id, "ceil-a-lead@recipient.test");
+    const accountB = await accountFor(other.workspace.id, "ceil-b@ceilb.test");
+    const b = await campaignFor(other.workspace.id, { name: "ceiling-b", accountId: accountB.id });
+    const leadB = await leadFor(other.workspace.id, b.list.id, "ceil-b-lead@recipient.test");
+    // The oldest stamps in the pool, so this test's campaigns are
+    // the first ones the tick reaches in each workspace.
+    const longAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await db.enrollment.create({
+      data: { campaignId: a.campaign.id, leadId: leadA.id, status: "ACTIVE", currentStep: 0, nextSendAt: longAgo },
+    });
+    await db.enrollment.create({
+      data: { campaignId: b.campaign.id, leadId: leadB.id, status: "ACTIVE", currentStep: 0, nextSendAt: longAgo },
+    });
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-ceiling" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+      tickSendCeiling: 1,
+      hourlyCap: 100000,
+    });
+    expect(summary.failed).toBe(0);
+    const recipients = captured.map((input) => input.toEmail);
+    // A ceiling of 1 must still let EACH workspace send its one
+    // email in the same tick; the pre-fix global counter let the
+    // first workspace consume the whole platform's ceiling.
+    expect(recipients).toContain("ceil-a-lead@recipient.test");
+    expect(recipients).toContain("ceil-b-lead@recipient.test");
+  });
+
+  it("paces the rolling hourly cap per sending domain across workspaces", async () => {
+    const wsSender = await seedWorkspace(db, "domain-c");
+    const wsOther = await seedWorkspace(db, "domain-d");
+    // Workspace C already sent 3 emails this hour from the shared
+    // domain, through its own account.
+    const accountC = await accountFor(wsSender.workspace.id, "one@sharedmail.test");
+    const c = await campaignFor(wsSender.workspace.id, { name: "domain-c", accountId: accountC.id });
+    const leadC = await leadFor(wsSender.workspace.id, c.list.id, "domain-c-lead@recipient.test");
+    const enrollmentC = await db.enrollment.create({
+      data: {
+        campaignId: c.campaign.id,
+        leadId: leadC.id,
+        status: "ACTIVE",
+        currentStep: 0,
+        nextSendAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+    });
+    for (let i = 0; i < 3; i += 1) {
+      await db.emailEvent.create({
+        data: {
+          workspaceId: wsSender.workspace.id,
+          campaignId: c.campaign.id,
+          enrollmentId: enrollmentC.id,
+          sendingAccountId: accountC.id,
+          type: "SENT",
+          providerMessageId: `smtp-seed-${i}`,
+          idempotencyKey: `domain-seed-${i}`,
+          occurredAt: new Date(Date.now() - 5 * 60_000),
+        },
+      });
+    }
+    // Workspace D sends from the SAME domain (its own account) and
+    // from a second domain that has sent nothing.
+    const accountDShared = await accountFor(wsOther.workspace.id, "two@sharedmail.test");
+    const dShared = await campaignFor(wsOther.workspace.id, {
+      name: "domain-d-shared",
+      accountId: accountDShared.id,
+    });
+    const leadDShared = await leadFor(wsOther.workspace.id, dShared.list.id, "shared-lead@recipient.test");
+    const enrollmentDShared = await db.enrollment.create({
+      data: {
+        campaignId: dShared.campaign.id,
+        leadId: leadDShared.id,
+        status: "ACTIVE",
+        currentStep: 0,
+        nextSendAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+    });
+    const accountDOther = await accountFor(wsOther.workspace.id, "two@othermail.test");
+    const dOther = await campaignFor(wsOther.workspace.id, {
+      name: "domain-d-other",
+      accountId: accountDOther.id,
+    });
+    const leadDOther = await leadFor(wsOther.workspace.id, dOther.list.id, "other-lead@recipient.test");
+    await db.enrollment.create({
+      data: {
+        campaignId: dOther.campaign.id,
+        leadId: leadDOther.id,
+        status: "ACTIVE",
+        currentStep: 0,
+        nextSendAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+    });
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-domain" };
+      },
+    };
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+      tickSendCeiling: 100,
+      hourlyCap: 3,
+    });
+    expect(summary.failed).toBe(0);
+    const recipients = captured.map((input) => input.toEmail);
+    // The shared domain is at its cap of 3 for the hour across BOTH
+    // workspaces, so workspace D's shared-domain send defers even
+    // though workspace D itself has sent nothing: the mail host's
+    // limit is per domain, not per workspace.
+    expect(recipients).not.toContain("shared-lead@recipient.test");
+    expect(summary.deferredHourlyCap).toBeGreaterThanOrEqual(1);
+    const deferredShared = await db.enrollment.findUnique({ where: { id: enrollmentDShared.id } });
+    expect(deferredShared?.status).toBe("ACTIVE");
+    // The other domain has its full budget, so its send goes out in
+    // the same tick.
+    expect(recipients).toContain("other-lead@recipient.test");
+  });
+});

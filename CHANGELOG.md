@@ -1,5 +1,59 @@
 # Changelog
 
+## 1.21.0 (2026-11-10)
+
+Scheduler fixes, from a customer report with four symptoms: one
+campaign never sent at all, sends landed on weekends and at night
+despite a business-days setting, sends stopped mid-morning with
+the window still open, and a mail host discarded accepted mail
+past its hourly limit. Three of the four were product bugs; the
+fourth was a pacing scope bug plus a configuration lesson. No
+schema change.
+
+- Stranded enrollments recover. Enrolling a campaign before its
+  first sequence step existed stamped those enrollments with a
+  null send time, and the worker's due filter (nextSendAt at or
+  before now) can never match null, so the campaign showed
+  correct settings and sent nothing, forever. The due pool now
+  includes null stamps, and the schedule gate stamps them under
+  the campaign's current schedule on first sight: inside the
+  window they send in the same pass, outside it they take the
+  next opening. Existing stranded campaigns heal themselves on
+  the first tick after this release, no operator action needed.
+- Stamps are revalidated against the current schedule. A stamp
+  was computed under the settings in force when it was made, and
+  later schedule edits never re-stamped it; the only send-time
+  check covered leads whose timezone differed from the
+  campaign's. A stamp made before business-days-only was switched
+  on, or under a wider window, still fired on a Saturday or late
+  at night. Every stamp is now checked against the campaign's
+  current window and business-days rule, in the lead's timezone
+  when one resolves and the campaign's otherwise, and a stamp
+  that no longer fits moves to the next valid opening. A stamp
+  that does fit still sends when a tick finds it due, even if
+  the tick runs late (the v1.5.0 late-delivery rule is kept).
+- The per-tick send ceiling is per workspace. It was one global
+  counter for the whole tick, so the first workspaces processed
+  consumed the entire platform budget (20 real sends per tick
+  across every tenant) and later campaigns were deferred tick
+  after tick, a starvation that looked like a mid-morning stop.
+  Each workspace now gets its own ceiling per tick.
+- The rolling hourly cap is counted per sending domain. The
+  mail host's hourly limit is per domain, but the cap was
+  counted per workspace: two workspaces on one domain (or one
+  workspace plus mail sent outside ColdReach) could each stay
+  under the cap while the domain total breached the host's, and
+  the host discarded the excess after accepting it, so it was
+  recorded as sent. The worker now counts the last hour's real
+  sends by the domain of the account that would send, across all
+  workspaces, and skips capped candidates in favour of accounts
+  on quieter domains. Simulated sends (provider message ids
+  starting with "demo-") are excluded from the count, as the
+  pacing rules always intended. One honest limit stands: mail a
+  server accepts and then silently discards cannot be detected
+  by any sender, so pacing under the domain cap is the fix, not
+  detection.
+
 ## 1.20.1 (2026-11-06)
 
 Machine-open filter follow-through, from the live verification of
