@@ -10,6 +10,13 @@
   emails now send through Resend. No code change in this entry;
   it exists to trigger the redeploy that loads the new
   environment variables.
+- Operations note (2026-11-10): the product mail From address
+  was corrected to the Resend-verified send subdomain
+  (PRODUCT_MAIL_FROM now uses an @send.aamirtechs.com address;
+  only send.aamirtechs.com is verified in Resend, so sends from
+  the root domain were rejected). No code change in this entry;
+  it exists to trigger the redeploy that loads the corrected
+  variable.
 
 ## 1.22.1 (2026-11-10)
 
