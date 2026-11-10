@@ -14,8 +14,24 @@ export const SUPPORT_CATEGORIES = [
 
 export type SupportCategory = (typeof SUPPORT_CATEGORIES)[number];
 
-export const SUPPORT_TICKET_STATUSES = ["OPEN", "CLOSED"] as const;
+export const SUPPORT_TICKET_STATUSES = ["OPEN", "UNDER_PROCESS", "CLOSED"] as const;
 export type SupportTicketStatus = (typeof SUPPORT_TICKET_STATUSES)[number];
+
+/**
+ * Display labels for the stored status values. Admin and customer
+ * surfaces both render through this one map, so a ticket Amir marks
+ * Under Process reads the same on the customer's Support page.
+ */
+export const SUPPORT_TICKET_STATUS_LABELS: Record<SupportTicketStatus, string> = {
+  OPEN: "Open",
+  UNDER_PROCESS: "Under Process",
+  CLOSED: "Closed",
+};
+
+/** Label for a stored status value; unknown values render as stored. */
+export function supportTicketStatusLabel(status: string): string {
+  return (SUPPORT_TICKET_STATUS_LABELS as Record<string, string>)[status] ?? status;
+}
 
 export const MAX_TICKET_SUBJECT_LENGTH = 150;
 export const MAX_TICKET_MESSAGE_LENGTH = 5000;

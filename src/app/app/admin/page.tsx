@@ -3,7 +3,7 @@ import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { getPlatformStats, isPlatformOwner, type DayBucket } from "@/lib/admin/platform";
 import { listPlatformTickets } from "@/lib/support/tickets";
-import { SupportTicketStatusButton } from "@/components/support/SupportTicketStatusButton";
+import { SupportTicketsAdmin } from "@/components/support/SupportTicketsAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -123,42 +123,23 @@ export default async function PlatformAdminPage() {
         <h2 className="text-sm font-medium text-muted">Support tickets</h2>
         <p className="mt-1 text-xs text-muted">
           Every ticket from the in-app Support page, newest first. Tickets live here even when
-          the notification email is not configured, so nothing is lost.
+          the notification email is not configured, so nothing is lost. Open a ticket to read
+          the full message and set its status.
         </p>
-        {supportTickets.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">No tickets yet.</p>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-muted">
-                  <th className="py-2 pr-3 font-medium">Subject</th>
-                  <th className="py-2 pr-3 font-medium">Category</th>
-                  <th className="py-2 pr-3 font-medium">From</th>
-                  <th className="py-2 pr-3 font-medium">Status</th>
-                  <th className="py-2 pr-3 font-medium">Created</th>
-                  <th className="py-2 font-medium">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {supportTickets.map((ticket) => (
-                  <tr key={ticket.id} className="border-t border-line">
-                    <td className="py-2 pr-3 font-medium">{ticket.subject}</td>
-                    <td className="py-2 pr-3 text-muted">{ticket.category}</td>
-                    <td className="py-2 pr-3 text-muted">{ticket.userEmail}</td>
-                    <td className="py-2 pr-3">{ticket.status}</td>
-                    <td className="py-2 pr-3 text-muted">
-                      {ticket.createdAt.toISOString().slice(0, 10)}
-                    </td>
-                    <td className="py-2">
-                      <SupportTicketStatusButton ticketId={ticket.id} status={ticket.status} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <SupportTicketsAdmin
+          tickets={supportTickets.map((ticket) => ({
+            id: ticket.id,
+            subject: ticket.subject,
+            category: ticket.category,
+            message: ticket.message,
+            userEmail: ticket.userEmail,
+            workspaceId: ticket.workspaceId,
+            workspaceName: ticket.workspaceName,
+            status: ticket.status,
+            createdAt: ticket.createdAt.toISOString(),
+            updatedAt: ticket.updatedAt.toISOString(),
+          }))}
+        />
       </section>
 
       <section className="card mt-6 p-5">

@@ -32,6 +32,8 @@ import {
 export {
   SUPPORT_CATEGORIES,
   SUPPORT_TICKET_STATUSES,
+  SUPPORT_TICKET_STATUS_LABELS,
+  supportTicketStatusLabel,
   MAX_TICKET_SUBJECT_LENGTH,
   MAX_TICKET_MESSAGE_LENGTH,
   DEFAULT_SUPPORT_EMAIL,
@@ -176,15 +178,29 @@ export async function listWorkspaceTickets(
   });
 }
 
+/**
+ * A ticket as the platform admin sees it: the full row, including
+ * the complete message body, plus the workspace's name alongside
+ * its id so the detail view can show where the ticket came from.
+ */
+export interface PlatformTicket extends SupportTicket {
+  workspaceName: string;
+}
+
 /** Every ticket across the platform, newest first. Platform owner only. */
 export async function listPlatformTickets(
   db: PrismaClient,
   take = 100,
-): Promise<SupportTicket[]> {
-  return db.supportTicket.findMany({
+): Promise<PlatformTicket[]> {
+  const rows = await db.supportTicket.findMany({
     orderBy: { createdAt: "desc" },
     take,
+    include: { workspace: { select: { name: true } } },
   });
+  return rows.map(({ workspace, ...ticket }) => ({
+    ...ticket,
+    workspaceName: workspace.name,
+  }));
 }
 
 export async function setSupportTicketStatus(

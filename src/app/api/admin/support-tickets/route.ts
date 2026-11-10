@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError, readJson, stringField } from "@/lib/api";
 import { getSessionWorkspace, type SessionContext } from "@/lib/auth/session";
 import { isPlatformOwner } from "@/lib/admin/platform";
+import { writeAuditLog } from "@/lib/audit";
 import {
   SUPPORT_TICKET_STATUSES,
   listPlatformTickets,
@@ -55,10 +56,19 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "A ticket id is required" }, { status: 400 });
   }
   if (!(SUPPORT_TICKET_STATUSES as readonly string[]).includes(status)) {
-    return NextResponse.json({ error: "Status must be OPEN or CLOSED" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Status must be OPEN, UNDER_PROCESS, or CLOSED" },
+      { status: 400 },
+    );
   }
   try {
     const ticket = await setSupportTicketStatus(prisma, id, status as SupportTicketStatus);
+    await writeAuditLog({
+      action: "support.ticket.status",
+      userId: session.ctx.user.id,
+      workspaceId: ticket.workspaceId,
+      metadata: { ticketId: ticket.id, status: ticket.status },
+    });
     return NextResponse.json({ ticket });
   } catch (error) {
     return apiError(error);

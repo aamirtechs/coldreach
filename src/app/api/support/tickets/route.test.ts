@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => {
         created.push(data);
         return ticket;
       }),
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(async (): Promise<Array<Record<string, unknown>>> => []),
     },
   };
   return {
@@ -163,5 +163,30 @@ describe("GET /api/support/tickets", () => {
     mocks.session.mode = "unauthorized";
     const response = await GET();
     expect(response.status).toBe(401);
+  });
+
+  it("returns the workspace tickets with their stored status", async () => {
+    mocks.prisma.supportTicket.findMany.mockResolvedValueOnce([
+      {
+        id: "ticket-7",
+        workspaceId: "ws-1",
+        userId: "user-1",
+        userEmail: "member@example.com",
+        subject: "Sends stopped",
+        category: "Sending problem",
+        message: "Nothing since 9am",
+        status: "UNDER_PROCESS",
+        createdAt: new Date("2026-11-10T00:00:00Z"),
+        updatedAt: new Date("2026-11-10T02:00:00Z"),
+      },
+    ]);
+    const response = await GET();
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as {
+      tickets: Array<{ id: string; status: string }>;
+    };
+    expect(data.tickets).toHaveLength(1);
+    expect(data.tickets[0].id).toBe("ticket-7");
+    expect(data.tickets[0].status).toBe("UNDER_PROCESS");
   });
 });

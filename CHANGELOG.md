@@ -11,6 +11,28 @@
   it exists to trigger the redeploy that loads the new
   environment variables.
 
+## 1.22.1 (2026-11-10)
+
+Completes the support ticket workflow in the platform admin
+panel: tickets can now be opened and worked, not just closed.
+
+- Three ticket statuses. Alongside Open and Closed, a ticket can
+  be Under Process. Statuses are stored as OPEN, UNDER_PROCESS,
+  and CLOSED on the existing free-text column, so no migration
+  was needed and existing tickets are untouched. One shared
+  label map renders them as Open, Under Process, and Closed in
+  the admin panel and on the customer's Support page alike.
+- Admin ticket detail. Clicking View details on a ticket in the
+  Platform Admin support section opens it in place, showing the
+  complete message body, the reporter's email, the workspace
+  name and id, the category, and the created and last updated
+  times. The admin list endpoint now includes the full message
+  and workspace name for every ticket.
+- Status control. A select on each ticket row sets any of the
+  three statuses through the admin endpoint, which validates
+  against the same status set and writes a support.ticket.status
+  audit entry for every change. The owner-only gate is unchanged.
+
 ## 1.22.0 (2026-11-10)
 
 In-app support. A Support entry joins the sidebar (and the mobile

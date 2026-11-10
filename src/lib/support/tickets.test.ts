@@ -9,7 +9,13 @@ import {
   supportEmail,
   validateTicketInput,
 } from "./tickets";
-import { DEFAULT_SUPPORT_EMAIL, SUPPORT_CATEGORIES } from "./constants";
+import {
+  DEFAULT_SUPPORT_EMAIL,
+  SUPPORT_CATEGORIES,
+  SUPPORT_TICKET_STATUSES,
+  SUPPORT_TICKET_STATUS_LABELS,
+  supportTicketStatusLabel,
+} from "./constants";
 
 type MailInput = { to: string; subject: string; text: string; replyTo?: string };
 
@@ -219,5 +225,56 @@ describe("ticket listing and status", () => {
     expect(closed.status).toBe("CLOSED");
     const reopened = await setSupportTicketStatus(db, ticket.id, "OPEN");
     expect(reopened.status).toBe("OPEN");
+  });
+
+  it("platform list carries the full message and the workspace name", async () => {
+    const { user, workspace } = await seedWorkspace(db, "support-i");
+    const sendMail = vi.fn(async (_input: MailInput) => ({ sent: true, id: "m" }));
+    const longMessage = `First line of the problem.\n${"Detail ".repeat(60)}Last line.`;
+    const { ticket } = await createSupportTicket(
+      db,
+      { userId: user.id, userEmail: user.email, workspaceId: workspace.id, workspaceName: workspace.name },
+      { ...VALID, message: longMessage },
+      { env: {} as NodeJS.ProcessEnv, sendMail },
+    );
+    const all = await listPlatformTickets(db);
+    const found = all.find((t) => t.id === ticket.id);
+    expect(found).toBeDefined();
+    expect(found?.message).toBe(longMessage);
+    expect(found?.workspaceName).toBe(workspace.name);
+    expect(found?.workspaceId).toBe(workspace.id);
+  });
+
+  it("under process persists as a status", async () => {
+    const { user, workspace } = await seedWorkspace(db, "support-j");
+    const sendMail = vi.fn(async (_input: MailInput) => ({ sent: true, id: "m" }));
+    const { ticket } = await createSupportTicket(
+      db,
+      { userId: user.id, userEmail: user.email, workspaceId: workspace.id, workspaceName: workspace.name },
+      VALID,
+      { env: {} as NodeJS.ProcessEnv, sendMail },
+    );
+    const updated = await setSupportTicketStatus(db, ticket.id, "UNDER_PROCESS");
+    expect(updated.status).toBe("UNDER_PROCESS");
+    const stored = await db.supportTicket.findUnique({ where: { id: ticket.id } });
+    expect(stored?.status).toBe("UNDER_PROCESS");
+  });
+});
+
+describe("status labels", () => {
+  it("maps every stored status to its display label", () => {
+    expect(SUPPORT_TICKET_STATUSES).toEqual(["OPEN", "UNDER_PROCESS", "CLOSED"]);
+    expect(SUPPORT_TICKET_STATUS_LABELS).toEqual({
+      OPEN: "Open",
+      UNDER_PROCESS: "Under Process",
+      CLOSED: "Closed",
+    });
+    expect(supportTicketStatusLabel("OPEN")).toBe("Open");
+    expect(supportTicketStatusLabel("UNDER_PROCESS")).toBe("Under Process");
+    expect(supportTicketStatusLabel("CLOSED")).toBe("Closed");
+  });
+
+  it("renders an unknown stored value as-is", () => {
+    expect(supportTicketStatusLabel("SOMETHING_ELSE")).toBe("SOMETHING_ELSE");
   });
 });

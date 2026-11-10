@@ -3,7 +3,11 @@ import Link from "next/link";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { listWorkspaceTickets, supportEmail } from "@/lib/support/tickets";
-import { SUPPORT_WHATSAPP_DISPLAY, supportWhatsAppLink } from "@/lib/support/constants";
+import {
+  SUPPORT_WHATSAPP_DISPLAY,
+  supportTicketStatusLabel,
+  supportWhatsAppLink,
+} from "@/lib/support/constants";
 import { SupportTicketForm } from "@/components/support/SupportTicketForm";
 
 export const dynamic = "force-dynamic";
@@ -77,7 +81,7 @@ export default async function SupportPage() {
                   <tr key={ticket.id} className="border-t border-line">
                     <td className="py-2 pr-3 font-medium">{ticket.subject}</td>
                     <td className="py-2 pr-3 text-muted">{ticket.category}</td>
-                    <td className="py-2 pr-3">{ticket.status}</td>
+                    <td className="py-2 pr-3">{supportTicketStatusLabel(ticket.status)}</td>
                     <td className="py-2 text-muted">{ticket.createdAt.toISOString().slice(0, 10)}</td>
                   </tr>
                 ))}
