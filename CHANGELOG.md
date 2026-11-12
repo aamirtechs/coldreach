@@ -18,6 +18,43 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.23.1 (2026-11-12)
+
+Fixes the second, larger half of the 2026-11-12 sending stall:
+an overnight sending window that the scheduler could not
+satisfy, whose error then killed every worker tick on the
+platform.
+
+- Overnight windows. A campaign window whose end is at or
+  before its start (in production: 05:00 to 00:00, America/New
+  York, business days only, on one tenant's campaigns) is now
+  read as running past midnight, so a 00:00 end means the end
+  of the day that started at 05:00. Before this fix the
+  scheduler read the end as the start of the same day, closing
+  before it opened: no instant could satisfy it, and
+  computeNextSendAt threw "could not find a slot within 366
+  days" for every one of the tenant's 1,235 due enrollments.
+  Early-morning instants are checked against the previous day's
+  window tail, and business days still attach to the day the
+  window opens. Verified against production data: replaying
+  all 1,531 due enrollments through the fixed scheduler throws
+  for none of them (was 1,235).
+- Tick quarantine. The schedule gate in the send worker now
+  catches a computation error per enrollment instead of letting
+  it escape and abort the whole tick. The enrollment is parked
+  for 24 hours with the reason recorded on it and counted in
+  the tick summary as "quarantined"; every other campaign
+  proceeds. On 2026-11-12 this missing guard is what turned one
+  tenant's window setting into a platform-wide sending outage
+  lasting hours, with no sends, no failures, and no log line
+  anywhere in the product pointing at the cause.
+- Tests. Seven new scheduler cases pin the overnight behaviour
+  (inside window, pre-open snap, the Friday-to-midnight close,
+  weekend moves, and a true 17:00 to 02:00 overnight), and a
+  new worker test proves a tick completes and sends for healthy
+  campaigns while quarantining an enrollment whose schedule
+  cannot be computed.
+
 ## 1.23.0 (2026-11-12)
 
 Fixes a silent sending stall: a workspace with due emails could
