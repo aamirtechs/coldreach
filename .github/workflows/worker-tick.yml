@@ -8,6 +8,13 @@ name: Worker tick
 # in the Vercel project's Production environment variables. GitHub may
 # delay scheduled runs under load; workflow_dispatch is the manual
 # trigger used to test the wiring.
+#
+# Revived 2026-11-12: the endpoint URL now uses the production custom
+# domain app.aamirtechs.com (the old coldreach-blue.vercel.app address
+# was retired), and this edit re-arms the schedule after it stopped
+# firing in late October 2026. cron-job.org was retired as the primary
+# trigger the same day because its ticks had silently stopped; the
+# daily Vercel Cron in vercel.json remains as a once-a-day backstop.
 
 on:
   schedule:
@@ -19,4 +26,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger the ColdReach worker tick
-        run: 'curl --fail --silent --show-error -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://coldreach-blue.vercel.app/api/cron/tick'
+        run: 'curl --fail --silent --show-error -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://app.aamirtechs.com/api/cron/tick'
