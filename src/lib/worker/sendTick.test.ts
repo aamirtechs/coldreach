@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { runSendTick } from "./sendTick";
 import { verifyOpenToken } from "./openTracking";
 import type { MailProvider, SendInput } from "@/lib/providers/types";
@@ -1331,4 +1331,78 @@ describe("scheduler fixes (v1.21.0)", () => {
     // the same tick.
     expect(recipients).toContain("other-lead@recipient.test");
   });
+
+  it("does not starve a campaign behind another campaign's older-stamped backlog", async () => {
+    // Regression (v1.23.0): the due pool used to be fetched as one
+    // global oldest-first window of batchLimit * 5 rows. A campaign
+    // whose backlog filled that window kept every newer-stamped
+    // campaign out of the pool entirely: no sends, no errors, just
+    // silence. Production hit this on 2026-11-12, when 1,199
+    // older-stamped enrollments from one workspace's backlog sat
+    // ahead of another workspace's earliest due item.
+    const backlogAccount = await makeAccount(100000, "fair-backlog");
+    const starvedAccount = await makeAccount(100, "fair-starved");
+    const backlogList = await db.leadList.create({
+      data: { workspaceId, name: "List fair-backlog" },
+    });
+    const backlogCampaign = await makeCampaign({
+      suffix: "fair-backlog",
+      accountIds: [backlogAccount.id],
+      listId: backlogList.id,
+    });
+    // 101 enrollments stamped two hours ago: more than the old
+    // window at this test's batchLimit (20 * 5 = 100), so under the
+    // old fetch the starved campaign below never entered the pool.
+    // The small batchLimit also keeps this test fast: the tick only
+    // processes a 20 item batch instead of hundreds.
+    const backlogLeadData: Prisma.LeadCreateManyInput[] = [];
+    for (let i = 0; i < 101; i += 1) {
+      backlogLeadData.push({
+        workspaceId,
+        listId: backlogList.id,
+        email: `backlog-${i}@example.com`,
+        fields: { firstName: "Test", company: "Acme" },
+        tags: [],
+      });
+    }
+    await db.lead.createMany({ data: backlogLeadData });
+    const backlogLeadRows = await db.lead.findMany({
+      where: { listId: backlogList.id },
+      select: { id: true },
+    });
+    expect(backlogLeadRows).toHaveLength(101);
+    const oldStamp = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await db.enrollment.createMany({
+      data: backlogLeadRows.map((lead) => ({
+        campaignId: backlogCampaign.id,
+        leadId: lead.id,
+        status: "ACTIVE" as const,
+        currentStep: 0,
+        nextSendAt: oldStamp,
+      })),
+    });
+
+    const { list: starvedList, leads: starvedLeads } = await makeListWithLeads("fair-starved", [
+      "starved-1@example.com",
+    ]);
+    const starvedCampaign = await makeCampaign({
+      suffix: "fair-starved",
+      accountIds: [starvedAccount.id],
+      listId: starvedList.id,
+    });
+    const starvedEnrollment = await enroll(starvedCampaign.id, starvedLeads[0].id);
+
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true, batchLimit: 20 });
+    expect(summary.failed).toBe(0);
+    const starvedEvents = await db.emailEvent.findMany({
+      where: { campaignId: starvedCampaign.id, type: "SENT" },
+    });
+    expect(starvedEvents.map((e) => e.idempotencyKey)).toContain(`send:${starvedEnrollment.id}:0`);
+
+    // Leave no due enrollments behind for other tests.
+    await db.enrollment.updateMany({
+      where: { campaignId: { in: [backlogCampaign.id, starvedCampaign.id] } },
+      data: { status: "COMPLETED", nextSendAt: null },
+    });
+  }, 60_000);
 });
