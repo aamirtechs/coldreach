@@ -121,6 +121,15 @@ function nextCalendarDay(year: number, month: number, day: number) {
   };
 }
 
+function previousCalendarDay(year: number, month: number, day: number) {
+  const prev = new Date(Date.UTC(year, month - 1, day) - 24 * 60 * 60 * 1000);
+  return {
+    year: prev.getUTCFullYear(),
+    month: prev.getUTCMonth() + 1,
+    day: prev.getUTCDate(),
+  };
+}
+
 /**
  * Returns the earliest instant at or after `from + delayHours` that falls
  * inside the sending window on an allowed day. The search is bounded to
@@ -129,13 +138,38 @@ function nextCalendarDay(year: number, month: number, day: number) {
 export function computeNextSendAt(from: Date, options: ScheduleOptions): Date {
   const start = parseWindowTime(options.windowStart);
   const end = parseWindowTime(options.windowEnd);
+  // A window whose end is not later than its start runs past
+  // midnight: it opens on one local day and closes on the next.
+  // The common case is an end of "00:00", picked to mean "until
+  // midnight". Read as a same-day end it would close before it
+  // opens, no instant could ever satisfy it, and the search below
+  // would run out its 366 days and throw (v1.23.1: a tenant's
+  // 05:00 to 00:00 campaigns did exactly that in production, and
+  // because the send worker let the throw escape, one campaign's
+  // window stopped every send on the platform).
+  const overnight = end.hour * 60 + end.minute <= start.hour * 60 + start.minute;
   let cursor = new Date(from.getTime() + options.delayHours * 60 * 60 * 1000);
 
   for (let i = 0; i < 366; i += 1) {
     const p = zonedParts(cursor, options.timezone);
     const dayStart = zonedTimeToUtc(p.year, p.month, p.day, start.hour, start.minute, options.timezone);
-    const dayEnd = zonedTimeToUtc(p.year, p.month, p.day, end.hour, end.minute, options.timezone);
+    const endDate = overnight ? nextCalendarDay(p.year, p.month, p.day) : p;
+    const dayEnd = zonedTimeToUtc(endDate.year, endDate.month, endDate.day, end.hour, end.minute, options.timezone);
     const allowedDay = !options.businessDaysOnly || isBusinessDay(p.year, p.month, p.day);
+
+    if (overnight) {
+      // The early hours of the cursor's own day can still belong
+      // to the previous day's window, which closes after midnight.
+      // That tail counts when the previous day was an allowed day.
+      const prev = previousCalendarDay(p.year, p.month, p.day);
+      const prevAllowed = !options.businessDaysOnly || isBusinessDay(prev.year, prev.month, prev.day);
+      if (prevAllowed) {
+        const tailEnd = zonedTimeToUtc(p.year, p.month, p.day, end.hour, end.minute, options.timezone);
+        if (cursor.getTime() <= tailEnd.getTime()) {
+          return cursor;
+        }
+      }
+    }
 
     if (allowedDay) {
       if (cursor.getTime() < dayStart.getTime()) {
