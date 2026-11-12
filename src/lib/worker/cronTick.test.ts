@@ -42,6 +42,7 @@ function emptySummary(): CronTickSummary {
       failed: 0,
       quotaBlocked: 0,
       skippedNotOpened: 0,
+      quarantined: 0,
       sync: [],
       webhooks: { attempted: 0, delivered: 0, failed: 0, retrying: 0 },
     },

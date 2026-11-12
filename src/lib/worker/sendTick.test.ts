@@ -1405,4 +1405,60 @@ describe("scheduler fixes (v1.21.0)", () => {
       data: { status: "COMPLETED", nextSendAt: null },
     });
   }, 60_000);
+
+  it("quarantines an enrollment whose schedule cannot be computed instead of failing the tick", async () => {
+    // Regression (v1.23.1): the schedule gate let a computation
+    // error escape runSendTick, so one bad enrollment killed every
+    // tick for the whole platform. In production the trigger was
+    // an overnight window the scheduler could not satisfy; here a
+    // campaign timezone Intl does not recognise makes the gate
+    // throw just as reliably.
+    const poisonAccount = await makeAccount(100, "quarantine-poison");
+    const healthyAccount = await makeAccount(100, "quarantine-healthy");
+    const { list: poisonList, leads: poisonLeads } = await makeListWithLeads("quarantine-poison", [
+      "poison-1@example.com",
+    ]);
+    const poisonCampaign = await makeCampaign({
+      suffix: "quarantine-poison",
+      accountIds: [poisonAccount.id],
+      listId: poisonList.id,
+    });
+    await db.campaign.update({
+      where: { id: poisonCampaign.id },
+      data: { timezone: "Not/AZone" },
+    });
+    const poisonEnrollment = await enroll(poisonCampaign.id, poisonLeads[0].id);
+
+    const { list: healthyList, leads: healthyLeads } = await makeListWithLeads(
+      "quarantine-healthy",
+      ["healthy-1@example.com"],
+    );
+    const healthyCampaign = await makeCampaign({
+      suffix: "quarantine-healthy",
+      accountIds: [healthyAccount.id],
+      listId: healthyList.id,
+    });
+    const healthyEnrollment = await enroll(healthyCampaign.id, healthyLeads[0].id);
+
+    // The tick itself must complete: before the fix this call threw.
+    const summary = await runSendTick({ db, now: new Date(), skipSync: true });
+    expect(summary.quarantined).toBeGreaterThanOrEqual(1);
+
+    const healthyEvents = await db.emailEvent.findMany({
+      where: { campaignId: healthyCampaign.id, type: "SENT" },
+    });
+    expect(healthyEvents.map((e) => e.idempotencyKey)).toContain(`send:${healthyEnrollment.id}:0`);
+
+    const poisonAfter = await db.enrollment.findUnique({ where: { id: poisonEnrollment.id } });
+    expect(poisonAfter?.status).toBe("ACTIVE");
+    expect(poisonAfter?.lastError).toContain("Schedule check failed");
+    expect(poisonAfter?.nextSendAt).not.toBeNull();
+    expect(poisonAfter!.nextSendAt!.getTime()).toBeGreaterThan(Date.now() + 60 * 60 * 1000);
+
+    // Leave no due enrollments behind for other tests.
+    await db.enrollment.updateMany({
+      where: { campaignId: { in: [poisonCampaign.id, healthyCampaign.id] } },
+      data: { status: "COMPLETED", nextSendAt: null },
+    });
+  }, 60_000);
 });

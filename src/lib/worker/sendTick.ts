@@ -91,6 +91,11 @@ export interface SendTickSummary {
    *  opened the previous step; the enrollment is completed instead
    *  (open-gated follow-ups, v1.17.0, at Amir's instruction). */
   skippedNotOpened: number;
+  /** Enrollments parked for 24 hours because their schedule could
+   *  not be computed at all (a broken window, an unrecognised
+   *  timezone); the failure is kept on the enrollment instead of
+   *  escaping and killing the whole tick (v1.23.1). */
+  quarantined: number;
   /** Reply sync pass that runs before sends (empty when skipped). */
   sync: AccountSyncSummary[];
   /** Outbound webhook delivery pass that runs after sends. */
@@ -196,6 +201,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     failed: 0,
     quotaBlocked: 0,
     skippedNotOpened: 0,
+    quarantined: 0,
     sync: syncSummaries,
     webhooks: { attempted: 0, delivered: 0, failed: 0, retrying: 0 },
   };
@@ -536,39 +542,64 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     // they proceed to send in this same pass.
     const leadTimezone = resolveLeadTimezone(lead.fields as LeadFields);
     const effectiveTimezone = leadTimezone ?? campaign.timezone;
-    if (enrollment.nextSendAt === null) {
-      const slot = computeNextSendAt(now, {
-        timezone: effectiveTimezone,
-        windowStart: campaign.windowStart,
-        windowEnd: campaign.windowEnd,
-        businessDaysOnly: campaign.businessDaysOnly,
-        delayHours: 0,
-      });
-      if (slot.getTime() > now.getTime()) {
-        await db.enrollment.update({
-          where: { id: enrollment.id },
-          data: { nextSendAt: slot },
+    try {
+      if (enrollment.nextSendAt === null) {
+        const slot = computeNextSendAt(now, {
+          timezone: effectiveTimezone,
+          windowStart: campaign.windowStart,
+          windowEnd: campaign.windowEnd,
+          businessDaysOnly: campaign.businessDaysOnly,
+          delayHours: 0,
         });
-        summary.deferredOutsideWindow += 1;
-        continue;
-      }
-      enrollment.nextSendAt = slot;
-    } else {
-      const slot = computeNextSendAt(enrollment.nextSendAt, {
-        timezone: effectiveTimezone,
-        windowStart: campaign.windowStart,
-        windowEnd: campaign.windowEnd,
-        businessDaysOnly: campaign.businessDaysOnly,
-        delayHours: 0,
-      });
-      if (slot.getTime() > enrollment.nextSendAt.getTime()) {
-        await db.enrollment.update({
-          where: { id: enrollment.id },
-          data: { nextSendAt: slot },
+        if (slot.getTime() > now.getTime()) {
+          await db.enrollment.update({
+            where: { id: enrollment.id },
+            data: { nextSendAt: slot },
+          });
+          summary.deferredOutsideWindow += 1;
+          continue;
+        }
+        enrollment.nextSendAt = slot;
+      } else {
+        const slot = computeNextSendAt(enrollment.nextSendAt, {
+          timezone: effectiveTimezone,
+          windowStart: campaign.windowStart,
+          windowEnd: campaign.windowEnd,
+          businessDaysOnly: campaign.businessDaysOnly,
+          delayHours: 0,
         });
-        summary.deferredOutsideWindow += 1;
-        continue;
+        if (slot.getTime() > enrollment.nextSendAt.getTime()) {
+          await db.enrollment.update({
+            where: { id: enrollment.id },
+            data: { nextSendAt: slot },
+          });
+          summary.deferredOutsideWindow += 1;
+          continue;
+        }
       }
+    } catch (error) {
+      // Quarantine (v1.23.1): a schedule that cannot be computed
+      // for one enrollment must never escape and kill the tick for
+      // every other campaign on the platform, which is how a
+      // single tenant's overnight window (05:00 to 00:00, read as
+      // closing before it opened) stopped all sending on
+      // 2026-11-12. Park this enrollment for 24 hours with the
+      // reason recorded on it, count it, and move on.
+      logger.error("Schedule check failed for enrollment; quarantined for 24 hours", {
+        error,
+        requestId,
+        enrollmentId: enrollment.id,
+        campaignId: campaign.id,
+      });
+      await db.enrollment.update({
+        where: { id: enrollment.id },
+        data: {
+          nextSendAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+          lastError: `Schedule check failed: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      });
+      summary.quarantined += 1;
+      continue;
     }
 
     // Gate 2: capacity, honouring each account's effective daily
@@ -978,6 +1009,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     skippedNotOpened: summary.skippedNotOpened,
     deferredNoCapacity: summary.deferredNoCapacity,
     deferredOutsideWindow: summary.deferredOutsideWindow,
+    quarantined: summary.quarantined,
     webhooksAttempted: summary.webhooks.attempted,
     webhooksDelivered: summary.webhooks.delivered,
   });
