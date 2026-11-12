@@ -18,6 +18,39 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.23.0 (2026-11-12)
+
+Fixes a silent sending stall: a workspace with due emails could
+be starved indefinitely by another workspace's backlog, with no
+sends, no failures, and nothing in any log or dashboard to show
+why.
+
+- Fair due pool fetch. The send worker built each tick's batch
+  from one global oldest-first window: the 1,000 oldest due
+  enrollments across the whole platform. When one workspace
+  accumulated a backlog of about 1,235 due enrollments stamped
+  over two hours, 1,199 due enrollments platform-wide carried
+  older stamps than another workspace's earliest due item, so
+  that workspace's campaigns never entered the fetched window
+  at all. Its sends stopped for hours while the backlogged
+  workspace kept sending, and because the starved enrollments
+  were never fetched, nothing about them was recorded anywhere.
+  The pool is now fetched per campaign (each running campaign
+  contributes its own earliest due enrollments, up to the batch
+  size with a floor of 50), and the existing round-robin
+  interleave then shares the batch across campaigns as designed
+  in v1.8.1. Every campaign with due work is now represented in
+  every tick.
+- Regression test. A new send worker test parks a backlog of
+  older-stamped enrollments in one campaign, larger than the old
+  global window could hold at the test's batch size, and proves
+  a newer-stamped campaign still sends in the same tick. The
+  test fails against the old fetch and passes against the new
+  one.
+- No schema change, no migration, no setting change. Sending
+  windows, pacing caps, per-workspace tick ceilings, and the
+  open-gated follow-up rule are all unchanged.
+
 ## 1.22.1 (2026-11-10)
 
 Completes the support ticket workflow in the platform admin
