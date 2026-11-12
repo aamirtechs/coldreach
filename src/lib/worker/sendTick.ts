@@ -1,4 +1,4 @@
-import type { PrismaClient, SendingAccount } from "@prisma/client";
+import type { Prisma, PrismaClient, SendingAccount } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeNextSendAt } from "@/lib/domain/scheduling";
 import { resolveLeadTimezone } from "@/lib/domain/leadTimezone";
@@ -200,37 +200,61 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     webhooks: { attempted: 0, delivered: 0, failed: 0, retrying: 0 },
   };
 
-  // Fetch a wider due pool than the batch, then interleave it across
-  // campaigns (v1.8.1) so the batch is shared fairly. The pool fetch
-  // stays in due order, so each campaign's own queue keeps its order.
+  // Fetch the due pool PER CAMPAIGN, then interleave it across
+  // campaigns (v1.8.1) so the batch is shared fairly.
+  //
+  // The fetch used to be one global oldest-first window (the
+  // batchLimit * 5 oldest due enrollments across the whole
+  // platform). That window starved campaigns silently (v1.23.0):
+  // on 2026-11-12 one workspace accumulated a backlog of about
+  // 1,235 due enrollments stamped over two midday hours, and 1,199
+  // due enrollments platform-wide carried older stamps than another
+  // workspace's earliest due item. That workspace's 197 due
+  // enrollments never entered the fetched window at all, so its
+  // campaigns recorded no sends, no failures, and no deferrals for
+  // hours while the backlogged tenant kept sending. Fetching each
+  // campaign's own earliest slice guarantees every running campaign
+  // with due work is represented in the pool; the interleave then
+  // shares the batch across campaigns as designed.
   const batchLimit = deps.batchLimit ?? 200;
-  const duePool = await db.enrollment.findMany({
-    where: {
-      status: "ACTIVE",
-      // Null stamps are due too (v1.21.0): enrollments created
-      // before their campaign had any sequence steps were stamped
-      // null by enrollCampaign, and a lte filter can never match
-      // null, so those enrollments were stranded permanently. The
-      // schedule gate below stamps them on first sight.
-      OR: [{ nextSendAt: { lte: now } }, { nextSendAt: null }],
-      campaign: { status: "RUNNING" },
-    },
-    include: {
-      lead: true,
-      campaign: {
-        include: {
-          steps: {
-            orderBy: { order: "asc" },
-            include: { variants: { orderBy: { createdAt: "asc" } } },
+  const perCampaignPool = Math.max(50, batchLimit);
+  // Null stamps are due too (v1.21.0): enrollments created before
+  // their campaign had any sequence steps were stamped null by
+  // enrollCampaign, and a lte filter can never match null, so those
+  // enrollments were stranded permanently. The schedule gate below
+  // stamps them on first sight.
+  const dueWhere: Prisma.EnrollmentWhereInput = {
+    status: "ACTIVE",
+    OR: [{ nextSendAt: { lte: now } }, { nextSendAt: null }],
+    campaign: { status: "RUNNING" },
+  };
+  const dueGroups = await db.enrollment.groupBy({
+    by: ["campaignId"],
+    where: dueWhere,
+  });
+  const fetchDueForCampaign = (campaignId: string) =>
+    db.enrollment.findMany({
+      where: { ...dueWhere, campaignId },
+      include: {
+        lead: true,
+        campaign: {
+          include: {
+            steps: {
+              orderBy: { order: "asc" },
+              include: { variants: { orderBy: { createdAt: "asc" } } },
+            },
+            accounts: { include: { sendingAccount: true }, orderBy: { createdAt: "asc" } },
+            workspace: true,
           },
-          accounts: { include: { sendingAccount: true }, orderBy: { createdAt: "asc" } },
-          workspace: true,
         },
       },
-    },
-    orderBy: { nextSendAt: "asc" },
-    take: batchLimit * 5,
-  });
+      orderBy: { nextSendAt: "asc" },
+      take: perCampaignPool,
+    });
+  const duePool: Awaited<ReturnType<typeof fetchDueForCampaign>> = [];
+  for (const group of dueGroups) {
+    duePool.push(...(await fetchDueForCampaign(group.campaignId)));
+  }
   const due = interleaveByCampaign(duePool, batchLimit);
 
   const suppressionCache = new Map<string, SuppressionEntry[]>();
