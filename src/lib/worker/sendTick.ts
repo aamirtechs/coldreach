@@ -6,7 +6,7 @@ import { findSuppression, type SuppressionEntry } from "@/lib/domain/suppression
 import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
 import { renderEmailCopy } from "@/lib/campaigns/previewEmail";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
-import { hourlyBudget, hourlySendCap, tickSendCeiling } from "@/lib/domain/pacing";
+import { hourlyBudget, hourlySendCap, resolveHourlyCap, tickSendCeiling } from "@/lib/domain/pacing";
 import { effectiveDailyLimit as warmupDailyLimit } from "@/lib/domain/warmup";
 import {
   resolveProvider as defaultResolveProvider,
@@ -388,7 +388,11 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   //   being accepted (and recorded SENT here). Simulated sends are
   //   excluded from the count: their provider message ids start
   //   with "demo-" and they never reach an SMTP server.
-  const hourlyCap = deps.hourlyCap ?? hourlySendCap();
+  const platformHourlyCap = hourlySendCap();
+  // An explicit deps.hourlyCap (tests, one-off operations) forces
+  // one cap for every workspace and wins over both the platform
+  // default and any workspace setting (v1.24.0).
+  const forcedHourlyCap = deps.hourlyCap;
   const tickCeiling = deps.tickSendCeiling ?? tickSendCeiling();
   const hourStart = new Date(now.getTime() - 60 * 60 * 1000);
   const realSendsByWorkspace = new Map<string, number>();
@@ -611,6 +615,14 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     // tick's own sends, so the balance holds across campaigns and
     // across ticks. Ties keep the campaign's configured order.
     const accounts = campaign.accounts.map((entry) => entry.sendingAccount);
+    // Per-workspace hourly cap (v1.24.0): a workspace can set its
+    // own ceiling in Settings, matched to its mail host's hourly
+    // limit; it replaces the platform default for this workspace's
+    // sends. The count it is measured against stays per sending
+    // domain across workspaces (v1.21.0), so this only changes
+    // the ceiling, never the counting.
+    const effectiveHourlyCap =
+      forcedHourlyCap ?? resolveHourlyCap(campaign.workspace.hourlySendCap, platformHourlyCap);
     const healthById = await healthForAccounts(accounts);
     let chosen: SendingAccount | null = null;
     let chosenSentToday = Number.POSITIVE_INFINITY;
@@ -689,7 +701,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       // hourly cap, counted across every workspace sending from
       // that domain. A capped candidate is skipped like a full
       // one, so an account on a quieter domain can still send.
-      if (hourlyBudget(await sentLastHourForDomain(domainOf(candidate.email)), hourlyCap) <= 0) {
+      if (hourlyBudget(await sentLastHourForDomain(domainOf(candidate.email)), effectiveHourlyCap) <= 0) {
         domainBlockedEligible = true;
         continue;
       }

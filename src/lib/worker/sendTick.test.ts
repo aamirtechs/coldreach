@@ -1332,6 +1332,107 @@ describe("scheduler fixes (v1.21.0)", () => {
     expect(recipients).toContain("other-lead@recipient.test");
   });
 
+  it("honours a workspace's own hourly cap over the platform default (v1.24.0)", async () => {
+    // One workspace sets its cap BELOW the platform default
+    // because its mail host allows less; another sets it ABOVE
+    // because its host allows more. The per-domain hourly count
+    // (v1.21.0) is measured against each workspace's own ceiling.
+    const wsLow = await seedWorkspace(db, "cap-low");
+    await db.workspace.update({ where: { id: wsLow.workspace.id }, data: { hourlySendCap: 2 } });
+    const accountLow = await accountFor(wsLow.workspace.id, "one@caplow.test", 100000);
+    const low = await campaignFor(wsLow.workspace.id, { name: "cap-low", accountId: accountLow.id });
+    const leadLow = await leadFor(wsLow.workspace.id, low.list.id, "low-lead@recipient.test");
+    const enrollmentLow = await db.enrollment.create({
+      data: {
+        campaignId: low.campaign.id,
+        leadId: leadLow.id,
+        status: "ACTIVE",
+        currentStep: 0,
+        nextSendAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+    });
+    for (let i = 0; i < 2; i += 1) {
+      await db.emailEvent.create({
+        data: {
+          workspaceId: wsLow.workspace.id,
+          campaignId: low.campaign.id,
+          enrollmentId: enrollmentLow.id,
+          sendingAccountId: accountLow.id,
+          type: "SENT",
+          providerMessageId: `cap-low-seed-${i}`,
+          idempotencyKey: `cap-low-seed-${i}`,
+          occurredAt: new Date(Date.now() - 5 * 60_000),
+        },
+      });
+    }
+
+    const wsHigh = await seedWorkspace(db, "cap-high");
+    await db.workspace.update({ where: { id: wsHigh.workspace.id }, data: { hourlySendCap: 500 } });
+    const accountHigh = await accountFor(wsHigh.workspace.id, "one@caphigh.test", 100000);
+    const high = await campaignFor(wsHigh.workspace.id, { name: "cap-high", accountId: accountHigh.id });
+    const leadHigh = await leadFor(wsHigh.workspace.id, high.list.id, "high-lead@recipient.test");
+    const enrollmentHigh = await db.enrollment.create({
+      data: {
+        campaignId: high.campaign.id,
+        leadId: leadHigh.id,
+        status: "ACTIVE",
+        currentStep: 0,
+        nextSendAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+    });
+    // 95 sends in the last hour from this domain: over the
+    // platform default of 90, under the workspace's own 500.
+    for (let i = 0; i < 95; i += 1) {
+      await db.emailEvent.create({
+        data: {
+          workspaceId: wsHigh.workspace.id,
+          campaignId: high.campaign.id,
+          enrollmentId: enrollmentHigh.id,
+          sendingAccountId: accountHigh.id,
+          type: "SENT",
+          providerMessageId: `cap-high-seed-${i}`,
+          idempotencyKey: `cap-high-seed-${i}`,
+          occurredAt: new Date(Date.now() - 5 * 60_000),
+        },
+      });
+    }
+
+    const captured: SendInput[] = [];
+    const capturingProvider: MailProvider = {
+      id: "capture",
+      isSimulation: false,
+      send: async (input) => {
+        captured.push(input);
+        return { providerMessageId: "capture-cap" };
+      },
+    };
+    // No deps.hourlyCap: the platform default (90) applies where a
+    // workspace has not set its own.
+    const summary = await runSendTick({
+      db,
+      now: new Date(),
+      skipSync: true,
+      resolveProvider: async () => capturingProvider,
+      tickSendCeiling: 100,
+    });
+    const recipients = captured.map((input) => input.toEmail);
+    // The low workspace is at its own cap of 2 for the hour, so
+    // its send defers even though the platform default is 90.
+    expect(recipients).not.toContain("low-lead@recipient.test");
+    expect(summary.deferredHourlyCap).toBeGreaterThanOrEqual(1);
+    const deferredLow = await db.enrollment.findUnique({ where: { id: enrollmentLow.id } });
+    expect(deferredLow?.status).toBe("ACTIVE");
+    // The high workspace's own cap of 500 covers the 95 already
+    // sent, so its send goes out in the same tick.
+    expect(recipients).toContain("high-lead@recipient.test");
+
+    // Leave no due enrollments behind for other tests.
+    await db.enrollment.updateMany({
+      where: { campaignId: { in: [low.campaign.id, high.campaign.id] } },
+      data: { status: "COMPLETED", nextSendAt: null },
+    });
+  });
+
   it("does not starve a campaign behind another campaign's older-stamped backlog", async () => {
     // Regression (v1.23.0): the due pool used to be fetched as one
     // global oldest-first window of batchLimit * 5 rows. A campaign
