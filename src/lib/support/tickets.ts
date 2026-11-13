@@ -1,4 +1,4 @@
-import type { PrismaClient, SupportTicket } from "@prisma/client";
+import type { PrismaClient, SupportTicket, SupportTicketReply } from "@prisma/client";
 import { sendProductEmail, type ProductMailResult } from "@/lib/mail/productMail";
 import { logger } from "@/lib/log";
 
@@ -22,10 +22,13 @@ import { logger } from "@/lib/log";
 
 import {
   MAX_TICKET_MESSAGE_LENGTH,
+  MAX_TICKET_REPLY_LENGTH,
   MAX_TICKET_SUBJECT_LENGTH,
   SUPPORT_CATEGORIES,
+  SUPPORT_TICKET_REPLY_KINDS,
   DEFAULT_SUPPORT_EMAIL,
   type SupportCategory,
+  type SupportTicketReplyKind,
   type SupportTicketStatus,
 } from "./constants";
 
@@ -34,13 +37,18 @@ export {
   SUPPORT_TICKET_STATUSES,
   SUPPORT_TICKET_STATUS_LABELS,
   supportTicketStatusLabel,
+  SUPPORT_TICKET_REPLY_KINDS,
+  SUPPORT_TICKET_REPLY_KIND_LABELS,
+  supportTicketReplyKindLabel,
   MAX_TICKET_SUBJECT_LENGTH,
   MAX_TICKET_MESSAGE_LENGTH,
+  MAX_TICKET_REPLY_LENGTH,
   DEFAULT_SUPPORT_EMAIL,
   SUPPORT_WHATSAPP_NUMBER,
   SUPPORT_WHATSAPP_DISPLAY,
   supportWhatsAppLink,
   type SupportCategory,
+  type SupportTicketReplyKind,
   type SupportTicketStatus,
 } from "./constants";
 
@@ -209,4 +217,122 @@ export async function setSupportTicketStatus(
   status: SupportTicketStatus,
 ): Promise<SupportTicket> {
   return db.supportTicket.update({ where: { id }, data: { status } });
+}
+
+export type ReplyValidation =
+  | { ok: true; kind: SupportTicketReplyKind; body: string }
+  | { ok: false; error: string };
+
+/** Server-side validation for a thread entry written from the admin panel. */
+export function validateTicketReplyInput(input: {
+  kind?: unknown;
+  body?: unknown;
+}): ReplyValidation {
+  const kind = typeof input.kind === "string" ? input.kind : "";
+  if (!(SUPPORT_TICKET_REPLY_KINDS as readonly string[]).includes(kind)) {
+    return { ok: false, error: "Kind must be REPLY or NOTE" };
+  }
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+  if (!body) {
+    return { ok: false, error: "A reply body is required" };
+  }
+  if (body.length > MAX_TICKET_REPLY_LENGTH) {
+    return {
+      ok: false,
+      error: `Reply must be ${MAX_TICKET_REPLY_LENGTH} characters or fewer`,
+    };
+  }
+  return { ok: true, kind: kind as SupportTicketReplyKind, body };
+}
+
+/** A thread entry as the admin panel renders it, with its author's email. */
+export interface TicketReplyView extends SupportTicketReply {
+  authorEmail: string;
+}
+
+/** The ticket's whole thread, oldest first, internal notes included. */
+export async function listTicketReplies(
+  db: PrismaClient,
+  ticketId: string,
+): Promise<TicketReplyView[]> {
+  const rows = await db.supportTicketReply.findMany({
+    where: { ticketId },
+    orderBy: { createdAt: "asc" },
+    include: { author: { select: { email: true } } },
+  });
+  return rows.map(({ author, ...reply }) => ({ ...reply, authorEmail: author.email }));
+}
+
+export interface AddReplyDeps {
+  env?: NodeJS.ProcessEnv;
+  sendMail?: SendTicketMail;
+  /** Set false to store a REPLY without emailing it. Notes never email. */
+  emailCustomer?: boolean;
+}
+
+/**
+ * Persists a thread entry on a ticket, then, for a REPLY the
+ * author chose to email, sends it to the ticket's reporter
+ * through the product mail path and stamps emailedAt on the row.
+ * Like ticket creation, the email is best effort: a failed or
+ * unconfigured send never fails the save, it just leaves
+ * emailedAt null so the panel can show the reply was not emailed.
+ */
+export async function addTicketReply(
+  db: PrismaClient,
+  ticket: SupportTicket,
+  author: { userId: string; userEmail: string },
+  data: { kind: SupportTicketReplyKind; body: string },
+  deps: AddReplyDeps = {},
+): Promise<{ reply: SupportTicketReply; emailSent: boolean }> {
+  let reply = await db.supportTicketReply.create({
+    data: {
+      ticketId: ticket.id,
+      authorId: author.userId,
+      kind: data.kind,
+      body: data.body,
+    },
+  });
+
+  let emailSent = false;
+  if (data.kind === "REPLY" && deps.emailCustomer !== false) {
+    const env = deps.env ?? process.env;
+    const sendMail: SendTicketMail =
+      deps.sendMail ??
+      ((input) => sendProductEmail(input, { env }));
+    try {
+      const result = await sendMail({
+        to: ticket.userEmail,
+        subject: `[ColdReach support] Re: ${ticket.subject}`,
+        replyTo: supportEmail(env),
+        text: [
+          data.body,
+          "",
+          "---",
+          `Ticket: ${ticket.subject} (${ticket.id})`,
+          "Reply to this email and it reaches the support inbox.",
+        ].join("\n"),
+      });
+      emailSent = result.sent;
+      if (result.sent) {
+        reply = await db.supportTicketReply.update({
+          where: { id: reply.id },
+          data: { emailedAt: new Date() },
+        });
+      } else {
+        logger.warn("Support ticket reply email did not send", {
+          ticketId: ticket.id,
+          replyId: reply.id,
+          reason: result.reason ?? "unknown",
+        });
+      }
+    } catch (error) {
+      logger.error("Support ticket reply email failed", {
+        ticketId: ticket.id,
+        replyId: reply.id,
+        error,
+      });
+    }
+  }
+  return { reply, emailSent };
 }
