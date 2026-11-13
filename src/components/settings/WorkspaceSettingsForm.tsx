@@ -4,7 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 interface WorkspaceSettingsFormProps {
-  initial: { name: string; senderName: string; senderAddress: string; trackingDomain: string };
+  initial: {
+    name: string;
+    senderName: string;
+    senderAddress: string;
+    trackingDomain: string;
+    hourlySendCap: string;
+  };
   canEdit: boolean;
 }
 
@@ -14,6 +20,7 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
   const [senderName, setSenderName] = useState(initial.senderName);
   const [senderAddress, setSenderAddress] = useState(initial.senderAddress);
   const [trackingDomain, setTrackingDomain] = useState(initial.trackingDomain);
+  const [hourlySendCap, setHourlySendCap] = useState(initial.hourlySendCap);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,10 +28,17 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
     event.preventDefault();
     setBusy(true);
     setNotice(null);
+    const capText = hourlySendCap.trim();
     const response = await fetch("/api/workspace", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, senderName, senderAddress, trackingDomain }),
+      body: JSON.stringify({
+        name,
+        senderName,
+        senderAddress,
+        trackingDomain,
+        hourlySendCap: capText === "" ? null : Number(capText),
+      }),
     });
     const data = await response.json();
     setBusy(false);
@@ -65,6 +79,17 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
             is served on), then save the bare host here, with no https:// prefix. Once saved, open
             tracking pixels and click tracking links in campaign emails use this domain instead of
             the app domain. Leave it empty to track on the app domain.
+          </p>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="ws-hourly-cap">Max sends per hour</label>
+          <input id="ws-hourly-cap" className="input" type="number" min={1} max={10000} step={1} value={hourlySendCap} disabled={!canEdit} onChange={(e) => setHourlySendCap(e.target.value)} placeholder="90 (platform default)" />
+          <p className="mt-1 text-xs text-muted">
+            Optional. The most emails your sending domains may send in any rolling hour. Mail
+            hosts enforce their own hourly limit and discard whatever arrives above it, so set
+            this just under your host's limit (for example 50 if your host allows 60 per hour)
+            and the worker spreads sends under it instead of bursting. Leave it empty to use
+            the platform default of 90.
           </p>
         </div>
       </div>
