@@ -18,6 +18,22 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.25.1 (2026-11-12)
+
+Exact send times beside the relative labels in the Outbox. A
+"Due now" row that left on the next tick appeared in the Outbox
+as "1 hr ago" with the precise moment hidden behind a hover,
+which read as if the send might not have happened or counted.
+The send time, the opened time, and the auto-open time on every
+Outbox card now print the exact moment next to the relative
+label, in the viewer's timezone (for example "1 hr ago ·
+13 Nov 2026, 01:00"). No sending or counting change: a
+production check the same evening matched every SENT event of
+the last 24 hours to its Outbox copy, 27 of 27, and no send
+since 29 Oct 2026 is missing from the Outbox. The only all-time
+gap remains the 54 sends of 28 Oct 2026 that predate Outbox
+recording (fixed in v1.8.1); their bodies were never stored.
+
 ## 1.25.0 (2026-11-12)
 
 Support ticket replies and internal notes. The platform admin
