@@ -5,8 +5,9 @@ import { apiError, intField, requireSession } from "@/lib/api";
 /**
  * Unified inbox thread list. Filters: campaignId, sendingAccountId,
  * status, classification, excludeClassification (v1.11.0: keep every
- * thread except one classification, including unclassified ones; the
- * inbox "Humans only" toggle uses it to hide AUTOMATED threads),
+ * thread except one classification, including unclassified ones;
+ * v1.27.0: accepts a comma separated list, and the inbox "Humans
+ * only" toggle uses it to hide AUTOMATED, TICKET and NOT_FOUND),
  * assigneeId ("me" for the caller, "none" for unassigned), q
  * (matches lead email, lead name, subject, and message bodies). All
  * queries are scoped to the session workspace.
@@ -30,11 +31,20 @@ export async function GET(request: Request) {
     if (classification) where.classification = classification;
     const excludeClassification = params.get("excludeClassification");
     if (excludeClassification && !classification) {
-      where.AND = [
-        {
-          OR: [{ classification: null }, { classification: { not: excludeClassification } }],
-        },
-      ];
+      const excluded = excludeClassification.split(",").map((value) => value.trim()).filter(Boolean);
+      if (excluded.length === 1) {
+        where.AND = [
+          {
+            OR: [{ classification: null }, { classification: { not: excluded[0] } }],
+          },
+        ];
+      } else if (excluded.length > 1) {
+        where.AND = [
+          {
+            OR: [{ classification: null }, { classification: { notIn: excluded } }],
+          },
+        ];
+      }
     }
     const assigneeId = params.get("assigneeId");
     if (assigneeId === "me") where.assigneeId = ctx.user.id;

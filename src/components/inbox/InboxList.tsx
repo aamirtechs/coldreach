@@ -24,7 +24,7 @@ interface Option {
   label: string;
 }
 
-const CLASSIFICATIONS = ["POSITIVE", "NEGATIVE", "OUT_OF_OFFICE", "REFERRAL", "NEUTRAL", "AUTOMATED"];
+const CLASSIFICATIONS = ["POSITIVE", "NEGATIVE", "OUT_OF_OFFICE", "REFERRAL", "NEUTRAL", "AUTOMATED", "TICKET", "NOT_FOUND"];
 
 /**
  * Unified inbox list. Threads arrive from reply sync (Gmail, Microsoft
@@ -88,7 +88,7 @@ export function InboxList() {
       if (q.trim()) params.set("q", q.trim());
       if (status) params.set("status", status);
       if (classification) params.set("classification", classification);
-      else if (humansOnly) params.set("excludeClassification", "AUTOMATED");
+      else if (humansOnly) params.set("excludeClassification", "AUTOMATED,TICKET,NOT_FOUND");
       if (campaignId) params.set("campaignId", campaignId);
       if (accountId) params.set("sendingAccountId", accountId);
       if (assigneeId) params.set("assigneeId", assigneeId);
@@ -117,14 +117,21 @@ export function InboxList() {
       const response = await fetch("/api/threads/reclassify-automated", { method: "POST" });
       const payload = (await response.json().catch(() => ({}))) as {
         reclassified?: number;
+        byTarget?: { AUTOMATED?: number; TICKET?: number; NOT_FOUND?: number };
         error?: string;
       };
       if (!response.ok) throw new Error(payload.error ?? "Detection failed");
-      setDetectNotice(
-        payload.reclassified && payload.reclassified > 0
-          ? `Reclassified ${payload.reclassified} thread${payload.reclassified === 1 ? "" : "s"} as automated.`
-          : "No automated replies found among the unchecked threads.",
-      );
+      if (payload.reclassified && payload.reclassified > 0) {
+        const parts: string[] = [];
+        if (payload.byTarget?.NOT_FOUND) parts.push(`${payload.byTarget.NOT_FOUND} not found`);
+        if (payload.byTarget?.TICKET) parts.push(`${payload.byTarget.TICKET} tickets`);
+        if (payload.byTarget?.AUTOMATED) parts.push(`${payload.byTarget.AUTOMATED} automated`);
+        setDetectNotice(
+          `Reclassified ${payload.reclassified} thread${payload.reclassified === 1 ? "" : "s"}: ${parts.join(", ")}.`,
+        );
+      } else {
+        setDetectNotice("No machine replies found among the unchecked threads.");
+      }
       await load();
     } catch (err) {
       setDetectNotice(err instanceof Error ? err.message : "Detection failed");
@@ -262,7 +269,7 @@ export function InboxList() {
           disabled={detectBusy}
           onClick={detectAutomated}
         >
-          {detectBusy ? "Detecting..." : "Detect automated replies"}
+          {detectBusy ? "Scanning..." : "Re-run reply filters"}
         </button>
       </div>
       {detectNotice ? <p className="mt-2 text-sm text-muted">{detectNotice}</p> : null}

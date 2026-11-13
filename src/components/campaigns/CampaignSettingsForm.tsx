@@ -19,6 +19,7 @@ interface CampaignSettingsFormProps {
     windowStart: string;
     windowEnd: string;
     businessDaysOnly: boolean;
+    requireOpenForFollowUps: boolean;
     signatureText: string;
     senderName: string;
     companyName: string;
@@ -51,6 +52,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
   const [windowStart, setWindowStart] = useState(initial.windowStart);
   const [windowEnd, setWindowEnd] = useState(initial.windowEnd);
   const [businessDaysOnly, setBusinessDaysOnly] = useState(initial.businessDaysOnly);
+  const [requireOpenForFollowUps, setRequireOpenForFollowUps] = useState(initial.requireOpenForFollowUps);
   const [signatureText, setSignatureText] = useState(initial.signatureText);
   const [senderName, setSenderName] = useState(initial.senderName);
   const [companyName, setCompanyName] = useState(initial.companyName);
@@ -76,6 +78,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
         windowStart,
         windowEnd,
         businessDaysOnly,
+        requireOpenForFollowUps,
         signatureText,
         senderName,
         companyName,
@@ -91,7 +94,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
     if (data.enrollment) {
       const e = data.enrollment;
       setNotice(
-        `Settings saved. Enrollment ran for the attached list: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedIneligible} ineligible, ${e.skippedInvalidVerification ?? 0} failed verification, ${e.enrolledRisky ?? 0} enrolled but flagged RISKY by verification.`,
+        `Settings saved. Enrollment ran for the attached list: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedCrossCampaign ?? 0} skipped because they are in another campaign, ${e.skippedIneligible} ineligible, ${e.skippedInvalidVerification ?? 0} failed verification, ${e.enrolledRisky ?? 0} enrolled but flagged RISKY by verification.`,
       );
     } else {
       setNotice("Settings saved.");
@@ -139,6 +142,20 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
           <input type="checkbox" checked={businessDaysOnly} disabled={!editable} onChange={(e) => setBusinessDaysOnly(e.target.checked)} />
           Business days only (skip weekends in the campaign timezone)
         </label>
+        <div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={requireOpenForFollowUps} disabled={!editable} onChange={(e) => setRequireOpenForFollowUps(e.target.checked)} />
+            Follow-ups only to leads who viewed the previous email
+          </label>
+          <p className="mt-1 text-xs text-muted">
+            When this is on, step 2 and later send only to leads who viewed the previous step.
+            A follow-up that comes due for a lead who never viewed ends that lead's sequence
+            with the note "Follow-up not sent: the lead did not view the previous email."
+            Turn it off and follow-ups send to everyone on schedule, viewed or not. Views are
+            approximate: some mail apps load the tracking image automatically, and others
+            block it for real readers.
+          </p>
+        </div>
       </div>
 
       <h3 className="mt-6 text-sm font-semibold">Sender identity for this campaign</h3>

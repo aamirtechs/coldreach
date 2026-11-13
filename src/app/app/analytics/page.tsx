@@ -113,7 +113,7 @@ export default async function AnalyticsPage() {
                 <th className="px-4 py-3 font-medium">Positive</th>
                 <th className="px-4 py-3 font-medium">Automated replies</th>
                 <th className="px-4 py-3 font-medium">Unsub rate</th>
-                <th className="px-4 py-3 font-medium">Opens (unreliable)</th>
+                <th className="px-4 py-3 font-medium">Views (unreliable)</th>
               </tr>
             </thead>
             <tbody>
@@ -146,8 +146,8 @@ export default async function AnalyticsPage() {
         </div>
       )}
       <p className="mt-4 text-xs text-muted">
-        Opens are reported as a raw count in their own column because mail privacy features make
-        them unreliable: some clients prefetch tracking pixels and invent opens, others block them
+        Views are reported as a raw count in their own column because mail privacy features make
+        them unreliable: some clients prefetch tracking pixels and invent views, others block them
         entirely. They are never used as a denominator.
       </p>
 

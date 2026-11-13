@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 /**
- * Reclassify-automated route: only REFERRAL, NEUTRAL, and
- * unclassified threads are scanned, only detector matches move to
- * AUTOMATED, and matching REPLIED events follow the thread.
+ * Reclassify-automated route (v1.27.0): AUTOMATED, POSITIVE,
+ * REFERRAL, NEUTRAL, and unclassified threads are scanned. The
+ * full rules engine runs per thread: NOT_FOUND and TICKET apply
+ * from any scanned label, AUTOMATED only from REFERRAL, NEUTRAL,
+ * or unclassified, and matching REPLIED events follow the thread.
  */
 
 const mocks = vi.hoisted(() => ({
@@ -45,7 +47,7 @@ function thread(id: string, classification: string | null, fromEmail: string, bo
 }
 
 describe("POST /api/threads/reclassify-automated", () => {
-  it("scans only REFERRAL, NEUTRAL, and unclassified threads", async () => {
+  it("scans AUTOMATED, POSITIVE, REFERRAL, NEUTRAL, and unclassified threads", async () => {
     mocks.prisma.thread.findMany.mockResolvedValue([]);
     const response = await POST();
     expect(response.status).toBe(200);
@@ -53,23 +55,30 @@ describe("POST /api/threads/reclassify-automated", () => {
       mocks.prisma.thread.findMany.mock.calls[0]?.[0] as { where: { OR: unknown } }
     ).where;
     expect(where.OR).toEqual([
+      { classification: "AUTOMATED" },
+      { classification: "POSITIVE" },
       { classification: "REFERRAL" },
       { classification: "NEUTRAL" },
       { classification: null },
     ]);
   });
 
-  it("reclassifies detector matches and leaves human threads alone", async () => {
+  it("reclassifies machine matches and leaves human threads alone", async () => {
     mocks.prisma.thread.findMany.mockResolvedValue([
       thread("t-1", "REFERRAL", "support@wati.io", WATI_BODY),
       thread("t-2", "NEUTRAL", "sam@poochandmutt.example", "Thanks, looping in our vet tech Sara to help."),
       thread("t-3", null, "tickets@vendor.example", "We received your request. Ticket #4821 has been created."),
+      thread("t-4", "POSITIVE", "Mailer-Daemon@mail.example", "Undelivered Mail Returned to Sender. The user unknown in virtual alias table."),
     ]);
     const response = await POST();
     const data = await response.json();
-    expect(data).toEqual({ scanned: 3, reclassified: 2 });
+    expect(data).toEqual({
+      scanned: 4,
+      reclassified: 3,
+      byTarget: { AUTOMATED: 1, TICKET: 1, NOT_FOUND: 1 },
+    });
     const updatedIds = mocks.prisma.thread.update.mock.calls.map((call) => call[0].where.id);
-    expect(updatedIds).toEqual(["t-1", "t-3"]);
-    expect(mocks.prisma.emailEvent.updateMany).toHaveBeenCalledTimes(2);
+    expect(updatedIds).toEqual(["t-1", "t-3", "t-4"]);
+    expect(mocks.prisma.emailEvent.updateMany).toHaveBeenCalledTimes(3);
   });
 });

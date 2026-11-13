@@ -113,7 +113,10 @@ function addToTallies(
       tallies.bounced += count;
       break;
     case "REPLIED":
-      if (classification?.toUpperCase() === "AUTOMATED") {
+      // Non-human classifications (v1.27.0: AUTOMATED, TICKET and
+      // NOT_FOUND, see NON_HUMAN_CLASSIFICATIONS in classify.ts)
+      // count as automated replies, never as human replies.
+      if (["AUTOMATED", "TICKET", "NOT_FOUND"].includes(classification?.toUpperCase() ?? "")) {
         tallies.automatedReplies += count;
         break;
       }

@@ -36,6 +36,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         windowStart: campaign.windowStart,
         windowEnd: campaign.windowEnd,
         businessDaysOnly: campaign.businessDaysOnly,
+        requireOpenForFollowUps: campaign.requireOpenForFollowUps,
         signatureText: campaign.signatureText,
         senderName: campaign.senderName,
         companyName: campaign.companyName,
@@ -66,6 +67,7 @@ interface PatchBody {
   windowStart?: unknown;
   windowEnd?: unknown;
   businessDaysOnly?: unknown;
+  requireOpenForFollowUps?: unknown;
   signatureText?: unknown;
   senderName?: unknown;
   companyName?: unknown;
@@ -163,6 +165,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     if (body.businessDaysOnly !== undefined) {
       data.businessDaysOnly = body.businessDaysOnly === true;
+    }
+    if (body.requireOpenForFollowUps !== undefined) {
+      data.requireOpenForFollowUps = body.requireOpenForFollowUps === true;
     }
     if (body.signatureText !== undefined) {
       // Signature is free text printed under every email this

@@ -10,15 +10,22 @@
  * Rule order matters and is intentional:
  *   1. OUT_OF_OFFICE: an auto-reply is not a human decision, even when
  *      it happens to mention interest or other keywords.
- *   2. AUTOMATED: a machine receipt, system notice, or support routing
- *      message is not a human decision either. It is checked after
- *      out-of-office so a vacation auto-reply keeps its own label.
- *   3. NEGATIVE: an opt-out or rejection must win over any polite
+ *   2. NOT_FOUND (v1.27.0): a delivery failure notice ("Undelivered
+ *      Mail Returned to Sender", "Address not found") means the
+ *      address does not exist; it is nobody's reply at all, and it
+ *      gets its own filter so bounce noise never masquerades as
+ *      interest the way it did in October 2026.
+ *   3. TICKET (v1.27.0): a helpdesk ticket receipt or ticket thread
+ *      ("[Ticket #11520]", "a ticket has been created") is a system
+ *      handling the message, not a person answering it.
+ *   4. AUTOMATED: a machine receipt, system notice, or support routing
+ *      message is not a human decision either.
+ *   5. NEGATIVE: an opt-out or rejection must win over any polite
  *      filler around it ("Thanks, but please remove me" is a no).
- *   4. REFERRAL: "I am not the right person, try Jane" redirects the
+ *   6. REFERRAL: "I am not the right person, try Jane" redirects the
  *      conversation rather than answering it.
- *   5. POSITIVE: an explicit expression of interest or a next step.
- *   6. NEUTRAL: the honest default.
+ *   7. POSITIVE: an explicit expression of interest or a next step.
+ *   8. NEUTRAL: the honest default.
  */
 
 export type ReplyClassification =
@@ -27,6 +34,8 @@ export type ReplyClassification =
   | "OUT_OF_OFFICE"
   | "REFERRAL"
   | "AUTOMATED"
+  | "TICKET"
+  | "NOT_FOUND"
   | "NEUTRAL";
 
 export const REPLY_CLASSIFICATIONS: ReplyClassification[] = [
@@ -35,7 +44,21 @@ export const REPLY_CLASSIFICATIONS: ReplyClassification[] = [
   "OUT_OF_OFFICE",
   "REFERRAL",
   "AUTOMATED",
+  "TICKET",
+  "NOT_FOUND",
   "NEUTRAL",
+];
+
+/**
+ * Classifications that are machine outcomes, not a person's answer:
+ * they stay out of every human reply figure and out of the inbox
+ * Humans only view (v1.27.0; AUTOMATED alone carried this role
+ * before TICKET and NOT_FOUND were split out of it).
+ */
+export const NON_HUMAN_CLASSIFICATIONS: ReplyClassification[] = [
+  "AUTOMATED",
+  "TICKET",
+  "NOT_FOUND",
 ];
 
 const OUT_OF_OFFICE_PHRASES = [
@@ -118,6 +141,62 @@ const AUTOMATED_SYSTEM_PHRASES = [
   "undeliverable",
   "message not delivered",
   "delivery has failed",
+];
+
+// Delivery failure wording (v1.27.0): the sending server reporting
+// that the address does not exist or cannot be reached. Checked on
+// subject and body together, the way the mailer-daemon writes them.
+const NOT_FOUND_PHRASES = [
+  "undelivered mail returned to sender",
+  "delivery status notification",
+  "mail delivery failed",
+  "delivery has failed",
+  "delivery failure",
+  "message not delivered",
+  "message could not be delivered",
+  "could not be delivered",
+  "undeliverable",
+  "address not found",
+  "recipient not found",
+  "user unknown",
+  "no such user",
+  "mailbox not found",
+  "no such recipient",
+  "550 5.1.1",
+  "5.1.1",
+  "returned to sender",
+  "failure notice",
+  "wasn't delivered",
+  "was not delivered",
+  "address couldn't be found",
+  "address could not be found",
+  "tried to reach does not exist",
+  "recipient address rejected",
+  "no mailbox here by that name",
+  "invalid recipient",
+];
+
+// Helpdesk ticket wording (v1.27.0): a ticketing system received or
+// is handling the message. A numbered ticket reference in the
+// subject is the strongest signal; the body phrases are the
+// receipts those systems send.
+const TICKET_SUBJECT_PATTERN = /ticket\s*#?\s*\d+/i;
+const TICKET_BODY_PHRASES = [
+  "ticket has been created",
+  "a ticket has been created",
+  "your ticket has been created",
+  "ticket has been created for you",
+  "a new ticket has been created",
+  "we have opened a ticket",
+  "your ticket number",
+  "ticket number",
+  "your ticket id",
+  "support ticket",
+  "this ticket has been closed",
+  "your ticket has been closed",
+  "ticket has been closed",
+  "please type your reply above this line",
+  "powered by freshdesk",
 ];
 
 const AUTOMATED_BODY_PHRASES = [
@@ -277,6 +356,39 @@ export function isAutomatedReply(
 }
 
 /**
+ * True when the message is a delivery failure notice: the address
+ * does not exist or the sending server could not deliver (v1.27.0).
+ */
+export function isNotFoundReply(
+  subject: string | null | undefined,
+  body: string,
+): boolean {
+  const text = `${subject ?? ""}\n${body ?? ""}`.toLowerCase();
+  return containsAny(text, NOT_FOUND_PHRASES);
+}
+
+/**
+ * True when the message is a helpdesk ticket receipt or sits in a
+ * ticket thread: a numbered ticket reference in the subject, or
+ * ticket receipt wording in the body (v1.27.0).
+ */
+export function isTicketReply(
+  subject: string | null | undefined,
+  body: string,
+): boolean {
+  if (subject && TICKET_SUBJECT_PATTERN.test(subject)) {
+    return true;
+  }
+  const bodyText = (body ?? "").toLowerCase();
+  // A numbered ticket reference in the body ("Ticket #4821 has been
+  // created") is the same receipt signal the subject pattern catches.
+  if (/ticket\s*#\s*\d+/.test(bodyText)) {
+    return true;
+  }
+  return containsAny(bodyText, TICKET_BODY_PHRASES);
+}
+
+/**
  * Classifies a reply from its subject and body. Subject is weighted the
  * same as body: out-of-office responders put the signal in the subject.
  * The optional sender address only feeds the AUTOMATED check.
@@ -290,6 +402,12 @@ export function classifyReply(
 
   if (containsAny(text, OUT_OF_OFFICE_PHRASES)) {
     return "OUT_OF_OFFICE";
+  }
+  if (isNotFoundReply(subject, body)) {
+    return "NOT_FOUND";
+  }
+  if (isTicketReply(subject, body)) {
+    return "TICKET";
   }
   if (isAutomatedReply(fromEmail, subject, body)) {
     return "AUTOMATED";

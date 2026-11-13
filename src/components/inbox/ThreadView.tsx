@@ -44,7 +44,7 @@ interface ThreadDetail {
   notes: ThreadNote[];
 }
 
-const CLASSIFICATIONS = ["POSITIVE", "NEGATIVE", "OUT_OF_OFFICE", "REFERRAL", "NEUTRAL", "AUTOMATED"];
+const CLASSIFICATIONS = ["POSITIVE", "NEGATIVE", "OUT_OF_OFFICE", "REFERRAL", "NEUTRAL", "AUTOMATED", "TICKET", "NOT_FOUND"];
 
 /**
  * Conversation view: full message history, a reply composer that sends

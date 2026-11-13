@@ -162,7 +162,7 @@ describe("enrollCampaign per-lead timezone stamping (v1.5.0)", () => {
   });
 });
 
-describe("enrollCampaign cross-campaign duplicate guard (v1.11.0)", () => {
+describe("enrollCampaign cross-campaign duplicate rule (v1.27.0 skip semantics)", () => {
   // A lead belongs to exactly one list, so two campaigns conflict
   // when they draw on the same list (the guard's production case:
   // one list feeding a second campaign while the first is live).
@@ -192,7 +192,7 @@ describe("enrollCampaign cross-campaign duplicate guard (v1.11.0)", () => {
     return campaign;
   }
 
-  it("refuses with 409 conflicts and enrolls nothing when a lead is in another campaign", async () => {
+  it("skips a lead already in another campaign and reports the conflict, enrolling nothing for it", async () => {
     const first = await makeCampaignWithList("guard-a", [{ email: "shared@acme.com" }]);
     const firstResult = await enrollCampaign(db, { workspaceId, campaignId: first.id });
     expect(firstResult.enrolled).toBe(1);
@@ -203,17 +203,11 @@ describe("enrollCampaign cross-campaign duplicate guard (v1.11.0)", () => {
     });
 
     const second = await makeSecondCampaignOnList(first.leadListId!, "guard-b");
-    let thrown: unknown = null;
-    try {
-      await enrollCampaign(db, { workspaceId, campaignId: second.id });
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(Error);
-    const err = thrown as Error & { status?: number; conflicts?: Array<Record<string, unknown>> };
-    expect(err.status).toBe(409);
-    expect(err.conflicts).toHaveLength(1);
-    expect(err.conflicts?.[0]).toMatchObject({
+    const result = await enrollCampaign(db, { workspaceId, campaignId: second.id });
+    expect(result.enrolled).toBe(0);
+    expect(result.skippedCrossCampaign).toBe(1);
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.conflicts[0]).toMatchObject({
       email: "shared@acme.com",
       campaignName: first.name,
       contacted: true,
@@ -222,6 +216,36 @@ describe("enrollCampaign cross-campaign duplicate guard (v1.11.0)", () => {
       where: { campaignId: second.id },
     });
     expect(secondEnrollments).toHaveLength(0);
+  });
+
+  it("skips by email even when the duplicate is a case-variant lead row in another list, and enrolls the rest", async () => {
+    // The (workspaceId, email) unique constraint forbids two rows
+    // with the identical address, but its collation is case
+    // sensitive, so a case variant row (Dup@ vs dup@) can exist in
+    // another list; the rule matches on the lowercased address.
+    const first = await makeCampaignWithList("guard-mix-a", [{ email: "dup@acme.com" }]);
+    await enrollCampaign(db, { workspaceId, campaignId: first.id });
+
+    const listB = await db.leadList.create({
+      data: { workspaceId, name: "Guard mix B list" },
+    });
+    await db.lead.createMany({
+      data: [
+        { workspaceId, listId: listB.id, email: "Dup@acme.com", status: "NEW", fields: {}, tags: [] },
+        { workspaceId, listId: listB.id, email: "fresh@acme.com", status: "NEW", fields: {}, tags: [] },
+      ],
+    });
+    const second = await makeSecondCampaignOnList(listB.id, "guard-mix-b");
+    const result = await enrollCampaign(db, { workspaceId, campaignId: second.id });
+    expect(result.enrolled).toBe(1);
+    expect(result.skippedCrossCampaign).toBe(1);
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.conflicts[0]).toMatchObject({ email: "Dup@acme.com", campaignName: first.name });
+    const enrolledEmails = await db.enrollment.findMany({
+      where: { campaignId: second.id },
+      include: { lead: { select: { email: true } } },
+    });
+    expect(enrolledEmails.map((entry) => entry.lead.email)).toEqual(["fresh@acme.com"]);
   });
 
   it("enrolls with force despite the conflict", async () => {

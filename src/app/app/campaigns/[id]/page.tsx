@@ -139,11 +139,22 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         attached list
       </p>
       <p className="mt-1 text-xs text-muted">
-        Follow-up rule: step 2 and later send only to leads who opened the previous email. A lead
-        who has not opened it when the follow-up comes due is completed instead of emailed.
-        Automatic opens (a mail app or scanner loading the email within a minute of sending) do
-        not count as opens. Opens are still approximate, since some mail apps prefetch images
-        more slowly and others block them.
+        {campaign.requireOpenForFollowUps ? (
+          <>
+            Follow-up rule (on for this campaign): step 2 and later send only to leads who
+            viewed the previous email. A lead who has not viewed it when the follow-up comes
+            due is completed instead of emailed. Automatic views (a mail app or scanner
+            loading the email within a minute of sending) do not count as views. Views are
+            still approximate, since some mail apps prefetch images more slowly and others
+            block them. The rule can be turned off in Settings below.
+          </>
+        ) : (
+          <>
+            Follow-up rule (off for this campaign): step 2 and later send to every lead on
+            schedule, whether they viewed the previous email or not. The rule can be turned
+            back on in Settings below.
+          </>
+        )}
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted">
@@ -169,6 +180,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           windowStart: campaign.windowStart,
           windowEnd: campaign.windowEnd,
           businessDaysOnly: campaign.businessDaysOnly,
+          requireOpenForFollowUps: campaign.requireOpenForFollowUps,
           signatureText: campaign.signatureText ?? "",
           senderName: campaign.senderName ?? "",
           companyName: campaign.companyName ?? "",
@@ -216,7 +228,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </div>
             <div className="mt-4 rounded-lg border border-dashed border-line p-3">
               <p className="text-xs text-muted">
-                Opens: {metrics.opens.count}. Opens are an unreliable signal: mail privacy
+                Views: {metrics.opens.count}. Views are an unreliable signal: mail privacy
                 features both inflate them (prefetching) and erase them (blocking), so they are
                 reported separately and never used as a rate denominator.
               </p>

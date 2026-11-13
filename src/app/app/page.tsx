@@ -110,7 +110,7 @@ export default async function DashboardPage() {
         where: {
           workspaceId,
           type: "OPENED",
-          // Machine opens (v1.20.0) are not human opens.
+          // Machine views (v1.20.0) are not human views.
           OR: [{ classification: null }, { classification: { not: "MACHINE" } }],
         },
       }),
@@ -166,10 +166,10 @@ export default async function DashboardPage() {
       newMetric: { key: "sent", label: "new sends" },
     },
     {
-      label: "Opened",
+      label: "Viewed",
       value: openedCount,
       icon: Eye,
-      note: "Human opens, all time (automatic scanner opens excluded)",
+      note: "Human views, all time (automatic scanner views excluded)",
       newMetric: { key: "opened", label: "new opens" },
     },
     {

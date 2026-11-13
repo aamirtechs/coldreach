@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession } from "@/lib/api";
-import { enrollCampaign, type EnrollConflict } from "@/lib/campaigns/enroll";
+import { enrollCampaign } from "@/lib/campaigns/enroll";
 import { writeAuditLog } from "@/lib/audit";
 
 /**
- * Enroll the campaign's lead list. Cross-campaign duplicate guard
- * (v1.11.0): when leads that would enroll are already enrolled in
- * another campaign of the workspace, the enroll is refused with 409
- * and the conflict list, and nothing is enrolled. The client shows
- * the conflicts and resends with { force: true } only when the
- * operator confirms the double outreach is intended.
+ * Enroll the campaign's lead list. Cross-campaign duplicate rule
+ * (v1.27.0, replacing the v1.11.0 block-all 409 guard): leads whose
+ * email already sits in another campaign of the workspace are
+ * skipped, counted in skippedCrossCampaign, and listed in the
+ * result's conflicts; the rest enroll normally. A caller may still
+ * resend with { force: true } to enroll the skipped leads anyway
+ * when double outreach is genuinely intended.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession("MEMBER");
@@ -25,22 +26,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       campaignId: id,
       force,
     });
+    const { conflicts: _conflicts, ...resultCounts } = result;
     await writeAuditLog({
       action: "campaign.enroll",
       userId: ctx.user.id,
       workspaceId: ctx.workspace.id,
-      metadata: { campaignId: id, result: { ...result } },
+      metadata: { campaignId: id, result: { ...resultCounts, conflictCount: result.conflicts.length } },
     });
     return NextResponse.json({ enrollment: result });
   } catch (error) {
-    const conflicts = (error as { conflicts?: EnrollConflict[] })?.conflicts;
-    const status = (error as { status?: number })?.status;
-    if (status === 409 && Array.isArray(conflicts)) {
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Enrollment conflicts", conflicts },
-        { status: 409 },
-      );
-    }
     return apiError(error);
   }
 }

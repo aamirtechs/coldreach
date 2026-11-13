@@ -306,6 +306,13 @@ model Campaign {
   windowStart      String         @default("09:00")
   windowEnd        String         @default("17:00")
   businessDaysOnly Boolean        @default(true)
+  // Follow-up open gate (v1.27.0): when true (the default, and the
+  // behaviour since v1.17.0), steps 2 and later send only to leads
+  // who viewed the previous step; a due follow-up with no view is
+  // completed unsent. When false, follow-ups send to every lead on
+  // schedule regardless of views. Per campaign, editable in the
+  // campaign Settings.
+  requireOpenForFollowUps Boolean   @default(true)
   // Optional per-campaign email signature (plain text, may use the
   // lead personalisation tokens). The worker renders it between the
   // step body and the compliance footer on every send, so editing it

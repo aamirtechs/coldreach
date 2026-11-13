@@ -18,6 +18,53 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.27.0 (2026-11-13)
+
+Four operator requests in one release.
+
+1. The follow-up open gate is now a per-campaign switch. Campaign
+   Settings gains "Follow-ups only to leads who viewed the previous
+   email" (stored as Campaign.requireOpenForFollowUps, default on,
+   so every existing campaign behaves exactly as before). Turning
+   it off sends step 2 and later to every lead on schedule. The
+   gate's stored reason now uses the Viewed wording and points at
+   the Settings switch, and the campaign page explains the rule's
+   state for that campaign. Prod migration
+   0016_campaign_open_gate_toggle.
+
+2. Email opens are labelled Viewed everywhere a person reads them:
+   the dashboard card, Outbox badges and filter (Viewed, Not
+   viewed, Auto-view), campaign and analytics Views figures, the
+   admin summary, and the landing page. The word Open now belongs
+   to thread and ticket status only (a conversation that is still
+   Open), which removes the mix-up between the two meanings.
+   Internal event types are unchanged.
+
+3. Reply filters learned from the current inbox. Two new
+   classifications split out of the machine bucket: TICKET
+   (helpdesk receipts and numbered ticket subjects such as
+   "[Ticket #11520]", Freshdesk and Zendesk receipt wording) and
+   NOT_FOUND (delivery failure notices: "Undelivered Mail Returned
+   to Sender", "Address not found", "user unknown", 5.1.1). Both
+   count as non-human in reply metrics alongside AUTOMATED, the
+   inbox classification filter and the manual override list carry
+   them, Humans only hides all three, and the re-run pass (the
+   Re-run reply filters button) now applies TICKET and NOT_FOUND
+   even to threads wearing a POSITIVE mislabel, which is how the
+   October undelivered notices once posed as interest.
+
+4. Cross-campaign duplicates now skip instead of blocking.
+   Enrolling a list no longer refuses the whole enroll with a 409
+   when some leads already sit in another campaign: those leads
+   are skipped, counted as skippedCrossCampaign, and listed with
+   the campaign that holds them, while the rest enroll normally.
+   Matching is by lowercased email as well as by lead row, so a
+   case-variant duplicate row in another list is caught too.
+   Suppressed leads were already skipped at enroll and still are;
+   the enroll notices in Campaign actions and Settings now report
+   every skip reason including the new one. An Enroll these anyway
+   override remains for deliberate double outreach.
+
 ## 1.26.1 (2026-11-13)
 
 Lead search also matches the icebreaker text. The live check of

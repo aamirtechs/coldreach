@@ -450,7 +450,10 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       continue;
     }
 
-    // Gate: open-gated follow-ups (v1.17.0, at Amir's instruction).
+    // Gate: open-gated follow-ups (v1.17.0, at Amir's instruction;
+    // per-campaign toggle v1.27.0). Campaigns whose Settings turn
+    // requireOpenForFollowUps off skip this gate entirely, and
+    // their follow-ups send to every lead on schedule.
     // Step 2 and later send only to leads who opened the previous
     // step. The open is the recorded OPENED event for the previous
     // step index (one per enrollment and step, recorded by the
@@ -464,7 +467,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     // them, image blocking hides real ones); that caveat is Amir's
     // accepted trade-off for this rule and is stated in the UI copy
     // on the campaign page.
-    if (enrollment.currentStep >= 1) {
+    if (enrollment.currentStep >= 1 && campaign.requireOpenForFollowUps !== false) {
       const previousStepIndex = enrollment.currentStep - 1;
       const opened = await db.emailEvent.findUnique({
         where: { idempotencyKey: `evt:${enrollment.id}:${previousStepIndex}:OPENED` },
@@ -498,8 +501,8 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
               nextSendAt: null,
               lastError:
                 opened !== null
-                  ? "Follow-up not sent: the previous email shows only an automatic open (a mail app or security scanner loaded it within a minute of sending), which does not count as the lead opening it. Steps 2 and later go only to leads who opened the previous step."
-                  : "Follow-up not sent: the lead did not open the previous email. Steps 2 and later go only to leads who opened the previous step.",
+                  ? "Follow-up not sent: the previous email shows only an automatic view (a mail app or security scanner loaded it within a minute of sending), which does not count as the lead viewing it. Steps 2 and later go only to leads who viewed the previous step. This rule can be turned off in the campaign Settings."
+                  : "Follow-up not sent: the lead did not view the previous email. Steps 2 and later go only to leads who viewed the previous step. This rule can be turned off in the campaign Settings.",
             },
           });
           summary.skippedNotOpened += 1;

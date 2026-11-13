@@ -42,7 +42,7 @@ const FEATURES: Feature[] = [
   {
     icon: BarChart3,
     title: "Analytics that admit what they do not know",
-    body: "Delivered, bounced, replied, and booked, computed from real events. Opens are labelled as the imperfect signal they are, never dressed up as fact.",
+    body: "Delivered, bounced, replied, and booked, computed from real events. Views are labelled as the imperfect signal they are, never dressed up as fact.",
   },
   {
     icon: Sparkles,

@@ -1,23 +1,33 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireSession } from "@/lib/api";
-import { isAutomatedReply } from "@/lib/domain/classify";
+import { classifyReply } from "@/lib/domain/classify";
 import { writeAuditLog } from "@/lib/audit";
 
 /**
- * Automated reply backfill (v1.11.0).
+ * Machine reply backfill (v1.11.0; extended v1.27.0).
  *
- * Threads classified before AUTOMATED existed can sit in the inbox
- * as REFERRAL or NEUTRAL even though the reply was a machine notice
- * (the Wati support routing reply was exactly that case). This scans
- * the workspace's REFERRAL, NEUTRAL, and unclassified threads, runs
- * the automated detector over each thread's latest inbound message,
- * and updates matches to AUTOMATED, thread and matching REPLIED
- * events alike, so inbox filters and reply metrics agree.
+ * Threads classified before a machine label existed can sit in the
+ * inbox wearing the wrong one: the Wati support routing reply sat
+ * as REFERRAL before AUTOMATED existed, ticket receipts sat inside
+ * AUTOMATED before TICKET was split out, and the October 2026
+ * undelivered notices were labelled POSITIVE because nothing had a
+ * NOT_FOUND bucket. This scans the workspace's AUTOMATED, POSITIVE,
+ * REFERRAL, NEUTRAL, and unclassified threads, runs the full rules
+ * engine over each thread's latest inbound message, and applies
+ * the machine outcomes:
  *
- * Threads classified POSITIVE, NEGATIVE, or OUT_OF_OFFICE are never
- * touched: those carry genuine human signal (or a deliberate manual
- * override) and a heuristic must not rewrite them.
+ *   - NOT_FOUND and TICKET apply from any scanned label: a delivery
+ *     failure or a ticket receipt is a fact about the message, not
+ *     a reading of its tone, so even a POSITIVE mislabel is fixed.
+ *   - AUTOMATED applies only from REFERRAL, NEUTRAL, or
+ *     unclassified threads, exactly as the v1.11.0 pass behaved.
+ *
+ * NEGATIVE and OUT_OF_OFFICE threads are never touched: those
+ * carry genuine human signal (or a deliberate manual override) and
+ * a heuristic must not rewrite them. Thread and matching REPLIED
+ * events are updated together, so inbox filters and reply metrics
+ * agree.
  */
 export async function POST() {
   const session = await requireSession("MEMBER");
@@ -27,11 +37,18 @@ export async function POST() {
     const threads = await prisma.thread.findMany({
       where: {
         workspaceId: ctx.workspace.id,
-        OR: [{ classification: "REFERRAL" }, { classification: "NEUTRAL" }, { classification: null }],
+        OR: [
+          { classification: "AUTOMATED" },
+          { classification: "POSITIVE" },
+          { classification: "REFERRAL" },
+          { classification: "NEUTRAL" },
+          { classification: null },
+        ],
       },
       select: {
         id: true,
         leadId: true,
+        classification: true,
         messages: {
           where: { direction: "INBOUND" },
           orderBy: { createdAt: "desc" },
@@ -41,14 +58,25 @@ export async function POST() {
       },
     });
 
+    const byTarget = { AUTOMATED: 0, TICKET: 0, NOT_FOUND: 0 };
     let reclassified = 0;
     for (const thread of threads) {
       const latest = thread.messages[0];
       if (!latest) continue;
-      if (!isAutomatedReply(latest.fromEmail, latest.subject, latest.body)) continue;
+      const next = classifyReply(latest.subject, latest.body, latest.fromEmail);
+      if (next !== "AUTOMATED" && next !== "TICKET" && next !== "NOT_FOUND") continue;
+      if (next === thread.classification) continue;
+      if (
+        next === "AUTOMATED" &&
+        thread.classification !== "REFERRAL" &&
+        thread.classification !== "NEUTRAL" &&
+        thread.classification !== null
+      ) {
+        continue;
+      }
       await prisma.thread.update({
         where: { id: thread.id },
-        data: { classification: "AUTOMATED" },
+        data: { classification: next },
       });
       if (thread.leadId) {
         await prisma.emailEvent.updateMany({
@@ -56,11 +84,12 @@ export async function POST() {
             workspaceId: ctx.workspace.id,
             type: "REPLIED",
             enrollment: { leadId: thread.leadId },
-            OR: [{ classification: "REFERRAL" }, { classification: "NEUTRAL" }, { classification: null }],
+            classification: thread.classification,
           },
-          data: { classification: "AUTOMATED" },
+          data: { classification: next },
         });
       }
+      byTarget[next] += 1;
       reclassified += 1;
     }
 
@@ -68,9 +97,9 @@ export async function POST() {
       action: "threads.reclassify_automated",
       userId: ctx.user.id,
       workspaceId: ctx.workspace.id,
-      metadata: { scanned: threads.length, reclassified },
+      metadata: { scanned: threads.length, reclassified, byTarget },
     });
-    return NextResponse.json({ scanned: threads.length, reclassified });
+    return NextResponse.json({ scanned: threads.length, reclassified, byTarget });
   } catch (error) {
     return apiError(error);
   }

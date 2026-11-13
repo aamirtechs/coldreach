@@ -882,7 +882,7 @@ describe("open-gated follow-ups (v1.17.0)", () => {
     const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
     expect(after?.status).toBe("COMPLETED");
     expect(after?.nextSendAt).toBeNull();
-    expect(after?.lastError).toContain("did not open the previous email");
+    expect(after?.lastError).toContain("did not view the previous email");
     const sentStep2 = await db.emailEvent.findUnique({
       where: { idempotencyKey: `send:${enrollment.id}:1` },
     });
@@ -901,7 +901,7 @@ describe("open-gated follow-ups (v1.17.0)", () => {
     expect(summary.skippedNotOpened).toBeGreaterThanOrEqual(1);
     const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
     expect(after?.status).toBe("COMPLETED");
-    expect(after?.lastError).toContain("automatic open");
+    expect(after?.lastError).toContain("automatic view");
     const sentStep2 = await db.emailEvent.findUnique({
       where: { idempotencyKey: `send:${enrollment.id}:1` },
     });
@@ -924,6 +924,25 @@ describe("open-gated follow-ups (v1.17.0)", () => {
     const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
     expect(after?.status).toBe("ACTIVE");
     expect(after?.currentStep).toBe(2);
+  });
+
+  it("sends step 2 without any open when the campaign has the open gate turned off (v1.27.0)", async () => {
+    const { campaign, enrollment } = await seedFollowUp({
+      suffix: "gateoff",
+      currentStep: 1,
+      prevSentAt: new Date("2026-11-01T10:00:00Z"),
+    });
+    await db.campaign.update({
+      where: { id: campaign.id },
+      data: { requireOpenForFollowUps: false },
+    });
+    await runSendTick({ db, now: new Date(), skipSync: true });
+    const sentStep2 = await db.emailEvent.findUnique({
+      where: { idempotencyKey: `send:${enrollment.id}:1` },
+    });
+    expect(sentStep2).not.toBeNull();
+    const after = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(after?.lastError ?? "").not.toContain("Follow-up not sent");
   });
 
   it("does not send step 3 when only step 1 was opened, not step 2", async () => {

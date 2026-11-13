@@ -76,7 +76,7 @@ export default async function PlatformAdminPage() {
     { label: "Leads", value: stats.totals.leads, note: "Across every workspace" },
     { label: "Enrollments", value: stats.totals.enrollments, note: "Leads in sequences, all time" },
     {
-      label: "Opens / clicks",
+      label: "Views / clicks",
       value: `${stats.events.OPENED} / ${stats.events.CLICKED}`,
       note: "Tracked events, all time",
     },

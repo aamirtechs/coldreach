@@ -79,6 +79,17 @@ describe("computeCampaignMetrics", () => {
     expect(metrics.rates.replyRate).toBeCloseTo(2 / 10);
   });
 
+  it("keeps TICKET and NOT_FOUND replies out of the human reply count too", () => {
+    const metrics = computeCampaignMetrics([
+      ...repeat("SENT", 10),
+      { type: "REPLIED", classification: "POSITIVE" },
+      { type: "REPLIED", classification: "TICKET" },
+      { type: "REPLIED", classification: "NOT_FOUND" },
+    ]);
+    expect(metrics.replies).toBe(1);
+    expect(metrics.automatedReplies).toBe(2);
+  });
+
   it("returns zeros for an empty event set", () => {
     const metrics = computeCampaignMetrics(events());
     expect(metrics.sent).toBe(0);

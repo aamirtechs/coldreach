@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 /**
- * Enroll route: the cross-campaign duplicate guard contract. The
- * enroll library is mocked so the route's own behavior is what is
- * under test: passing force through from the request body, mapping a
- * 409 conflict error to a JSON body carrying the conflicts list, and
- * returning the enrollment result on success.
+ * Enroll route: the cross-campaign duplicate rule contract
+ * (v1.27.0). The enroll library is mocked so the route's own
+ * behavior is what is under test: passing force through from the
+ * request body, and returning the enrollment result, whose
+ * conflicts list names the leads skipped as already enrolled in
+ * another campaign.
  */
 
 const mocks = vi.hoisted(() => ({
@@ -41,26 +42,33 @@ function request(body?: unknown) {
 const params = { params: Promise.resolve({ id: "camp-1" }) };
 
 describe("POST /api/campaigns/[id]/enroll", () => {
-  it("returns 409 with the conflicts list and enrolls nothing", async () => {
-    mocks.enrollCampaign.mockRejectedValueOnce(
-      Object.assign(new Error("1 lead is already enrolled in another campaign."), {
-        status: 409,
-        conflicts: [
-          {
-            leadId: "lead-1",
-            email: "shared@acme.com",
-            campaignName: "Other Campaign",
-            status: "ACTIVE",
-            contacted: true,
-          },
-        ],
-      }),
-    );
+  it("returns the enrollment with cross-campaign skips and their conflicts", async () => {
+    mocks.enrollCampaign.mockResolvedValueOnce({
+      enrolled: 1,
+      skippedSuppressed: 0,
+      skippedDuplicate: 0,
+      skippedIneligible: 0,
+      skippedInvalidVerification: 0,
+      enrolledRisky: 0,
+      skippedCrossCampaign: 1,
+      conflicts: [
+        {
+          leadId: "lead-1",
+          email: "shared@acme.com",
+          campaignName: "Other Campaign",
+          status: "ACTIVE",
+          contacted: true,
+        },
+      ],
+      totalInList: 2,
+    });
     const response = await POST(request(), params);
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(200);
     const data = await response.json();
-    expect(data.conflicts).toHaveLength(1);
-    expect(data.conflicts[0]).toMatchObject({ email: "shared@acme.com", contacted: true });
+    expect(data.enrollment.enrolled).toBe(1);
+    expect(data.enrollment.skippedCrossCampaign).toBe(1);
+    expect(data.enrollment.conflicts).toHaveLength(1);
+    expect(data.enrollment.conflicts[0]).toMatchObject({ email: "shared@acme.com", contacted: true });
     expect(mocks.enrollCampaign).toHaveBeenCalledWith(
       {},
       expect.objectContaining({ campaignId: "camp-1", force: false }),
@@ -75,6 +83,8 @@ describe("POST /api/campaigns/[id]/enroll", () => {
       skippedIneligible: 0,
       skippedInvalidVerification: 0,
       enrolledRisky: 0,
+      skippedCrossCampaign: 0,
+      conflicts: [],
       totalInList: 2,
     });
     const response = await POST(request({ force: true }), params);

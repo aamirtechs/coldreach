@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 /**
  * Outbox (v1.4.0): every email the workspace has sent, newest first,
  * read from the outbound thread messages the worker and reply sync
- * recorded. Opened and replied badges are derived from the recorded
+ * recorded. Viewed and replied badges are derived from the recorded
  * EmailEvents for each message's enrollment (plus inbound thread
  * messages for replies), never estimated. Filters: campaign, sending
  * account, open/reply status, and order, plus a text search by
@@ -185,7 +185,7 @@ export default async function OutboxPage({
   // Per enrollment, the earliest human open and the earliest
   // machine open (v1.20.0). An open classified MACHINE was a mail
   // app or scanner loading the pixel within a minute of the send;
-  // it is shown as Auto-open and never counts as Opened.
+  // it is shown as Auto-view and never counts as Viewed.
   const openInfoByPair = new Map<string, { humanAt: Date | null; machineAt: Date | null }>();
   for (const event of openedEvents) {
     if (!event.enrollmentId) {
@@ -247,10 +247,10 @@ export default async function OutboxPage({
     <div className="mx-auto max-w-6xl" data-tour="outbox">
       <h1 className="font-display text-2xl font-semibold tracking-tight">Outbox</h1>
       <p className="mt-1 text-sm text-muted">
-        Emails sent from {session.workspace.name}, read from recorded sends. Opened and replied
-        badges come from tracked events, never estimates. Opens a mail app or security scanner
-        triggers automatically within a minute of sending are labelled Auto-open and do not
-        count as opened.
+        Emails sent from {session.workspace.name}, read from recorded sends. Viewed and replied
+        badges come from tracked events, never estimates. Views a mail app or security scanner
+        triggers automatically within a minute of sending are labelled Auto-view and do not
+        count as viewed.
       </p>
 
       <form method="GET" className="card mt-6 flex flex-wrap items-end gap-3 p-4">
@@ -280,9 +280,9 @@ export default async function OutboxPage({
           <label className="label" htmlFor="ob-status">Status</label>
           <select id="ob-status" name="status" defaultValue={status} className="input">
             <option value="all">All sent</option>
-            <option value="opened">Opened</option>
+            <option value="opened">Viewed</option>
             <option value="replied">Replied</option>
-            <option value="not-opened">Not opened</option>
+            <option value="not-opened">Not viewed</option>
           </select>
         </div>
         <div>
@@ -313,11 +313,11 @@ export default async function OutboxPage({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{message.subject ?? "(no subject)"}</span>
                 {opened ? (
-                  <span className="badge bg-accent-soft text-accent">Opened</span>
+                  <span className="badge bg-accent-soft text-accent">Viewed</span>
                 ) : null}
                 {opened && openedAt ? (
                   <span className="text-xs text-muted">
-                    opened{" "}
+                    viewed{" "}
                     <RelativeTime
                       iso={openedAt.toISOString()}
                       fallback={`${openedAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}
@@ -327,9 +327,9 @@ export default async function OutboxPage({
                 ) : null}
                 {!opened && autoOpenedAt ? (
                   <>
-                    <span className="badge bg-surface text-muted">Auto-open</span>
+                    <span className="badge bg-surface text-muted">Auto-view</span>
                     <span className="text-xs text-muted">
-                      auto-opened{" "}
+                      auto-viewed{" "}
                       <RelativeTime
                         iso={autoOpenedAt.toISOString()}
                         fallback={`${autoOpenedAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}

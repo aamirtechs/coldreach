@@ -101,18 +101,15 @@ export function CampaignActions({
       force ? { force: true } : undefined,
     );
     if (!response.ok) {
-      if (response.status === 409 && Array.isArray(data.conflicts)) {
-        setConflicts(data.conflicts as EnrollConflict[]);
-        setNotice("Some of these leads are already enrolled in another campaign. Nothing was enrolled.");
-        return;
-      }
       setNotice(data.error ?? "Enrollment failed");
       return;
     }
-    setConflicts(null);
     const e = data.enrollment;
+    setConflicts(
+      Array.isArray(e.conflicts) && e.conflicts.length > 0 ? (e.conflicts as EnrollConflict[]) : null,
+    );
     setNotice(
-      `Enrollment complete: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedIneligible} ineligible, ${e.skippedInvalidVerification ?? 0} failed verification, ${e.enrolledRisky ?? 0} enrolled but flagged RISKY by verification, of ${e.totalInList} in the list.`,
+      `Enrollment complete: ${e.enrolled} enrolled, ${e.skippedSuppressed} suppressed, ${e.skippedDuplicate} already enrolled, ${e.skippedCrossCampaign ?? 0} skipped because they are in another campaign, ${e.skippedIneligible} ineligible, ${e.skippedInvalidVerification ?? 0} failed verification, ${e.enrolledRisky ?? 0} enrolled but flagged RISKY by verification, of ${e.totalInList} in the list.`,
     );
     router.refresh();
   }
@@ -178,7 +175,7 @@ export function CampaignActions({
       {conflicts ? (
         <div className="mt-4 rounded-lg border border-line p-4">
           <p className="text-sm font-medium">
-            {conflicts.length} lead{conflicts.length === 1 ? " is" : "s are"} already enrolled in another campaign:
+            {conflicts.length} lead{conflicts.length === 1 ? " was" : "s were"} skipped, already enrolled in another campaign:
           </p>
           <ul className="mt-2 space-y-1 text-sm text-muted">
             {conflicts.slice(0, 25).map((conflict) => (
@@ -198,7 +195,7 @@ export function CampaignActions({
               disabled={busy !== null}
               onClick={() => enroll(true)}
             >
-              Enroll anyway
+              Enroll these anyway
             </button>
             <button
               type="button"
@@ -206,7 +203,7 @@ export function CampaignActions({
               disabled={busy !== null}
               onClick={() => setConflicts(null)}
             >
-              Cancel
+              Dismiss
             </button>
           </div>
         </div>

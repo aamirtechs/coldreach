@@ -17,6 +17,14 @@ import { loadSuppressions } from "@/lib/suppressions";
  * guarantees at the database level. Leads verified RISKY do enroll;
  * they are counted in enrolledRisky so the operator sees the
  * deliverability risk they accepted.
+ *
+ * Cross-campaign rule (v1.27.0, replacing the v1.11.0 block-all
+ * guard): a lead whose email already sits in ANY other campaign of
+ * the workspace, whether as the same lead row or as a duplicate row
+ * in another list, is SKIPPED and counted in skippedCrossCampaign,
+ * with the conflicts attached to the result; the rest of the list
+ * enrolls normally. force still enrolls them anyway, for callers
+ * that deliberately want double outreach.
  */
 
 export interface EnrollResult {
@@ -28,12 +36,18 @@ export interface EnrollResult {
   skippedInvalidVerification: number;
   /** Enrolled leads whose verification status is RISKY. */
   enrolledRisky: number;
+  /** Leads skipped because their email is already enrolled in
+   *  another campaign of this workspace (v1.27.0). */
+  skippedCrossCampaign: number;
+  /** One entry per cross-campaign skip, for operator reporting. */
+  conflicts: EnrollConflict[];
   totalInList: number;
 }
 
 /**
- * One cross-campaign conflict (v1.11.0): a lead that this enroll call
- * would enroll is already enrolled in another campaign of the same
+ * One cross-campaign conflict: a lead this enroll call skipped
+ * (v1.27.0; the v1.11.0 guard blocked the whole enroll instead)
+ * because it is already enrolled in another campaign of the same
  * workspace, so enrolling would put the same contact into two live
  * outreach sequences at once.
  */
@@ -108,16 +122,29 @@ export async function enrollCampaign(
     eligible.push({ leadId: lead.id, fields: (lead.fields ?? {}) as LeadFields });
   }
 
-  // Cross-campaign duplicate guard (v1.11.0): a lead that would be
-  // enrolled here but already sits in another campaign of this
-  // workspace blocks the whole enroll unless the caller confirmed
-  // with force. Enrolling nothing on conflict keeps the action
-  // atomic: the operator sees exactly which contacts are affected
-  // and decides, instead of silently double-pitching some of them.
-  if (!args.force && eligible.length > 0) {
+  // Cross-campaign duplicate rule (v1.27.0): skip any eligible
+  // lead whose email already sits in another campaign of this
+  // workspace, and enroll the rest. Matching is by email as well
+  // as by lead row, because the same contact can exist as two lead
+  // rows in two lists. force enrolls them anyway.
+  const conflicts: EnrollConflict[] = [];
+  let skippedCrossCampaign = 0;
+  if (eligible.length > 0) {
+    const eligibleEmails = [...new Set(eligible.map((entry) => {
+      const lead = leads.find((candidate) => candidate.id === entry.leadId);
+      return (lead?.email ?? "").toLowerCase();
+    }).filter(Boolean))];
+    const sameEmailLeads = eligibleEmails.length
+      ? await db.lead.findMany({
+          where: { workspaceId: args.workspaceId, email: { in: eligibleEmails } },
+          select: { id: true, email: true },
+        })
+      : [];
+    const emailByLeadId = new Map(sameEmailLeads.map((lead) => [lead.id, lead.email.toLowerCase()]));
+    const candidateLeadIds = [...new Set([...eligible.map((entry) => entry.leadId), ...sameEmailLeads.map((lead) => lead.id)])];
     const otherEnrollments = await db.enrollment.findMany({
       where: {
-        leadId: { in: eligible.map((entry) => entry.leadId) },
+        leadId: { in: candidateLeadIds },
         campaign: { workspaceId: args.workspaceId, id: { not: campaign.id } },
       },
       select: {
@@ -128,20 +155,35 @@ export async function enrollCampaign(
       },
     });
     if (otherEnrollments.length > 0) {
-      const emailByLeadId = new Map(leads.map((lead) => [lead.id, lead.email]));
-      const conflicts: EnrollConflict[] = otherEnrollments.map((entry) => ({
-        leadId: entry.leadId,
-        email: emailByLeadId.get(entry.leadId) ?? "",
-        campaignName: entry.campaign.name,
-        status: entry.status,
-        contacted: entry.currentStep >= 1,
-      }));
-      throw Object.assign(
-        new Error(
-          `${conflicts.length} lead${conflicts.length === 1 ? " is" : "s are"} already enrolled in another campaign. Review the conflicts and enroll anyway only if double outreach is intended.`,
-        ),
-        { status: 409, conflicts },
-      );
+      const conflictByEmail = new Map<string, EnrollConflict>();
+      const leadEmailById = new Map(leads.map((lead) => [lead.id, lead.email.toLowerCase()]));
+      for (const entry of otherEnrollments) {
+        const email = emailByLeadId.get(entry.leadId) ?? leadEmailById.get(entry.leadId) ?? "";
+        if (!email || conflictByEmail.has(email)) continue;
+        conflictByEmail.set(email, {
+          leadId: entry.leadId,
+          email,
+          campaignName: entry.campaign.name,
+          status: entry.status,
+          contacted: entry.currentStep >= 1,
+        });
+      }
+      if (!args.force && conflictByEmail.size > 0) {
+        const kept: typeof eligible = [];
+        for (const entry of eligible) {
+          const lead = leads.find((candidate) => candidate.id === entry.leadId);
+          const email = (lead?.email ?? "").toLowerCase();
+          const conflict = conflictByEmail.get(email);
+          if (conflict) {
+            skippedCrossCampaign += 1;
+            conflicts.push({ ...conflict, leadId: entry.leadId, email: lead?.email ?? email });
+          } else {
+            kept.push(entry);
+          }
+        }
+        eligible.length = 0;
+        eligible.push(...kept);
+      }
     }
   }
 
@@ -179,6 +221,8 @@ export async function enrollCampaign(
     skippedIneligible,
     skippedInvalidVerification,
     enrolledRisky,
+    skippedCrossCampaign,
+    conflicts,
     totalInList: leads.length,
   };
 }

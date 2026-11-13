@@ -69,14 +69,44 @@ describe("classifyReply AUTOMATED", () => {
     expect(classifyReply("Re: Support and help center for Wati", watiBody, "support@wati.io")).toBe("AUTOMATED");
   });
 
-  it("classifies a ticket receipt as AUTOMATED", () => {
+  it("classifies a ticket receipt as TICKET", () => {
     expect(
       classifyReply(
         "Re: Help needed",
         "Thanks for contacting us. We received your request and a ticket has been created. Your ticket number is 48291.",
         "support@acme.com",
       ),
-    ).toBe("AUTOMATED");
+    ).toBe("TICKET");
+  });
+
+  it("classifies a numbered ticket subject as TICKET even with a human sounding body", () => {
+    expect(
+      classifyReply(
+        "[Ticket #11520] Re: Catalog help",
+        "Thanks for writing, we are looking into this now and will update you here.",
+        "support@acme.com",
+      ),
+    ).toBe("TICKET");
+  });
+
+  it("classifies an undelivered notice as NOT_FOUND, not AUTOMATED or POSITIVE", () => {
+    expect(
+      classifyReply(
+        "Undelivered Mail Returned to Sender",
+        "This is the mail system. The message could not be delivered: user unknown in virtual alias table.",
+        "Mailer-Daemon@acme.com",
+      ),
+    ).toBe("NOT_FOUND");
+  });
+
+  it("classifies a Gmail address-not-found bounce as NOT_FOUND", () => {
+    expect(
+      classifyReply(
+        "Delivery Status Notification (Failure)",
+        "Address not found. Your message wasn't delivered to info@example.com because the address couldn't be found, or is unable to receive mail.",
+        "mailer-daemon@googlemail.com",
+      ),
+    ).toBe("NOT_FOUND");
   });
 
   it("classifies a noreply sender with an anodyne body as AUTOMATED", () => {
