@@ -34,6 +34,13 @@
  * SEND_TICK_MAX_SENDS) so a hosting limit increase can be adopted
  * without a code change. Simulated sends never consume either
  * budget: they never reach an SMTP server.
+ *
+ * Since v1.24.0 a workspace can also set its own hourly cap in
+ * Settings (Workspace.hourlySendCap), matched to its mail host's
+ * limit; it replaces the platform default for that workspace's
+ * sends. The first tenant to need it had a host limit of 60 per
+ * hour against the platform default of 90, and lost mail the host
+ * discarded after accepting sends in the gap between the two.
  */
 
 export const DEFAULT_HOURLY_SEND_CAP = 90;
@@ -63,4 +70,21 @@ export function tickSendCeiling(env: Record<string, string | undefined> = proces
 /** Sends still allowed in the current rolling hour. */
 export function hourlyBudget(sentLastHour: number, cap: number): number {
   return Math.max(0, cap - sentLastHour);
+}
+
+/**
+ * The hourly cap that applies to one workspace's sends (v1.24.0):
+ * the workspace's own setting when it holds a positive number,
+ * otherwise the platform cap (environment override or default).
+ * A stored value that is missing, zero, or negative falls back:
+ * the column is nullable and the settings API validates on the
+ * way in, but the worker never trusts a stored number blindly.
+ */
+export function resolveHourlyCap(
+  workspaceCap: number | null | undefined,
+  platformCap: number,
+): number {
+  return typeof workspaceCap === "number" && Number.isFinite(workspaceCap) && workspaceCap > 0
+    ? Math.floor(workspaceCap)
+    : platformCap;
 }

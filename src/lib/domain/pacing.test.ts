@@ -4,6 +4,7 @@ import {
   DEFAULT_TICK_SEND_CEILING,
   hourlyBudget,
   hourlySendCap,
+  resolveHourlyCap,
   tickSendCeiling,
 } from "./pacing";
 
@@ -30,5 +31,14 @@ describe("send pacing", () => {
     expect(hourlyBudget(37, 90)).toBe(53);
     expect(hourlyBudget(90, 90)).toBe(0);
     expect(hourlyBudget(140, 90)).toBe(0);
+  });
+
+  it("resolves a workspace hourly cap over the platform cap (v1.24.0)", () => {
+    expect(resolveHourlyCap(50, 90)).toBe(50);
+    expect(resolveHourlyCap(200, 90)).toBe(200);
+    expect(resolveHourlyCap(null, 90)).toBe(90);
+    expect(resolveHourlyCap(undefined, 90)).toBe(90);
+    expect(resolveHourlyCap(0, 90)).toBe(90);
+    expect(resolveHourlyCap(-5, 90)).toBe(90);
   });
 });
