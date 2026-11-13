@@ -36,6 +36,26 @@ export function supportTicketStatusLabel(status: string): string {
 export const MAX_TICKET_SUBJECT_LENGTH = 150;
 export const MAX_TICKET_MESSAGE_LENGTH = 5000;
 
+/**
+ * Thread entry kinds on a ticket (v1.25.0). A REPLY is written for
+ * the customer and is emailed to them; a NOTE is internal to the
+ * platform admin panel and is never emailed or shown to them.
+ */
+export const SUPPORT_TICKET_REPLY_KINDS = ["REPLY", "NOTE"] as const;
+export type SupportTicketReplyKind = (typeof SUPPORT_TICKET_REPLY_KINDS)[number];
+
+export const SUPPORT_TICKET_REPLY_KIND_LABELS: Record<SupportTicketReplyKind, string> = {
+  REPLY: "Reply",
+  NOTE: "Internal note",
+};
+
+/** Label for a stored reply kind; unknown values render as stored. */
+export function supportTicketReplyKindLabel(kind: string): string {
+  return (SUPPORT_TICKET_REPLY_KIND_LABELS as Record<string, string>)[kind] ?? kind;
+}
+
+export const MAX_TICKET_REPLY_LENGTH = 5000;
+
 export const DEFAULT_SUPPORT_EMAIL = "amir@aamirtechs.com";
 
 /** WhatsApp contact shown on the Support page, international format. */
