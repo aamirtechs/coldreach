@@ -24,3 +24,31 @@ export function formatRelativeTime(date: Date, now: Date = new Date()): string {
     year: "numeric",
   }).format(date);
 }
+
+/**
+ * The exact moment, "13 Nov 2026, 01:00", in the viewer's timezone
+ * unless one is named. Shown beside the relative label on send
+ * records (v1.25.1) so "1 hr ago" never has to be taken on trust:
+ * the reader can see the precise send time the label describes.
+ */
+export function formatExactTime(date: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+/** Just the clock time, "01:00", for pairing with a date already shown. */
+export function formatTimeOfDay(date: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
