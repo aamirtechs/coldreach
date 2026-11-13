@@ -18,6 +18,37 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.24.0 (2026-11-12)
+
+Per-workspace hourly send cap, requested by a tenant whose mail
+host allows 60 sends per hour while the platform default is 90:
+bursts inside that gap went out, were accepted, and were then
+discarded by the host while counting as sent here.
+
+- New optional Workspace setting, "Max sends per hour"
+  (Settings, workspace and sender identity card). When set, the
+  send worker measures the workspace's hourly sends against
+  that ceiling instead of the platform default; when empty, the
+  platform default (90, or the HOURLY_SEND_CAP environment
+  override) applies exactly as before. The setting can sit
+  below or above the default, so it serves hosts with stricter
+  and with higher limits alike.
+- The counting does not change: sends are still counted per
+  sending domain across every workspace in any rolling 60
+  minutes (v1.21.0), so two workspaces sharing one domain
+  cannot each stay under a ceiling while their combined volume
+  breaches the host's. Only the ceiling becomes per-workspace.
+- Stored as a nullable integer on the workspace (migrations
+  20261112213000 for SQLite, 0014 for Postgres), validated by
+  the workspace API as a whole number from 1 to 10000 or null,
+  and re-validated in the worker, which falls back to the
+  platform cap for any missing or non-positive stored value.
+- Tests: a resolver unit test in the pacing suite, and a worker
+  test running one tick across two workspaces, one capped at 2
+  with its hour already spent (its send defers) and one capped
+  at 500 with 95 sends already in its hour, over the platform
+  default (its send goes out).
+
 ## 1.23.1 (2026-11-12)
 
 Fixes the second, larger half of the 2026-11-12 sending stall:
