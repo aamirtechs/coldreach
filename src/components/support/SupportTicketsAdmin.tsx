@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { supportTicketStatusLabel } from "@/lib/support/constants";
 import { SupportTicketStatusSelect } from "./SupportTicketStatusButton";
+import { SupportTicketThread } from "./SupportTicketThread";
 
 /**
  * Platform admin support tickets table.
@@ -64,6 +65,7 @@ function TicketDetail({ ticket }: { ticket: AdminTicketRow }) {
       </dl>
       <p className="mt-4 text-xs font-medium text-muted">Message</p>
       <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{ticket.message}</p>
+      <SupportTicketThread ticketId={ticket.id} reporterEmail={ticket.userEmail} />
     </div>
   );
 }
