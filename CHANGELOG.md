@@ -18,6 +18,29 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.25.0 (2026-11-12)
+
+Support ticket replies and internal notes. The platform admin
+ticket panel could change a ticket's status but had no way to
+answer it, so replies had to leave the product (drafted in chat,
+sent from a mailbox) and the ticket itself never carried the
+answer. A ticket now has a thread:
+
+- New SupportTicketReply model (prod migration 0015): ticket,
+  author, kind (REPLY or NOTE), body, an emailedAt stamp, and a
+  created timestamp, cascading with its ticket.
+- The ticket detail in Platform Admin shows the thread and a
+  composer. A REPLY is emailed to the ticket's reporter through
+  the product mail path (Resend) and stamped emailedAt, unless
+  the author clears the email checkbox; the panel then shows
+  "Emailed to the customer" or "Not emailed" on the entry. A
+  NOTE is internal and is never emailed.
+- The email is best effort, like ticket creation: a failed or
+  unconfigured send never blocks the save, it just leaves the
+  entry unstamped so the gap is visible.
+- New platform-owner-only thread endpoint under the admin
+  support tickets API, with an audit row per entry.
+
 ## 1.24.0 (2026-11-12)
 
 Per-workspace hourly send cap, requested by a tenant whose mail
