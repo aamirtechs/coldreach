@@ -257,6 +257,7 @@ export default async function OutboxPage({
                     <RelativeTime
                       iso={openedAt.toISOString()}
                       fallback={`${openedAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}
+                      showExact
                     />
                   </span>
                 ) : null}
@@ -268,6 +269,7 @@ export default async function OutboxPage({
                       <RelativeTime
                         iso={autoOpenedAt.toISOString()}
                         fallback={`${autoOpenedAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}
+                        showExact
                       />
                     </span>
                   </>
@@ -279,6 +281,7 @@ export default async function OutboxPage({
                   <RelativeTime
                     iso={message.occurredAt.toISOString()}
                     fallback={`${message.occurredAt.toLocaleString("en-US", { timeZone: "UTC" })} UTC`}
+                    showExact
                   />
                 </span>
               </div>
