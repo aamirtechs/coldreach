@@ -46,6 +46,7 @@ model User {
   threadNotes  ThreadNote[]
   snippets     Snippet[]
   supportTickets SupportTicket[]
+  supportTicketReplies SupportTicketReply[]
   invitesSent  Invite[]     @relation("InviteSender")
   apiKeysCreated ApiKey[]   @relation("ApiKeyCreator")
   verificationTokens EmailVerificationToken[]
@@ -808,7 +809,27 @@ model SupportTicket {
   updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies     SupportTicketReply[]
 
   @@index([workspaceId])
   @@index([status])
+}
+
+// One entry in a ticket's thread (v1.25.0), written from the
+// platform admin panel. kind REPLY is for the customer: it is
+// emailed to the ticket's reporter through the product mail path
+// (emailedAt records that send) unless the author chose not to
+// email it. kind NOTE is internal and never leaves the panel.
+model SupportTicketReply {
+  id        String    @id @default(cuid())
+  ticketId  String
+  authorId  String
+  kind      String    @default("REPLY")
+  body      String
+  emailedAt DateTime?
+  createdAt DateTime  @default(now())
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
 }
