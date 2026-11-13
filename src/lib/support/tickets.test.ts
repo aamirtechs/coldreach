@@ -2,12 +2,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 import {
+  addTicketReply,
   createSupportTicket,
   listPlatformTickets,
+  listTicketReplies,
   listWorkspaceTickets,
   setSupportTicketStatus,
   supportEmail,
   validateTicketInput,
+  validateTicketReplyInput,
 } from "./tickets";
 import {
   DEFAULT_SUPPORT_EMAIL,
@@ -276,5 +279,113 @@ describe("status labels", () => {
 
   it("renders an unknown stored value as-is", () => {
     expect(supportTicketStatusLabel("SOMETHING_ELSE")).toBe("SOMETHING_ELSE");
+  });
+});
+
+describe("validateTicketReplyInput", () => {
+  it("accepts a reply and a note, trimming the body", () => {
+    expect(validateTicketReplyInput({ kind: "REPLY", body: "  Fixed it  " })).toEqual({
+      ok: true,
+      kind: "REPLY",
+      body: "Fixed it",
+    });
+    expect(validateTicketReplyInput({ kind: "NOTE", body: "Watching this" }).ok).toBe(true);
+  });
+
+  it("rejects an unknown kind, an empty body, and an over-length body", () => {
+    expect(validateTicketReplyInput({ kind: "COMMENT", body: "x" })).toEqual({
+      ok: false,
+      error: "Kind must be REPLY or NOTE",
+    });
+    expect(validateTicketReplyInput({ kind: "REPLY", body: "   " }).ok).toBe(false);
+    expect(validateTicketReplyInput({ kind: "REPLY", body: "a".repeat(5001) }).ok).toBe(false);
+  });
+});
+
+describe("addTicketReply", () => {
+  async function makeTicket(suffix: string) {
+    const { user, workspace } = await seedWorkspace(db, suffix);
+    const sendMail = vi.fn(async (_input: MailInput) => ({ sent: true, id: "msg-t" }));
+    const { ticket } = await createSupportTicket(
+      db,
+      {
+        userId: user.id,
+        userEmail: user.email,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      },
+      VALID,
+      { env: {} as NodeJS.ProcessEnv, sendMail },
+    );
+    return { user, ticket };
+  }
+
+  it("persists a REPLY, emails the reporter, and stamps emailedAt", async () => {
+    const { user, ticket } = await makeTicket("reply-a");
+    const sendMail = vi.fn(async (_input: MailInput) => ({ sent: true, id: "msg-r1" }));
+    const { reply, emailSent } = await addTicketReply(
+      db,
+      ticket,
+      { userId: user.id, userEmail: user.email },
+      { kind: "REPLY", body: "Fixed, please retry enrolment." },
+      { env: {} as NodeJS.ProcessEnv, sendMail },
+    );
+    expect(emailSent).toBe(true);
+    expect(reply.emailedAt).not.toBeNull();
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    const call = sendMail.mock.calls[0][0];
+    expect(call.to).toBe(ticket.userEmail);
+    expect(call.subject).toContain("Re:");
+    expect(call.text).toContain("Fixed, please retry enrolment.");
+    const thread = await listTicketReplies(db, ticket.id);
+    expect(thread).toHaveLength(1);
+    expect(thread[0].body).toBe("Fixed, please retry enrolment.");
+    expect(thread[0].authorEmail).toBe(user.email);
+  });
+
+  it("persists a NOTE without ever emailing", async () => {
+    const { user, ticket } = await makeTicket("reply-b");
+    const sendMail = vi.fn(async (_input: MailInput) => ({ sent: true, id: "msg-r2" }));
+    const { reply, emailSent } = await addTicketReply(
+      db,
+      ticket,
+      { userId: user.id, userEmail: user.email },
+      { kind: "NOTE", body: "Internal: watching this account." },
+      { env: {} as NodeJS.ProcessEnv, sendMail },
+    );
+    expect(emailSent).toBe(false);
+    expect(reply.emailedAt).toBeNull();
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reply when the email fails, with emailedAt null", async () => {
+    const { user, ticket } = await makeTicket("reply-c");
+    const sendMail = vi.fn(async (_input: MailInput) => ({ sent: false, reason: "not configured" }));
+    const { reply, emailSent } = await addTicketReply(
+      db,
+      ticket,
+      { userId: user.id, userEmail: user.email },
+      { kind: "REPLY", body: "Hello from support." },
+      { env: {} as NodeJS.ProcessEnv, sendMail },
+    );
+    expect(emailSent).toBe(false);
+    expect(reply.emailedAt).toBeNull();
+    const stored = await db.supportTicketReply.findUnique({ where: { id: reply.id } });
+    expect(stored?.body).toBe("Hello from support.");
+  });
+
+  it("stores a REPLY without emailing when emailCustomer is false", async () => {
+    const { user, ticket } = await makeTicket("reply-d");
+    const sendMail = vi.fn(async (_input: MailInput) => ({ sent: true, id: "msg-r4" }));
+    const { reply, emailSent } = await addTicketReply(
+      db,
+      ticket,
+      { userId: user.id, userEmail: user.email },
+      { kind: "REPLY", body: "Draft saved in the panel only." },
+      { env: {} as NodeJS.ProcessEnv, sendMail, emailCustomer: false },
+    );
+    expect(emailSent).toBe(false);
+    expect(reply.emailedAt).toBeNull();
+    expect(sendMail).not.toHaveBeenCalled();
   });
 });
