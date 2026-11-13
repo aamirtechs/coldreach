@@ -226,7 +226,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
           No sending accounts exist in this workspace yet. Create one on the Sending Accounts page.
         </p>
       ) : (
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {accounts.map((account) => (
             <label key={account.id} className="flex items-center gap-3 rounded-lg border border-line px-3 py-2 text-sm">
               <input

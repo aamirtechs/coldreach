@@ -168,8 +168,6 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
 
       <CampaignActions campaignId={campaign.id} status={campaign.status} campaignName={campaign.name} />
 
-      <EnrolledLeads campaignId={campaign.id} />
-
       <CampaignSettingsForm
         campaignId={campaign.id}
         editable={editable}
@@ -236,6 +234,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </>
         )}
       </section>
+
+      <EnrolledLeads campaignId={campaign.id} />
     </div>
   );
 }

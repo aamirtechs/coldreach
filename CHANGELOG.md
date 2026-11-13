@@ -18,6 +18,14 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.27.1 (2026-11-13)
+
+Campaign page layout, as the operator ordered it: the sections
+now run Launch controls, Settings, Sequence, Results, and
+Enrolled leads last (Enrolled leads moved from second position
+to the bottom of the page), and the Sending accounts list in
+Settings renders in two columns instead of one.
+
 ## 1.27.0 (2026-11-13)
 
 Four operator requests in one release.
