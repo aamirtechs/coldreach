@@ -143,6 +143,23 @@ describe("GET /api/campaigns/[id]/enrollments", () => {
     expect(payload.enrollments[1].currentStep).toBe(1);
   });
 
+  it("searches enrolled leads by name, email, or company (v1.27.2)", async () => {
+    const byName = await GET(getRequest("?search=lovelace"), paramsFor("camp-1"));
+    const byNamePayload = (await byName.json()) as ListPayload;
+    expect(byNamePayload.total).toBe(1);
+    expect(byNamePayload.enrollments.map((row) => row.id)).toEqual(["e1"]);
+
+    const byCompany = await GET(getRequest("?search=Broker"), paramsFor("camp-1"));
+    const byCompanyPayload = (await byCompany.json()) as ListPayload;
+    expect(byCompanyPayload.total).toBe(1);
+    expect(byCompanyPayload.enrollments.map((row) => row.id)).toEqual(["e2"]);
+
+    const noMatch = await GET(getRequest("?search=zzz"), paramsFor("camp-1"));
+    const noMatchPayload = (await noMatch.json()) as ListPayload;
+    expect(noMatchPayload.total).toBe(0);
+    expect(noMatchPayload.enrollments).toEqual([]);
+  });
+
   it("paginates with limit and offset while total stays the full count", async () => {
     const response = await GET(getRequest("?limit=1&offset=1"), paramsFor("camp-1"));
     expect(response.status).toBe(200);

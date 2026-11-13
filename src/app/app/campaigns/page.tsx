@@ -8,12 +8,17 @@ import { EmptyState, StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function CampaignsPage() {
+export default async function CampaignsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
   const session = await getSessionWorkspace();
   if (!session) {
     redirect("/login");
   }
   const workspaceId = session.workspace.id;
+  const query = ((await searchParams).q ?? "").trim();
   const [campaigns, lists] = await Promise.all([
     prisma.campaign.findMany({
       where: { workspaceId },
@@ -32,7 +37,7 @@ export default async function CampaignsPage() {
   // Progress aggregates, batched with groupBy (no per-campaign queries):
   // an enrollment counts as contacted once its first step has sent
   // (currentStep >= 1), and sentCount is the campaign's SENT events.
-  const campaignIds = campaigns.map((campaign) => campaign.id);
+  const campaignIds = (query ? campaigns.filter((campaign) => campaign.name.toLowerCase().includes(query.toLowerCase())) : campaigns).map((campaign) => campaign.id);
   const [contactedRows, sentRows, clickedRows] = await Promise.all([
     prisma.enrollment.groupBy({
       by: ["campaignId"],
@@ -52,6 +57,11 @@ export default async function CampaignsPage() {
       _count: { _all: true },
     }),
   ]);
+  // Name search (v1.27.2): filter the already loaded campaigns in
+  // memory; a workspace holds dozens of campaigns, not thousands.
+  const visibleCampaigns = query
+    ? campaigns.filter((campaign) => campaign.name.toLowerCase().includes(query.toLowerCase()))
+    : campaigns;
   const contactedByCampaign = new Map(contactedRows.map((row) => [row.campaignId, row._count._all]));
   const sentByCampaign = new Map(sentRows.map((row) => [row.campaignId, row._count._all]));
   const clickedByCampaign = new Map(clickedRows.map((row) => [row.campaignId, row._count._all]));
@@ -69,10 +79,33 @@ export default async function CampaignsPage() {
         <CreateCampaignForm lists={lists} />
       </div>
 
+      {campaigns.length > 0 ? (
+        <form method="GET" className="card mt-6 flex flex-wrap items-end gap-3 p-4">
+          <div>
+            <label className="label" htmlFor="camp-search">Search campaigns by name</label>
+            <input id="camp-search" name="q" className="input w-72" defaultValue={query} placeholder="e.g. WordPress, Dispatch, VA" />
+          </div>
+          <button type="submit" className="btn-primary">Search</button>
+          {query ? (
+            <Link href="/app/campaigns" className="btn-secondary">Reset</Link>
+          ) : null}
+          {query ? (
+            <p className="w-full text-sm text-muted">
+              Showing {visibleCampaigns.length} of {campaigns.length} campaigns matching "{query}".
+            </p>
+          ) : null}
+        </form>
+      ) : null}
+
       {campaigns.length === 0 ? (
         <EmptyState
           title="No campaigns yet"
           body="Create a campaign, attach a lead list, write the sequence, and run preflight. Launch is blocked until every safety check passes."
+        />
+      ) : visibleCampaigns.length === 0 ? (
+        <EmptyState
+          title="No campaigns match that search"
+          body="Try a shorter part of the campaign name, or reset the search to see every campaign."
         />
       ) : (
         <div className="card mt-6 overflow-x-auto" data-tour="campaigns-table">
@@ -89,7 +122,7 @@ export default async function CampaignsPage() {
               </tr>
             </thead>
             <tbody>
-              {campaigns.map((campaign) => (
+              {visibleCampaigns.map((campaign) => (
                 <tr key={campaign.id} className="border-b border-line last:border-0 hover:bg-elevated/60">
                   <td className="px-4 py-3">
                     <Link href={`/app/campaigns/${campaign.id}`} className="font-medium text-accent hover:underline">

@@ -37,6 +37,8 @@ export function EnrolledLeads({ campaignId }: { campaignId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,6 +50,7 @@ export function EnrolledLeads({ campaignId }: { campaignId: string }) {
         limit: String(PAGE_SIZE),
         offset: String((page - 1) * PAGE_SIZE),
       });
+      if (search) params.set("search", search);
       const response = await fetch(
         `/api/campaigns/${campaignId}/enrollments?${params.toString()}`,
       );
@@ -64,7 +67,7 @@ export function EnrolledLeads({ campaignId }: { campaignId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [campaignId, page]);
+  }, [campaignId, page, search]);
 
   useEffect(() => {
     void load();
@@ -75,7 +78,17 @@ export function EnrolledLeads({ campaignId }: { campaignId: string }) {
   useEffect(() => {
     setSelected(new Set());
     setConfirming(false);
-  }, [page]);
+  }, [page, search]);
+
+  // Debounced search (v1.27.2): typing filters the enrolled leads by
+  // name, email, or company through the enrollments API.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const allSelected =
@@ -163,6 +176,21 @@ export function EnrolledLeads({ campaignId }: { campaignId: string }) {
         Leads that have already been contacted cannot be removed, so their sending history
         stays intact.
       </p>
+      <div className="mt-4">
+        <label className="label" htmlFor="enrolled-search">Search name, email or company</label>
+        <input
+          id="enrolled-search"
+          className="input w-72"
+          value={searchInput}
+          placeholder="Jane, jane@company.com or Company Inc"
+          onChange={(event) => setSearchInput(event.target.value)}
+        />
+        {search ? (
+          <p className="mt-1 text-xs text-muted">
+            {total} enrolled lead{total === 1 ? "" : "s"} match "{search}".
+          </p>
+        ) : null}
+      </div>
       {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
       {notice ? <p className="mt-3 text-sm text-muted">{notice}</p> : null}
 

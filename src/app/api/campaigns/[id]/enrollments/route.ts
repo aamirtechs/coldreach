@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireSession, stringField } from "@/lib/api";
+import { leadMatchesSearch } from "@/lib/leads/search";
+
+const SEARCH_SCAN_LIMIT = 10000;
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -25,6 +28,13 @@ function leadField(fields: unknown, key: string): string | null {
  * the lead's fields JSON (the same place templates read them from);
  * they are surfaced as first-class values here alongside the raw
  * fields so the UI can show the segment without re-parsing JSON.
+ *
+ * Search (v1.27.2): an optional `search` parameter matches the
+ * lead's name, email, or company (the shared lead search helper,
+ * icebreaker text included). Name and company sit in JSON, so the
+ * search path scans the campaign's enrollments in memory, bounded
+ * at SEARCH_SCAN_LIMIT, and paginates the matches; without a search
+ * term the plain database pagination below runs unchanged.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession("MEMBER");
@@ -43,18 +53,37 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       select: { id: true },
     });
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
-    const [total, rows] = await Promise.all([
-      prisma.enrollment.count({ where: { campaignId: id } }),
-      prisma.enrollment.findMany({
+    const search = (url.searchParams.get("search") ?? "").trim();
+    let total: number;
+    let rows: Awaited<ReturnType<typeof prisma.enrollment.findMany<{
+      include: { lead: { select: { id: true; email: true; fields: true } } };
+    }>>>;
+    if (search) {
+      const all = await prisma.enrollment.findMany({
         where: { campaignId: id },
         orderBy: { enrolledAt: "asc" },
-        skip: offset,
-        take: limit,
+        take: SEARCH_SCAN_LIMIT,
         include: {
           lead: { select: { id: true, email: true, fields: true } },
         },
-      }),
-    ]);
+      });
+      const matched = all.filter((row) => leadMatchesSearch(row.lead, search));
+      total = matched.length;
+      rows = matched.slice(offset, offset + limit);
+    } else {
+      [total, rows] = await Promise.all([
+        prisma.enrollment.count({ where: { campaignId: id } }),
+        prisma.enrollment.findMany({
+          where: { campaignId: id },
+          orderBy: { enrolledAt: "asc" },
+          skip: offset,
+          take: limit,
+          include: {
+            lead: { select: { id: true, email: true, fields: true } },
+          },
+        }),
+      ]);
+    }
     return NextResponse.json({
       total,
       enrollments: rows.map((row) => ({

@@ -18,6 +18,26 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.27.2 (2026-11-13)
+
+Search is now visible in the three places it was missing. The
+v1.26.0 search lived in the Outbox filter bar and inside each
+lead list, but the Campaigns page, the Leads home, and the
+Enrolled leads section of a campaign had no search at all, which
+is where the operator looked for it.
+
+- Campaigns: a "Search campaigns by name" bar above the table;
+  the table, its progress aggregates, and a "Showing X of Y"
+  line all follow the filter.
+- Leads home: a "Search name, email or company" bar that searches
+  every lead in the workspace across all lists (the shared lead
+  search helper over a bounded scan, icebreaker text included)
+  and shows each match with its list and status.
+- Enrolled leads inside a campaign: a search box that filters
+  the campaign's enrollments by the lead's name, email, or
+  company, through a new `search` parameter on the enrollments
+  API (scan path in memory; the unfiltered path is unchanged).
+
 ## 1.27.1 (2026-11-13)
 
 Campaign page layout, as the operator ordered it: the sections
