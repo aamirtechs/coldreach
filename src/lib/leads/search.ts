@@ -60,8 +60,13 @@ export function leadCompanyOf(fields: unknown): string | null {
 
 /**
  * True when the query appears (case-insensitively) in the lead's
- * email, first name, last name, full name, or company. An empty
- * query matches everything, so callers can apply it uniformly.
+ * email, first name, last name, full name, or company. The
+ * icebreaker text is also searched (v1.26.1): inbox style leads
+ * (a corporate@ or info@ address) often carry no name fields at
+ * all, and the person behind the inbox is named only inside the
+ * icebreaker line, so a name search would otherwise miss exactly
+ * the leads it was asked for. An empty query matches everything,
+ * so callers can apply it uniformly.
  */
 export function leadMatchesSearch(
   lead: { email: string; fields: unknown },
@@ -77,6 +82,7 @@ export function leadMatchesSearch(
     leadCompanyOf(lead.fields),
     leadFieldValue(lead.fields, "firstName", "first_name", "firstname"),
     leadFieldValue(lead.fields, "lastName", "last_name", "lastname"),
+    leadFieldValue(lead.fields, "icebreaker"),
   ];
   return haystacks.some(
     (value) => typeof value === "string" && value.toLowerCase().includes(query),

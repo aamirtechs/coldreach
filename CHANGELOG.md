@@ -18,6 +18,20 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.26.1 (2026-11-13)
+
+Lead search also matches the icebreaker text. The live check of
+1.26.0 found the one gap in the new search: searching the
+Outbox or a lead list for a person by name failed whenever the
+lead carried no name fields, which is most inbox style leads
+(corporate@, info@, hello@ addresses). For the traced lead
+corporate@cacaoandcardamom.com, the person, Annie Rupani, is
+named only inside the icebreaker line, so a name search had
+nothing stored to match. The shared lead search helper now
+includes the icebreaker field in its haystacks, so a name that
+appears in the icebreaker finds the lead in both Leads and the
+Outbox. One new test covers exactly that case.
+
 ## 1.26.0 (2026-11-13)
 
 Search by name, email, or company in Leads and in the Outbox.

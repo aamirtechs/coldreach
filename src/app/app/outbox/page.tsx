@@ -299,7 +299,7 @@ export default async function OutboxPage({
       <p className="mt-4 text-sm text-muted">
         Showing {shown.length} of {filtered.length} matching sends
         {messages.length >= FETCH_LIMIT ? ` (latest ${FETCH_LIMIT} loaded)` : ""}
-        {search ? `. Search matches the recipient's name, email, or company.` : ""}.
+        {search ? `. Search matches the recipient's name, email, or company, including a name inside the icebreaker line.` : ""}.
       </p>
 
       <div className="mt-3 space-y-3">

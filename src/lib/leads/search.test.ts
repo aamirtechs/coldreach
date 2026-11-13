@@ -49,6 +49,20 @@ describe("leadMatchesSearch", () => {
     expect(leadMatchesSearch(odd, "jo")).toBe(true);
   });
 
+  it("matches a person named only inside the icebreaker text", () => {
+    const inboxLead = {
+      email: "corporate@cacaoandcardamom.com",
+      fields: {
+        company: "Cacao & Cardamom",
+        icebreaker: "Annie Rupani's small batch bonbons handcrafted in your Houston lab make a strong corporate gift.",
+      },
+    };
+    expect(leadMatchesSearch(inboxLead, "Annie Rupani")).toBe(true);
+    expect(leadMatchesSearch(inboxLead, "annie")).toBe(true);
+    expect(leadMatchesSearch(inboxLead, "houston")).toBe(true);
+    expect(leadMatchesSearch(inboxLead, "globex")).toBe(false);
+  });
+
   it("matches a single name field when no first or last name exists", () => {
     const named = { email: "x@y.com", fields: { name: "Sam Carter" } };
     expect(leadMatchesSearch(named, "sam carter")).toBe(true);
