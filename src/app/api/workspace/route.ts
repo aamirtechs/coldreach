@@ -14,6 +14,7 @@ export async function GET() {
       senderName: ctx.workspace.senderName,
       senderAddress: ctx.workspace.senderAddress,
       trackingDomain: ctx.workspace.trackingDomain,
+      hourlySendCap: ctx.workspace.hourlySendCap,
     },
     role: ctx.role,
   });
@@ -23,7 +24,7 @@ export async function PATCH(request: Request) {
   const session = await requireSession("ADMIN");
   if ("error" in session) return session.error;
   const { ctx } = session;
-  const body = await readJson<{ name?: unknown; senderName?: unknown; senderAddress?: unknown; trackingDomain?: unknown }>(request);
+  const body = await readJson<{ name?: unknown; senderName?: unknown; senderAddress?: unknown; trackingDomain?: unknown; hourlySendCap?: unknown }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   const data: Record<string, unknown> = {};
   if (body.name !== undefined) {
@@ -47,6 +48,31 @@ export async function PATCH(request: Request) {
         {
           error:
             "Tracking domain must be a bare host like track.example.com, with no https:// prefix and no path.",
+        },
+        { status: 400 },
+      );
+    }
+  }
+  if (body.hourlySendCap !== undefined) {
+    // Per-workspace hourly send cap (v1.24.0): null clears back to
+    // the platform default; otherwise a whole number in a sane
+    // range. The worker measures the workspace's per-domain hourly
+    // count against this ceiling, so it should sit just under the
+    // mail host's own hourly limit.
+    if (body.hourlySendCap === null) {
+      data.hourlySendCap = null;
+    } else if (
+      typeof body.hourlySendCap === "number" &&
+      Number.isInteger(body.hourlySendCap) &&
+      body.hourlySendCap >= 1 &&
+      body.hourlySendCap <= 10000
+    ) {
+      data.hourlySendCap = body.hourlySendCap;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "Max sends per hour must be a whole number between 1 and 10000, or left empty to use the platform default.",
         },
         { status: 400 },
       );
