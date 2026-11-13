@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
-import { importLeadsFromCsv } from "./import";
+import { guessImportTarget, importLeadsFromCsv } from "./import";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 
 const DB_NAME = "test-import";
@@ -30,6 +30,22 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await dropTestDb(db, DB_NAME);
+});
+
+describe("guessImportTarget", () => {
+  it("recognises the icebreaker column under its common header spellings", () => {
+    for (const header of ["icebreaker", "Icebreaker", "Ice Breaker", "ice_breaker", "ICEBREAKER", "Opening Line", "Icebreaker Line"]) {
+      expect(guessImportTarget(header)).toBe("icebreaker");
+    }
+  });
+
+  it("keeps the existing standard guesses and passes custom headers through", () => {
+    expect(guessImportTarget("Email Address")).toBe("email");
+    expect(guessImportTarget("First Name")).toBe("firstName");
+    expect(guessImportTarget("Surname")).toBe("lastName");
+    expect(guessImportTarget("Organization")).toBe("company");
+    expect(guessImportTarget("painPoints")).toBe("painPoints");
+  });
 });
 
 describe("importLeadsFromCsv", () => {
@@ -124,6 +140,19 @@ describe("importLeadsFromCsv", () => {
     expect(result.summary.alreadyExisted).toBe(1);
     const lead = await db.lead.findFirst({ where: { workspaceId, email: "update-me@example.com" } });
     expect(lead?.fields).toMatchObject({ icebreaker: "A personal line" });
+  });
+
+  it("stores a column mapped to the icebreaker target as the icebreaker field on new leads", async () => {
+    const csv = ["Email,Ice Breaker", "fresh-ice@example.com,Saw your new Houston range"].join("\n");
+    const result = await importLeadsFromCsv(db, {
+      workspaceId,
+      listId,
+      csvText: csv,
+      mapping: { Email: "email", "Ice Breaker": "icebreaker" },
+    });
+    expect(result.summary.kept).toBe(1);
+    const lead = await db.lead.findFirst({ where: { workspaceId, email: "fresh-ice@example.com" } });
+    expect(lead?.fields).toMatchObject({ icebreaker: "Saw your new Houston range" });
   });
 
   it("never updates a lead that exists in a different list", async () => {

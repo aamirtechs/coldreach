@@ -18,6 +18,52 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.26.0 (2026-11-13)
+
+Search by name, email, or company in Leads and in the Outbox.
+Both searches only matched the email address before: the lead
+list had a "Search email" box, and the Outbox had no text search
+at all, so finding a send meant already knowing the exact
+address. A shared lead search helper now matches the query
+(case-insensitively) against the email, the first and last name,
+the full name, and the company, reading field keys
+case-insensitively because CSV imports carry both `company` and
+`Company` style headers. Name and company live in the leads'
+fields JSON, which cannot be substring searched portably across
+SQLite and Postgres with one query, so the lead list page and
+the leads API scan a bounded window and filter with the helper,
+the same pattern the tag filter has always used. The Outbox
+gains a search box on its filter bar: a search scans the
+workspace's leads with the helper, loads the matching leads'
+sends, and merges in a direct recipient email match; Outbox
+cards now also print the recipient's company and name beside
+the address, so a match can be confirmed at a glance. The CSV
+importer also gains icebreaker as a first class mapping target:
+it joins firstName, lastName, and company in the wizard's target
+list, and the header guesser now recognises "icebreaker",
+"Ice Breaker", "ice_breaker", "Opening Line", and similar
+spellings automatically, so an opening line column lands in the
+icebreaker field (the one the {{icebreaker}} token reads)
+without depending on a custom field workaround. No sending
+behaviour changes in this release.
+
+Also documented from a production trace the same day (no code
+change): a step 2 send that disappears from Upcoming sends with
+no Outbox entry and no change to the sent count was completed
+by the open gate, not lost. The worker sends steps 2 and later
+only to leads who opened the previous step (v1.17.0); a due
+follow-up whose previous step shows no human open is completed
+with the reason stored on the enrollment ("Follow-up not sent:
+the lead did not open the previous email"). The traced lead
+(corporate@cacaoandcardamom.com, VA - Ecommerce Store Support)
+had its step 1 sent on 2026-11-10 with no recorded open, and
+its enrollment was completed by the gate on 2026-11-13 at
+16:16 UTC, exactly when it left Upcoming sends. The same trace
+verified the sending pipeline itself is healthy: in the last 24
+and 48 hours every SENT event had its Outbox copy (49 of 49 and
+50 of 50, gap zero), and 280 enrollments were completed by the
+open gate on 2026-11-13 alone, 1,872 in total to date.
+
 ## 1.25.1 (2026-11-12)
 
 Exact send times beside the relative labels in the Outbox. A

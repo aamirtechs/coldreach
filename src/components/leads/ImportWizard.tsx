@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseCsv, toCsv } from "@/lib/csv";
+import { guessImportTarget, STANDARD_FIELD_TARGETS } from "@/lib/leads/import";
 
 interface ImportSummary {
   total: number;
@@ -19,16 +20,7 @@ interface ImportErrorRow {
   reason: string;
 }
 
-const STANDARD_TARGETS = ["email", "firstName", "lastName", "company", "ignore"] as const;
-
-function guessTarget(header: string): string {
-  const h = header.trim().toLowerCase().replace(/[^a-z]/g, "");
-  if (["email", "emailaddress", "mail"].includes(h)) return "email";
-  if (["firstname", "first", "givenname"].includes(h)) return "firstName";
-  if (["lastname", "last", "surname", "familyname"].includes(h)) return "lastName";
-  if (["company", "organisation", "organization", "employer"].includes(h)) return "company";
-  return header;
-}
+const STANDARD_TARGETS = ["email", ...STANDARD_FIELD_TARGETS, "ignore"] as const;
 
 export function ImportWizard({ listId }: { listId: string }) {
   const router = useRouter();
@@ -56,7 +48,7 @@ export function ImportWizard({ listId }: { listId: string }) {
     setPreviewRows(parsed.rows.slice(0, 5));
     const initial: Record<string, string> = {};
     for (const header of parsed.headers) {
-      initial[header] = guessTarget(header);
+      initial[header] = guessImportTarget(header);
     }
     setMapping(initial);
     setResult(null);
@@ -135,7 +127,8 @@ export function ImportWizard({ listId }: { listId: string }) {
           <h3 className="mt-6 text-sm font-semibold">Map columns</h3>
           <p className="mt-1 text-xs text-muted">
             One column must map to email. Any other column name becomes a lead field usable as a
-            personalisation token, for example {"{{company}}"}.
+            personalisation token, for example {"{{company}}"} or {"{{icebreaker}}"}. Map your
+            opening line column to the icebreaker target so it lands in the icebreaker field.
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {headers.map((header) => (

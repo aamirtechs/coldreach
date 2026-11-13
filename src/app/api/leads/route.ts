@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { apiError, intField, readJson, requireSession, stringField } from "@/lib/api";
 import { createLead } from "@/lib/leads/createLead";
+import { leadMatchesSearch } from "@/lib/leads/search";
 import { findSuppression } from "@/lib/domain/suppression";
 import { loadSuppressions } from "@/lib/suppressions";
 import { writeAuditLog } from "@/lib/audit";
@@ -24,19 +25,20 @@ export async function GET(request: Request) {
   const where: Prisma.LeadWhereInput = { workspaceId: ctx.workspace.id };
   if (listId) where.listId = listId;
   if (status) where.status = status as Prisma.EnumLeadStatusFilter["equals"];
-  if (search) where.email = { contains: search.toLowerCase() };
 
   try {
-    // Pagination happens in the database. The tag filter is the one
-    // exception: tags live in a JSON array, so a tag query scans a
-    // bounded window (TAG_SCAN_LIMIT newest leads) and filters in
-    // memory; scanLimited in the response says when the window cut
-    // the scan short, so the total is then a lower bound.
+    // Pagination happens in the database. Two filters are the
+    // exception: tags live in a JSON array, and a text search
+    // (v1.26.0) also matches name and company inside the fields
+    // JSON, so either one scans a bounded window (TAG_SCAN_LIMIT
+    // newest leads) and filters in memory; scanLimited in the
+    // response says when the window cut the scan short, so the
+    // total is then a lower bound.
     const TAG_SCAN_LIMIT = 5000;
     let total: number;
     let pageItems: Awaited<ReturnType<typeof prisma.lead.findMany>>;
     let scanLimited = false;
-    if (tag) {
+    if (tag || search) {
       const scanned = await prisma.lead.findMany({
         where,
         orderBy: { createdAt: "desc" },
@@ -44,7 +46,9 @@ export async function GET(request: Request) {
       });
       scanLimited = scanned.length >= TAG_SCAN_LIMIT;
       const filtered = scanned.filter(
-        (lead) => Array.isArray(lead.tags) && lead.tags.map(String).includes(tag),
+        (lead) =>
+          (!tag || (Array.isArray(lead.tags) && lead.tags.map(String).includes(tag))) &&
+          (!search || leadMatchesSearch(lead, search)),
       );
       total = filtered.length;
       pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);

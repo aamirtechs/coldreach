@@ -5,6 +5,7 @@ import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { findSuppression } from "@/lib/domain/suppression";
 import { loadSuppressions } from "@/lib/suppressions";
+import { leadMatchesSearch } from "@/lib/leads/search";
 import { AddLeadForm } from "@/components/leads/AddLeadForm";
 import { ImportWizard } from "@/components/leads/ImportWizard";
 import { VerifyListButton } from "@/components/leads/VerifyListButton";
@@ -44,22 +45,26 @@ export default async function LeadListDetailPage({
 
   const where: Prisma.LeadWhereInput = { workspaceId, listId: list.id };
   if (status) where.status = status as Prisma.EnumLeadStatusFilter["equals"];
-  if (search) where.email = { contains: search.toLowerCase() };
 
-  // Pagination happens in the database. A tag filter cannot (tags
-  // are a JSON array), so it scans a bounded window of the newest
-  // TAG_SCAN_LIMIT leads, matching the session leads API.
+  // Pagination happens in the database. Two filters cannot: a tag
+  // filter (tags are a JSON array) and a text search (v1.26.0: the
+  // query matches name and company, which live in the fields JSON
+  // alongside the email), so either one scans a bounded window of
+  // the newest TAG_SCAN_LIMIT leads and filters in memory,
+  // matching the session leads API.
   const TAG_SCAN_LIMIT = 5000;
   let total: number;
   let pageLeads: Awaited<ReturnType<typeof prisma.lead.findMany>>;
-  if (tag) {
+  if (tag || search) {
     const scanned = await prisma.lead.findMany({
       where,
       orderBy: { createdAt: "desc" },
       take: TAG_SCAN_LIMIT,
     });
     const filtered = scanned.filter(
-      (lead) => Array.isArray(lead.tags) && lead.tags.map(String).includes(tag),
+      (lead) =>
+        (!tag || (Array.isArray(lead.tags) && lead.tags.map(String).includes(tag))) &&
+        (!search || leadMatchesSearch(lead, search)),
     );
     total = filtered.length;
     pageLeads = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);

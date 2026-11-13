@@ -28,6 +28,32 @@ export interface ColumnMapping {
   [csvColumn: string]: string;
 }
 
+/**
+ * The standard mapping targets the import wizard offers, beyond
+ * "email" and "ignore" (v1.26.0 adds "icebreaker": the campaign
+ * copy's {{icebreaker}} token reads the field of that name, and it
+ * is a first class import target like firstName or company).
+ */
+export const STANDARD_FIELD_TARGETS = ["firstName", "lastName", "company", "icebreaker"] as const;
+
+/**
+ * Guess the mapping target for one CSV header, used by the import
+ * wizard to pre-fill the mapping step. A header that matches no
+ * standard target is returned unchanged, so it still imports as a
+ * custom field under its own name. Matching ignores case, spaces,
+ * and punctuation, so "Ice Breaker", "ice_breaker", and
+ * "ICEBREAKER" all resolve to the icebreaker target.
+ */
+export function guessImportTarget(header: string): string {
+  const h = header.trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (["email", "emailaddress", "mail"].includes(h)) return "email";
+  if (["firstname", "first", "givenname"].includes(h)) return "firstName";
+  if (["lastname", "last", "surname", "familyname"].includes(h)) return "lastName";
+  if (["company", "organisation", "organization", "employer"].includes(h)) return "company";
+  if (["icebreaker", "icebreakers", "icebreakerline", "openingline"].includes(h)) return "icebreaker";
+  return header;
+}
+
 export interface ImportRowError {
   row: number;
   email: string;

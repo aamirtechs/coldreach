@@ -129,8 +129,8 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
     <div className="mt-6">
       <form method="get" className="flex flex-wrap items-end gap-3">
         <div>
-          <label className="label" htmlFor="flt-search">Search email</label>
-          <input id="flt-search" name="search" className="input w-56" defaultValue={query.search} placeholder="jane@company.com" />
+          <label className="label" htmlFor="flt-search">Search name, email or company</label>
+          <input id="flt-search" name="search" className="input w-72" defaultValue={query.search} placeholder="Jane, jane@company.com or Company Inc" />
         </div>
         <div>
           <label className="label" htmlFor="flt-status">Status</label>

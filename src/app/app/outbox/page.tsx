@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { Prisma } from "@prisma/client";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { RelativeTime } from "@/components/RelativeTime";
+import { leadCompanyOf, leadMatchesSearch, leadNameOf } from "@/lib/leads/search";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,12 @@ export const dynamic = "force-dynamic";
  * recorded. Opened and replied badges are derived from the recorded
  * EmailEvents for each message's enrollment (plus inbound thread
  * messages for replies), never estimated. Filters: campaign, sending
- * account, open/reply status, and order.
+ * account, open/reply status, and order, plus a text search by
+ * recipient name, email, or company (v1.26.0). Name and company live
+ * in the lead's fields JSON, so a search first scans the workspace's
+ * leads with the shared lead search helper to find the matching
+ * lead ids, then loads those leads' sends alongside a direct
+ * recipient email match.
  */
 
 const FETCH_LIMIT = 300;
@@ -23,7 +30,7 @@ type StatusFilter = "all" | "opened" | "replied" | "not-opened";
 export default async function OutboxPage({
   searchParams,
 }: {
-  searchParams: Promise<{ campaign?: string; account?: string; status?: string; order?: string }>;
+  searchParams: Promise<{ campaign?: string; account?: string; status?: string; order?: string; search?: string }>;
 }) {
   const session = await getSessionWorkspace();
   if (!session) {
@@ -31,6 +38,7 @@ export default async function OutboxPage({
   }
   const workspaceId = session.workspace.id;
   const params = await searchParams;
+  const search = (params.search ?? "").trim();
   const campaignId = params.campaign ?? "";
   const accountId = params.account ?? "";
   const statusParam = params.status as StatusFilter | undefined;
@@ -53,27 +61,78 @@ export default async function OutboxPage({
     }),
   ]);
 
-  const messages = await prisma.threadMessage.findMany({
-    where: {
-      direction: "OUTBOUND",
-      thread: {
-        workspaceId,
-        ...(campaignId ? { campaignId } : {}),
-        ...(accountId ? { sendingAccountId: accountId } : {}),
+  const threadFilter = {
+    workspaceId,
+    ...(campaignId ? { campaignId } : {}),
+    ...(accountId ? { sendingAccountId: accountId } : {}),
+  };
+  const messageInclude = {
+    thread: {
+      include: {
+        campaign: { select: { id: true, name: true } },
+        sendingAccount: { select: { id: true, email: true } },
+        lead: { select: { id: true, email: true, fields: true } },
       },
     },
-    include: {
-      thread: {
-        include: {
-          campaign: { select: { id: true, name: true } },
-          sendingAccount: { select: { id: true, email: true } },
-          lead: { select: { id: true, email: true } },
+  } as const;
+  type OutboxMessage = Prisma.ThreadMessageGetPayload<{ include: typeof messageInclude }>;
+  let messages: OutboxMessage[];
+  if (!search) {
+    messages = await prisma.threadMessage.findMany({
+      where: { direction: "OUTBOUND", thread: threadFilter },
+      include: messageInclude,
+      orderBy: { occurredAt: order },
+      take: FETCH_LIMIT,
+    });
+  } else {
+    // Search (v1.26.0): find the workspace leads whose name, email,
+    // or company matches, then load their sends; a direct recipient
+    // email match is fetched alongside so an address still finds
+    // its sends even if the lead row changed. The two sets are
+    // merged, de-duplicated, and re-sorted into the chosen order.
+    const scannedLeads = await prisma.lead.findMany({
+      where: { workspaceId },
+      select: { id: true, email: true, fields: true },
+      take: 10000,
+    });
+    const matchedLeadIds = scannedLeads
+      .filter((lead) => leadMatchesSearch(lead, search))
+      .map((lead) => lead.id);
+    const [byRecipient, byLead] = await Promise.all([
+      prisma.threadMessage.findMany({
+        where: {
+          direction: "OUTBOUND",
+          toEmail: { contains: search.toLowerCase() },
+          thread: threadFilter,
         },
-      },
-    },
-    orderBy: { occurredAt: order },
-    take: FETCH_LIMIT,
-  });
+        include: messageInclude,
+        orderBy: { occurredAt: order },
+        take: FETCH_LIMIT,
+      }),
+      matchedLeadIds.length
+        ? prisma.threadMessage.findMany({
+            where: {
+              direction: "OUTBOUND",
+              thread: { ...threadFilter, leadId: { in: matchedLeadIds } },
+            },
+            include: messageInclude,
+            orderBy: { occurredAt: order },
+            take: FETCH_LIMIT,
+          })
+        : Promise.resolve<OutboxMessage[]>([]),
+    ]);
+    const merged = new Map<string, OutboxMessage>();
+    for (const message of [...byRecipient, ...byLead]) {
+      merged.set(message.id, message);
+    }
+    messages = [...merged.values()]
+      .sort((a, b) =>
+        order === "asc"
+          ? a.occurredAt.getTime() - b.occurredAt.getTime()
+          : b.occurredAt.getTime() - a.occurredAt.getTime(),
+      )
+      .slice(0, FETCH_LIMIT);
+  }
 
   // Resolve each message's enrollment so OPENED and REPLIED events
   // can be matched to it. Enrollment is unique per campaign and lead.
@@ -196,6 +255,10 @@ export default async function OutboxPage({
 
       <form method="GET" className="card mt-6 flex flex-wrap items-end gap-3 p-4">
         <div>
+          <label className="label" htmlFor="ob-search">Search name, email or company</label>
+          <input id="ob-search" name="search" className="input w-72" defaultValue={search} placeholder="Jane, jane@company.com or Company Inc" />
+        </div>
+        <div>
           <label className="label" htmlFor="ob-campaign">Campaign</label>
           <select id="ob-campaign" name="campaign" defaultValue={campaignId} className="input">
             <option value="">All campaigns</option>
@@ -235,7 +298,8 @@ export default async function OutboxPage({
 
       <p className="mt-4 text-sm text-muted">
         Showing {shown.length} of {filtered.length} matching sends
-        {messages.length >= FETCH_LIMIT ? ` (latest ${FETCH_LIMIT} loaded)` : ""}.
+        {messages.length >= FETCH_LIMIT ? ` (latest ${FETCH_LIMIT} loaded)` : ""}
+        {search ? `. Search matches the recipient's name, email, or company.` : ""}.
       </p>
 
       <div className="mt-3 space-y-3">
@@ -287,6 +351,12 @@ export default async function OutboxPage({
               </div>
               <p className="mt-1 text-sm text-muted">
                 To {message.toEmail}
+                {message.thread.lead && leadCompanyOf(message.thread.lead.fields)
+                  ? ` · ${leadCompanyOf(message.thread.lead.fields)}`
+                  : ""}
+                {message.thread.lead && leadNameOf(message.thread.lead.fields)
+                  ? ` · ${leadNameOf(message.thread.lead.fields)}`
+                  : ""}
                 {message.thread.campaign ? ` · ${message.thread.campaign.name}` : ""}
                 {message.thread.sendingAccount ? ` · from ${message.thread.sendingAccount.email}` : ` · from ${message.fromEmail}`}
               </p>
