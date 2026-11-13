@@ -79,6 +79,12 @@ model Workspace {
   // tracking URLs are built on this host, which the workspace points
   // at the app with a CNAME. Bare host only, no scheme or path.
   trackingDomain  String?
+  // Per-workspace hourly send cap (v1.24.0): when set, replaces
+  // the platform hourly default for this workspace's sends, so a
+  // workspace whose mail host allows less than the default can
+  // stay under its own host's limit. The count it is measured
+  // against stays per sending domain across workspaces (v1.21.0).
+  hourlySendCap   Int?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   memberships     Membership[]
