@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui";
+import { leadIcebreakerOf } from "@/lib/leads/search";
 
 export interface LeadRow {
   id: string;
@@ -188,6 +189,7 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
               </th>
               <th className="px-4 py-3 font-medium">Email</th>
               <th className="px-4 py-3 font-medium">Name / Company</th>
+              <th className="px-4 py-3 font-medium" title="The lead's personalised opening line, inserted by the {{icebreaker}} token">Hook line</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Tags</th>
               <th className="px-4 py-3" />
@@ -198,6 +200,7 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
               const name = [lead.fields.firstName, lead.fields.lastName]
                 .filter(Boolean)
                 .join(" ");
+              const hookLine = leadIcebreakerOf(lead.fields);
               return (
                 <tr key={lead.id} className="border-b border-line last:border-0 hover:bg-elevated/60">
                   <td className="px-4 py-3">
@@ -227,17 +230,19 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
                         verified: {lead.verificationStatus.toLowerCase()}
                       </span>
                     ) : null}
-                    {lead.fields.icebreaker ? (
-                      <p className="mt-1 max-w-md text-xs font-normal text-muted">
-                        Icebreaker (AI generated, stored as {"{{icebreaker}}"}): {String(lead.fields.icebreaker)}
-                      </p>
-                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-muted">
                     {name || ""}
                     {name && lead.fields.company ? " · " : ""}
                     {lead.fields.company ? String(lead.fields.company) : ""}
                     {!name && !lead.fields.company ? "-" : ""}
+                  </td>
+                  <td className="max-w-sm px-4 py-3">
+                    {hookLine ? (
+                      <p className="leading-relaxed">{hookLine}</p>
+                    ) : (
+                      <span className="text-muted">No hook line</span>
+                    )}
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={lead.status} /></td>
                   <td className="px-4 py-3">

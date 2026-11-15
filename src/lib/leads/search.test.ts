@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leadCompanyOf, leadFieldValue, leadMatchesSearch, leadNameOf } from "./search";
+import { leadCompanyOf, leadFieldValue, leadIcebreakerOf, leadMatchesSearch, leadNameOf } from "./search";
 
 const lead = {
   email: "corporate@cacaoandcardamom.com",
@@ -84,5 +84,23 @@ describe("leadFieldValue, leadNameOf, leadCompanyOf", () => {
 
   it("coerces numeric field values", () => {
     expect(leadFieldValue({ company: 42 }, "company")).toBe("42");
+  });
+});
+
+describe("leadIcebreakerOf (v1.30.0, the hook line)", () => {
+  it("returns the stored hook line, trimmed", () => {
+    expect(leadIcebreakerOf({ icebreaker: "  Loved your post on fleet safety. " })).toBe(
+      "Loved your post on fleet safety.",
+    );
+  });
+
+  it("matches the key case-insensitively, like imported CSV headers", () => {
+    expect(leadIcebreakerOf({ Icebreaker: "A line." })).toBe("A line.");
+  });
+
+  it("returns null when the lead has no hook line", () => {
+    expect(leadIcebreakerOf({})).toBeNull();
+    expect(leadIcebreakerOf({ icebreaker: "   " })).toBeNull();
+    expect(leadIcebreakerOf(null)).toBeNull();
   });
 });

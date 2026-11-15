@@ -59,6 +59,17 @@ export function leadCompanyOf(fields: unknown): string | null {
 }
 
 /**
+ * The lead's hook line (v1.30.0): the `icebreaker` field, the
+ * personalised opening line the {{icebreaker}} token drops into a
+ * campaign email. Surfaced as its own column on the Leads surfaces
+ * so the line can be read at a glance instead of hunted for inside
+ * the fields JSON.
+ */
+export function leadIcebreakerOf(fields: unknown): string | null {
+  return leadFieldValue(fields, "icebreaker");
+}
+
+/**
  * True when the query appears (case-insensitively) in the lead's
  * email, first name, last name, full name, or company. The
  * icebreaker text is also searched (v1.26.1): inbox style leads

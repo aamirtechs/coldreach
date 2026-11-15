@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { LocalTime } from "@/components/LocalTime";
 import { CreateListForm } from "@/components/leads/CreateListForm";
 import { EmptyState } from "@/components/ui";
-import { leadCompanyOf, leadMatchesSearch, leadNameOf } from "@/lib/leads/search";
+import { leadCompanyOf, leadIcebreakerOf, leadMatchesSearch, leadNameOf } from "@/lib/leads/search";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +42,7 @@ export default async function LeadsPage({
     email: string;
     name: string;
     company: string;
+    hookLine: string;
     status: string;
     listId: string | null;
     listName: string | null;
@@ -67,7 +68,8 @@ export default async function LeadsPage({
       id: lead.id,
       email: lead.email,
       name: leadNameOf(lead.fields) ?? "",
-      company: leadCompanyOf(lead.fields) ?? "", 
+      company: leadCompanyOf(lead.fields) ?? "",
+      hookLine: leadIcebreakerOf(lead.fields) ?? "",
       status: lead.status,
       listId: lead.listId,
       listName: lead.list?.name ?? null,
@@ -106,22 +108,30 @@ export default async function LeadsPage({
               : `Showing ${searchResults.length} of ${searchTotal} leads matching "${query}" across all lists.`}
           </p>
           {searchResults.length > 0 ? (
-            <table className="mt-2 w-full min-w-[640px] text-left text-sm">
+            <table className="mt-2 w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Company</th>
+                  <th className="px-4 py-3 font-medium" title="The lead's personalised opening line, inserted by the {{icebreaker}} token">Hook line</th>
                   <th className="px-4 py-3 font-medium">List</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {searchResults.map((lead) => (
-                  <tr key={lead.id} className="border-b border-line last:border-0 hover:bg-elevated/60">
+                  <tr key={lead.id} className="border-b border-line align-top last:border-0 hover:bg-elevated/60">
                     <td className="px-4 py-3">{lead.email}</td>
                     <td className="px-4 py-3">{lead.name || "-"}</td>
                     <td className="px-4 py-3">{lead.company || "-"}</td>
+                    <td className="max-w-sm px-4 py-3">
+                      {lead.hookLine ? (
+                        <p className="leading-relaxed">{lead.hookLine}</p>
+                      ) : (
+                        <span className="text-muted">No hook line</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       {lead.listId ? (
                         <Link href={`/app/leads/${lead.listId}`} className="text-accent hover:underline">
