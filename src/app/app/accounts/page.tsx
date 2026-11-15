@@ -8,6 +8,7 @@ import { AccountForm } from "@/components/accounts/AccountForm";
 import { AccountActions } from "@/components/accounts/AccountActions";
 import { WarmupControl } from "@/components/accounts/WarmupControl";
 import { OAuthConnect } from "@/components/accounts/OAuthConnect";
+import { BulkPasswordConnect } from "@/components/accounts/BulkPasswordConnect";
 import { SyncButton } from "@/components/accounts/SyncButton";
 import { DeliverabilityPanel } from "@/components/accounts/DeliverabilityPanel";
 import { DemoBadge, EmptyState, StatusBadge } from "@/components/ui";
@@ -79,6 +80,12 @@ export default async function AccountsPage({
 
       <OAuthConnect
         oauthResult={oauth ? { outcome: oauth, detail } : undefined}
+      />
+
+      <BulkPasswordConnect
+        accounts={accounts
+          .filter((account) => account.provider === "SMTP")
+          .map((account) => ({ id: account.id, email: account.email, status: account.status }))}
       />
 
       {accounts.length === 0 ? (
