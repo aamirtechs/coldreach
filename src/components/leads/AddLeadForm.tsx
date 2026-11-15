@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { buildManualLeadBody, type ManualCustomField } from "@/lib/leads/manualAdd";
 
 export function AddLeadForm({ listId }: { listId: string }) {
   const router = useRouter();
@@ -10,8 +11,15 @@ export function AddLeadForm({ listId }: { listId: string }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [company, setCompany] = useState("");
+  const [icebreaker, setIcebreaker] = useState("");
+  const [tagsText, setTagsText] = useState("");
+  const [customFields, setCustomFields] = useState<ManualCustomField[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  function updateCustom(index: number, patch: Partial<ManualCustomField>) {
+    setCustomFields((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -20,7 +28,12 @@ export function AddLeadForm({ listId }: { listId: string }) {
     const response = await fetch("/api/leads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, listId, fields: { firstName, lastName, company } }),
+      body: JSON.stringify(
+        buildManualLeadBody(
+          { email, firstName, lastName, company, icebreaker, customFields, tagsText },
+          listId,
+        ),
+      ),
     });
     const data = await response.json();
     setBusy(false);
@@ -32,6 +45,9 @@ export function AddLeadForm({ listId }: { listId: string }) {
     setFirstName("");
     setLastName("");
     setCompany("");
+    setIcebreaker("");
+    setTagsText("");
+    setCustomFields([]);
     setOpen(false);
     router.refresh();
   }
@@ -64,6 +80,38 @@ export function AddLeadForm({ listId }: { listId: string }) {
           <label className="label" htmlFor="lead-last">Last name</label>
           <input id="lead-last" className="input" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Shah" />
         </div>
+      </div>
+      <div className="mt-4">
+        <label className="label" htmlFor="lead-icebreaker">Hook line</label>
+        <textarea id="lead-icebreaker" className="input" rows={2} value={icebreaker} onChange={(e) => setIcebreaker(e.target.value)} placeholder="Saw you just launched your new program, congrats." />
+        <p className="mt-1 text-xs text-muted">The personalised opening line. Campaign emails use it through the {"{{icebreaker}}"} token, the same field the CSV import fills.</p>
+      </div>
+      <div className="mt-4">
+        <label className="label" htmlFor="lead-tags">Tags</label>
+        <input id="lead-tags" className="input" value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="vip, saas, founder" />
+        <p className="mt-1 text-xs text-muted">Comma separated.</p>
+      </div>
+      <div className="mt-4">
+        <div className="flex items-center justify-between">
+          <span className="label mb-0">More fields</span>
+          <button type="button" className="btn-secondary" onClick={() => setCustomFields((rows) => [...rows, { key: "", value: "" }])}>
+            Add field
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-muted">Any extra field an import could store, for example website, title, or city. The name becomes a {"{{token}}"} you can use in campaign emails.</p>
+        {customFields.length > 0 ? (
+          <div className="mt-3 grid gap-3">
+            {customFields.map((row, index) => (
+              <div key={index} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                <input className="input" value={row.key} onChange={(e) => updateCustom(index, { key: e.target.value })} placeholder="Field name, e.g. website" aria-label="Field name" />
+                <input className="input" value={row.value} onChange={(e) => updateCustom(index, { value: e.target.value })} placeholder="Value" aria-label="Field value" />
+                <button type="button" className="btn-secondary" onClick={() => setCustomFields((rows) => rows.filter((_, i) => i !== index))}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
       {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
       <div className="mt-5 flex gap-3">
