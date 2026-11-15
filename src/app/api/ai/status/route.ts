@@ -21,5 +21,6 @@ export async function GET() {
     provider: status.providerId,
     model: status.model,
     source: status.source,
+    keyUnreadable: status.keyUnreadable,
   });
 }

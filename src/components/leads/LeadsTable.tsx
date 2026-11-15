@@ -64,19 +64,24 @@ export function LeadsTable({ listId, leads, total, page, totalPages, allTags, qu
   async function generateIcebreaker(leadId: string, email: string) {
     setIcebreakerBusy(leadId);
     setNotice(null);
-    const response = await fetch("/api/ai/icebreaker", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leadId }),
-    });
-    const data = await response.json();
-    setIcebreakerBusy(null);
-    if (!response.ok) {
-      setNotice(data.error ?? `Icebreaker failed for ${email}`);
-      return;
+    try {
+      const response = await fetch("/api/ai/icebreaker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setNotice(data.error ?? `Icebreaker failed for ${email}`);
+        return;
+      }
+      setNotice(`Icebreaker saved for ${email}. It is available as the {{icebreaker}} token.`);
+      router.refresh();
+    } catch {
+      setNotice(`Icebreaker failed for ${email}. Please try again.`);
+    } finally {
+      setIcebreakerBusy(null);
     }
-    setNotice(`Icebreaker saved for ${email}. It is available as the {{icebreaker}} token.`);
-    router.refresh();
   }
 
   function toggle(id: string) {

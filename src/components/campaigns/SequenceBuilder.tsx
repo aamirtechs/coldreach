@@ -182,23 +182,31 @@ export function SequenceBuilder({
     setAiBusy("subjects");
     setAiError(null);
     setSubjectIdeas(null);
-    const response = await fetch("/api/ai/subjects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        campaignName,
-        currentSubject: current.subject,
-        body: current.body,
-        count: 5,
-      }),
-    });
-    const data = await response.json();
-    setAiBusy(null);
-    if (!response.ok) {
-      setAiError(data.error ?? "Subject suggestions failed");
-      return;
+    try {
+      const response = await fetch("/api/ai/subjects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignName,
+          currentSubject: current.subject,
+          body: current.body,
+          count: 5,
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        subjects?: string[];
+      };
+      if (!response.ok) {
+        setAiError(data.error ?? "Subject suggestions failed");
+        return;
+      }
+      setSubjectIdeas(data.subjects ?? []);
+    } catch {
+      setAiError("Subject suggestions failed. Please try again.");
+    } finally {
+      setAiBusy(null);
     }
-    setSubjectIdeas(data.subjects ?? []);
   }
 
   async function fetchRewrite(instruction: string) {
@@ -206,18 +214,23 @@ export function SequenceBuilder({
     setAiBusy(`rewrite:${instruction}`);
     setAiError(null);
     setRewriteResult(null);
-    const response = await fetch("/api/ai/rewrite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: editorBody, instruction }),
-    });
-    const data = await response.json();
-    setAiBusy(null);
-    if (!response.ok) {
-      setAiError(data.error ?? "Rewrite failed");
-      return;
+    try {
+      const response = await fetch("/api/ai/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: editorBody, instruction }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string; body?: string };
+      if (!response.ok) {
+        setAiError(data.error ?? "Rewrite failed");
+        return;
+      }
+      setRewriteResult(data.body ?? "");
+    } catch {
+      setAiError("Rewrite failed. Please try again.");
+    } finally {
+      setAiBusy(null);
     }
-    setRewriteResult(data.body ?? "");
   }
 
   async function save() {

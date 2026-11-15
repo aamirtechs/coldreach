@@ -32,9 +32,10 @@ export async function GET() {
     return NextResponse.json({
       configured: status.configured,
       source: status.source,
-      provider: status.providerId,
+      provider: status.providerId ?? own?.providerId ?? null,
       model: status.model,
       hasOwnKey: own !== null,
+      keyUnreadable: status.keyUnreadable,
     });
   } catch (error) {
     return apiError(error);
@@ -79,6 +80,7 @@ export async function PUT(request: Request) {
       provider: status.providerId,
       model: status.model,
       hasOwnKey: true,
+      keyUnreadable: status.keyUnreadable,
     });
   } catch (error) {
     return apiError(error);
@@ -106,6 +108,7 @@ export async function DELETE() {
       provider: status.providerId,
       model: status.model,
       hasOwnKey: false,
+      keyUnreadable: status.keyUnreadable,
     });
   } catch (error) {
     return apiError(error);

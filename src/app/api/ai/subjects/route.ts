@@ -24,7 +24,12 @@ export async function POST(request: Request) {
   const session = await requireSession("MEMBER");
   if ("error" in session) return session.error;
   const { ctx } = session;
-  const resolved = await resolveWorkspaceAi(prisma, ctx.workspace.id);
+  let resolved;
+  try {
+    resolved = await resolveWorkspaceAi(prisma, ctx.workspace.id);
+  } catch (error) {
+    return apiError(error);
+  }
   const provider = resolved?.provider ?? null;
   if (!provider) return notConfigured();
   const body = await readJson<{

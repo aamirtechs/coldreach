@@ -49,6 +49,7 @@ describe("per-workspace AI keys", () => {
       source: null,
       providerId: null,
       model: "gpt-4o-mini",
+      keyUnreadable: false,
     });
     expect(await resolveWorkspaceAi(db, workspaceId, {} as NodeJS.ProcessEnv)).toBeNull();
   });
@@ -66,6 +67,7 @@ describe("per-workspace AI keys", () => {
       source: "platform",
       providerId: "groq",
       model: "llama-3.3-70b-versatile",
+      keyUnreadable: false,
     });
     const resolved = await resolveWorkspaceAi(db, workspaceId, GROQ_ENV);
     expect(resolved?.provider.id).toBe("groq");
@@ -108,9 +110,33 @@ describe("per-workspace AI keys", () => {
       source: "workspace",
       providerId: "openai",
       model: "gpt-4o",
+      keyUnreadable: false,
     });
     const count = await db.workspaceAiConfig.count({ where: { workspaceId } });
     expect(count).toBe(1);
+  });
+
+  it("treats a key encrypted under a rotated server key as unreadable, never throws", async () => {
+    const savedUnder = process.env.ENCRYPTION_KEY;
+    process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64");
+    try {
+      const status = await getWorkspaceAiStatus(db, workspaceId, {} as NodeJS.ProcessEnv);
+      expect(status.configured).toBe(false);
+      expect(status.keyUnreadable).toBe(true);
+      expect(await resolveWorkspaceAi(db, workspaceId, {} as NodeJS.ProcessEnv)).toBeNull();
+
+      const platform = await getWorkspaceAiStatus(db, workspaceId, GROQ_ENV);
+      expect(platform.configured).toBe(true);
+      expect(platform.source).toBe("platform");
+      expect(platform.keyUnreadable).toBe(true);
+      const resolved = await resolveWorkspaceAi(db, workspaceId, GROQ_ENV);
+      expect(resolved?.source).toBe("platform");
+    } finally {
+      process.env.ENCRYPTION_KEY = savedUnder;
+    }
+    const restored = await getWorkspaceAiStatus(db, workspaceId, {} as NodeJS.ProcessEnv);
+    expect(restored.configured).toBe(true);
+    expect(restored.keyUnreadable).toBe(false);
   });
 
   it("rejects a too-short key and deletes cleanly", async () => {

@@ -19,6 +19,7 @@ interface AiStatus {
   provider: "openai" | "groq" | null;
   model: string;
   hasOwnKey: boolean;
+  keyUnreadable: boolean;
 }
 
 const PROVIDER_LABELS: Record<string, string> = { openai: "OpenAI", groq: "Groq" };
@@ -35,7 +36,14 @@ export function AiProviderPanel({ canManage }: { canManage: boolean }) {
   const load = useCallback(async () => {
     const response = await fetch("/api/integrations/ai");
     if (!response.ok) {
-      setStatus({ configured: false, source: null, provider: null, model: "", hasOwnKey: false });
+      setStatus({
+        configured: false,
+        source: null,
+        provider: null,
+        model: "",
+        hasOwnKey: false,
+        keyUnreadable: false,
+      });
       return;
     }
     const data = (await response.json()) as AiStatus;
@@ -122,6 +130,14 @@ export function AiProviderPanel({ canManage }: { canManage: boolean }) {
           )}
         </p>
       )}
+
+      {status?.keyUnreadable ? (
+        <p className="mt-3 text-sm text-warning">
+          A key is saved for this workspace, but this server cannot read it because the server
+          encryption key changed. The saved key cannot be recovered. Paste the key again below and
+          AI features will work again.
+        </p>
+      ) : null}
 
       {notice && <p className="mt-3 text-sm text-success">{notice}</p>}
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}

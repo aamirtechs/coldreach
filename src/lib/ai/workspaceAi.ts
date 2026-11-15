@@ -31,6 +31,13 @@ export interface WorkspaceAiStatus {
   providerId: AiProviderId | null;
   /** Effective model when configured, else the OpenAI default. */
   model: string;
+  /**
+   * True when a key is saved but this server cannot decrypt it, which
+   * happens when the deployment's ENCRYPTION_KEY changes (for example
+   * a hosting move). The saved key is unrecoverable by design; the
+   * workspace admin must paste the key again on the Integrations page.
+   */
+  keyUnreadable: boolean;
 }
 
 export interface ResolvedWorkspaceAi extends WorkspaceAiStatus {
@@ -109,21 +116,46 @@ async function platformFallbackApplies(
   return owner?.user.email.toLowerCase() === ownerEmail;
 }
 
+type StoredAiKey =
+  | { state: "none" }
+  | { state: "unreadable"; providerId: AiProviderId; model: string | null }
+  | { state: "ok"; providerId: AiProviderId; model: string | null; apiKey: string };
+
+/**
+ * Reads the workspace's stored key. A stored key whose ciphertext no
+ * longer decrypts (the deployment's ENCRYPTION_KEY changed) reports
+ * "unreadable" instead of throwing: callers treat the workspace as
+ * not configured and the UI asks the admin to paste the key again.
+ */
+async function readStoredAiKey(db: PrismaClient, workspaceId: string): Promise<StoredAiKey> {
+  const row = await db.workspaceAiConfig.findUnique({ where: { workspaceId } });
+  if (!row) return { state: "none" };
+  const providerId = asProviderId(row.provider);
+  if (!providerId) return { state: "none" };
+  try {
+    return { state: "ok", providerId, model: row.model, apiKey: decryptSecret(row.encryptedKey) };
+  } catch {
+    return { state: "unreadable", providerId, model: row.model };
+  }
+}
+
 /** Status for status surfaces (settings panel, /api/ai/status). */
 export async function getWorkspaceAiStatus(
   db: PrismaClient,
   workspaceId: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<WorkspaceAiStatus> {
-  const own = await getWorkspaceAiConfigSummary(db, workspaceId);
-  if (own) {
+  const stored = await readStoredAiKey(db, workspaceId);
+  if (stored.state === "ok") {
     return {
       configured: true,
       source: "workspace",
-      providerId: own.providerId,
-      model: own.model || defaultAiModel(own.providerId),
+      providerId: stored.providerId,
+      model: stored.model || defaultAiModel(stored.providerId),
+      keyUnreadable: false,
     };
   }
+  const keyUnreadable = stored.state === "unreadable";
   if (await platformFallbackApplies(db, workspaceId, env)) {
     const providerId: AiProviderId = env.OPENAI_API_KEY ? "openai" : "groq";
     return {
@@ -132,9 +164,16 @@ export async function getWorkspaceAiStatus(
       providerId,
       model:
         (providerId === "openai" ? env.AI_MODEL : env.GROQ_MODEL) || defaultAiModel(providerId),
+      keyUnreadable,
     };
   }
-  return { configured: false, source: null, providerId: null, model: defaultAiModel("openai") };
+  return {
+    configured: false,
+    source: null,
+    providerId: null,
+    model: defaultAiModel("openai"),
+    keyUnreadable,
+  };
 }
 
 /** The provider AI features in this workspace should run on. */
@@ -143,19 +182,16 @@ export async function resolveWorkspaceAi(
   workspaceId: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ResolvedWorkspaceAi | null> {
-  const row = await db.workspaceAiConfig.findUnique({ where: { workspaceId } });
-  if (row) {
-    const providerId = asProviderId(row.provider);
-    if (providerId) {
-      const apiKey = decryptSecret(row.encryptedKey);
-      return {
-        configured: true,
-        source: "workspace",
-        providerId,
-        model: row.model || defaultAiModel(providerId),
-        provider: buildAiProvider(providerId, apiKey, row.model),
-      };
-    }
+  const stored = await readStoredAiKey(db, workspaceId);
+  if (stored.state === "ok") {
+    return {
+      configured: true,
+      source: "workspace",
+      providerId: stored.providerId,
+      model: stored.model || defaultAiModel(stored.providerId),
+      keyUnreadable: false,
+      provider: buildAiProvider(stored.providerId, stored.apiKey, stored.model),
+    };
   }
   if (await platformFallbackApplies(db, workspaceId, env)) {
     const providerId: AiProviderId = env.OPENAI_API_KEY ? "openai" : "groq";
@@ -167,6 +203,7 @@ export async function resolveWorkspaceAi(
       source: "platform",
       providerId,
       model,
+      keyUnreadable: stored.state === "unreadable",
       provider: buildAiProvider(providerId, apiKey, model),
     };
   }
