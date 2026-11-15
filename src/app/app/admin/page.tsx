@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getPlatformStats, isPlatformOwner, type DayBucket } from "@/lib/admin/platform";
 import { listPlatformTickets } from "@/lib/support/tickets";
 import { SupportTicketsAdmin } from "@/components/support/SupportTicketsAdmin";
+import { StorageCleanup } from "@/components/admin/StorageCleanup";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,8 @@ export default async function PlatformAdminPage() {
       <h1 className="font-display text-2xl font-semibold tracking-tight">Platform admin</h1>
       <p className="mt-1 text-sm text-muted">
         Platform-wide totals for ColdReach. Aggregates only: this page never shows another
-        workspace's leads, emails, or campaign content.
+        workspace's leads, emails, or campaign content. The one exception is storage cleanup
+        below, which lists attachment file names and sizes so disk can be reclaimed.
       </p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -140,6 +142,15 @@ export default async function PlatformAdminPage() {
             updatedAt: ticket.updatedAt.toISOString(),
           }))}
         />
+      </section>
+
+      <section className="card mt-6 p-5">
+        <h2 className="text-sm font-medium text-muted">Storage cleanup</h2>
+        <p className="mt-1 text-xs text-muted">
+          Reclaim disk from data that only grows: campaign step attachments and machine reply
+          conversations. Deletes are permanent and are written to the audit log.
+        </p>
+        <StorageCleanup />
       </section>
 
       <section className="card mt-6 p-5">
