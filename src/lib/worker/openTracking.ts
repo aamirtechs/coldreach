@@ -37,7 +37,7 @@ export const OPEN_TRACKING_SINCE = new Date("2026-10-28T16:23:00.000Z");
  * security scanners load the tracking pixel within seconds of
  * delivery, long before a human could read the email. An open
  * recorded within this window of its step's send is classified
- * "MACHINE" on the OPENED event: it stays visible in the Outbox as
+ * "MACHINE" on the OPENED event: it stays visible in Sent as
  * an automatic open, but it no longer counts in open rates and no
  * longer satisfies the open-gated follow-ups rule, so machines stop
  * deciding who gets follow-ups and stop inflating the numbers.

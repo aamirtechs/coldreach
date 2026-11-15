@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
-import { getSendingSchedule } from "./sendingSchedule";
+import { getQueuedSends, getSendingSchedule } from "./sendingSchedule";
 
 const DB_NAME = "test-sending-schedule";
 const NOW = new Date("2026-10-28T12:00:00Z");
@@ -154,5 +154,48 @@ describe("getSendingSchedule", () => {
     expect(schedule.sentToday).toBe(0);
     expect(schedule.capacity).toEqual({ used: 0, cap: 0, accounts: 0 });
     expect(schedule.upcoming).toEqual([]);
+  });
+});
+
+describe("getQueuedSends (v1.29.0, the In Queue page)", () => {
+  it("counts the whole queue and the due-now subset, running campaigns only", async () => {
+    const queue = await getQueuedSends(db, workspaceId, { now: NOW });
+    // Two queued on the running campaign (11:00 due, 13:00 scheduled);
+    // the paused campaign's 09:00 enrollment and the unstamped one
+    // never count.
+    expect(queue.total).toBe(2);
+    expect(queue.dueNow).toBe(1);
+    expect(queue.sends.map((send) => send.leadEmail)).toEqual([
+      "tx@example.test",
+      "plain@example.test",
+    ]);
+    expect(queue.sends[0].due).toBe(true);
+    expect(queue.sends[1].due).toBe(false);
+  });
+
+  it("paginates with limit and offset without changing the totals", async () => {
+    const firstPage = await getQueuedSends(db, workspaceId, { now: NOW, limit: 1, offset: 0 });
+    const secondPage = await getQueuedSends(db, workspaceId, { now: NOW, limit: 1, offset: 1 });
+    expect(firstPage.total).toBe(2);
+    expect(firstPage.sends.map((send) => send.leadEmail)).toEqual(["tx@example.test"]);
+    expect(secondPage.sends.map((send) => send.leadEmail)).toEqual(["plain@example.test"]);
+  });
+
+  it("filters to a single campaign when asked", async () => {
+    const campaign = await db.campaign.findFirst({
+      where: { workspaceId, name: "Operations Management" },
+      select: { id: true },
+    });
+    const queue = await getQueuedSends(db, workspaceId, {
+      now: NOW,
+      campaignId: campaign?.id,
+    });
+    expect(queue.total).toBe(2);
+    const none = await getQueuedSends(db, workspaceId, {
+      now: NOW,
+      campaignId: "no-such-campaign",
+    });
+    expect(none.total).toBe(0);
+    expect(none.sends).toEqual([]);
   });
 });

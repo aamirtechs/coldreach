@@ -2,6 +2,7 @@ import {
   BarChart3,
   Building2,
   CreditCard,
+  Hourglass,
   Inbox,
   LayoutDashboard,
   LifeBuoy,
@@ -33,7 +34,8 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { href: "/app/campaigns", label: "Campaigns", icon: Send },
   { href: "/app/leads", label: "Leads", icon: ListChecks },
   { href: "/app/inbox", label: "Inbox", icon: Inbox },
-  { href: "/app/outbox", label: "Outbox", icon: MailCheck },
+  { href: "/app/sent", label: "Sent", icon: MailCheck },
+  { href: "/app/queue", label: "In Queue", icon: Hourglass },
   { href: "/app/accounts", label: "Sending Accounts", icon: Mail },
   { href: "/app/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/app/team", label: "Team", icon: Users },
@@ -51,7 +53,7 @@ export const PLATFORM_ADMIN_NAV_ITEM: AppNavItem = {
 };
 
 /** The four destinations with a permanent slot in the mobile bottom bar. */
-export const MOBILE_PRIMARY_HREFS = ["/app", "/app/campaigns", "/app/inbox", "/app/outbox"];
+export const MOBILE_PRIMARY_HREFS = ["/app", "/app/campaigns", "/app/inbox", "/app/sent"];
 
 export const MOBILE_PRIMARY_ITEMS: AppNavItem[] = APP_NAV_ITEMS.filter((item) =>
   MOBILE_PRIMARY_HREFS.includes(item.href),

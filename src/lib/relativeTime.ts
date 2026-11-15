@@ -1,5 +1,5 @@
 /**
- * Relative time labels (v1.17.0), for the inbox and outbox.
+ * Relative time labels (v1.17.0), for the inbox and Sent.
  *
  * "just now", "5 mins ago", "2 hrs ago", "3 days ago"; anything a
  * week or older falls back to the absolute date, because "23 days

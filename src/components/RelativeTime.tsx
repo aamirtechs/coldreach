@@ -12,7 +12,7 @@ import { formatExactTime, formatRelativeTime, formatTimeOfDay } from "@/lib/rela
  * keeps honest ages. The exact moment stays available as the
  * element's title and dateTime.
  *
- * With showExact (v1.25.1, the Outbox send records), the exact
+ * With showExact (v1.25.1, the Sent page send records), the exact
  * moment is printed beside the label instead of only on hover:
  * "1 hr ago · 13 Nov 2026, 01:00" in the viewer's timezone. When
  * the relative label has already fallen back to a plain date, only

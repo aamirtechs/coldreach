@@ -37,7 +37,7 @@ describe("product tour persistence", () => {
 });
 
 describe("tour step definitions", () => {
-  it("covers the setup path in order, from welcome to outbox", () => {
+  it("covers the setup path in order, from welcome to sent", () => {
     expect(TOUR_STEPS.map((step) => step.id)).toEqual([
       "welcome",
       "identity",
@@ -47,7 +47,7 @@ describe("tour step definitions", () => {
       "sequence",
       "preflight",
       "inbox",
-      "outbox",
+      "sent",
     ]);
     for (const step of TOUR_STEPS) {
       expect(step.route.startsWith("/app")).toBe(true);

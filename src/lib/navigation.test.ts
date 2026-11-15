@@ -12,7 +12,7 @@ describe("app navigation", () => {
       "/app",
       "/app/campaigns",
       "/app/inbox",
-      "/app/outbox",
+      "/app/sent",
     ]);
   });
 

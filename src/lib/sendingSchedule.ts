@@ -139,25 +139,7 @@ export async function getSendingSchedule(
     return sum + Math.min(rampLimit, warmupDailyLimit(account, now));
   }, 0);
 
-  const upcoming: UpcomingSend[] = upcomingRows.map((row) => {
-    const fields = row.lead.fields as LeadFields | null;
-    const country = resolveLeadCountry(fields);
-    return {
-      enrollmentId: row.id,
-      campaignId: row.campaignId,
-      at: row.nextSendAt as Date,
-      campaignName: row.campaign.name,
-      leadEmail: row.lead.email,
-      company: companyOf(row.lead.fields),
-      stepNumber: row.currentStep + 1,
-      timezone: resolveLeadTimezone(fields) ?? row.campaign.timezone,
-      country: country ? country.name : null,
-      countryCode: country?.code ?? null,
-      countryFlag: country?.flag ?? null,
-      state: country?.state ?? null,
-      due: (row.nextSendAt as Date).getTime() <= now.getTime(),
-    };
-  });
+  const upcoming: UpcomingSend[] = upcomingRows.map((row) => toUpcomingSend(row, now));
 
   return {
     lastSentAt: lastSent?.occurredAt ?? null,
@@ -165,4 +147,91 @@ export async function getSendingSchedule(
     capacity: { used: sentToday, cap, accounts: eligible.length },
     upcoming,
   };
+}
+
+/** One enrollment row as selected by the schedule and queue queries. */
+interface UpcomingRow {
+  id: string;
+  nextSendAt: Date | null;
+  currentStep: number;
+  campaignId: string;
+  campaign: { name: string; timezone: string };
+  lead: { email: string; fields: unknown };
+}
+
+function toUpcomingSend(row: UpcomingRow, now: Date): UpcomingSend {
+  const fields = row.lead.fields as LeadFields | null;
+  const country = resolveLeadCountry(fields);
+  return {
+    enrollmentId: row.id,
+    campaignId: row.campaignId,
+    at: row.nextSendAt as Date,
+    campaignName: row.campaign.name,
+    leadEmail: row.lead.email,
+    company: companyOf(row.lead.fields),
+    stepNumber: row.currentStep + 1,
+    timezone: resolveLeadTimezone(fields) ?? row.campaign.timezone,
+    country: country ? country.name : null,
+    countryCode: country?.code ?? null,
+    countryFlag: country?.flag ?? null,
+    state: country?.state ?? null,
+    due: (row.nextSendAt as Date).getTime() <= now.getTime(),
+  };
+}
+
+const QUEUE_SELECT = {
+  id: true,
+  nextSendAt: true,
+  currentStep: true,
+  campaignId: true,
+  campaign: { select: { name: true, timezone: true } },
+  lead: { select: { email: true, fields: true } },
+} as const;
+
+export interface QueuedSends {
+  /** Every send currently waiting, matching the filters. */
+  total: number;
+  /** Of those, how many are already due and leave on the next tick. */
+  dueNow: number;
+  /** The requested page of the queue, soonest first. */
+  sends: UpcomingSend[];
+}
+
+/**
+ * The In Queue page (v1.29.0): every email waiting to send in the
+ * workspace, soonest first. The queue is defined exactly as the
+ * worker's due pool is: ACTIVE enrollments with a nextSendAt stamp
+ * on RUNNING campaigns. A send whose stamp has passed is due and
+ * leaves on the next tick; the rest are scheduled. Paginated by the
+ * caller through limit and offset.
+ */
+export async function getQueuedSends(
+  db: PrismaClient,
+  workspaceId: string,
+  options: { campaignId?: string; limit?: number; offset?: number; now?: Date } = {},
+): Promise<QueuedSends> {
+  const now = options.now ?? new Date();
+  const limit = options.limit ?? 100;
+  const offset = options.offset ?? 0;
+  const campaignFilter = {
+    workspaceId,
+    status: "RUNNING" as const,
+    ...(options.campaignId ? { id: options.campaignId } : {}),
+  };
+  const [total, dueNow, rows] = await Promise.all([
+    db.enrollment.count({
+      where: { status: "ACTIVE", nextSendAt: { not: null }, campaign: campaignFilter },
+    }),
+    db.enrollment.count({
+      where: { status: "ACTIVE", nextSendAt: { not: null, lte: now }, campaign: campaignFilter },
+    }),
+    db.enrollment.findMany({
+      where: { status: "ACTIVE", nextSendAt: { not: null }, campaign: campaignFilter },
+      orderBy: { nextSendAt: "asc" },
+      skip: offset,
+      take: limit,
+      select: QUEUE_SELECT,
+    }),
+  ]);
+  return { total, dueNow, sends: rows.map((row) => toUpcomingSend(row, now)) };
 }

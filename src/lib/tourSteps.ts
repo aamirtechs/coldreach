@@ -81,10 +81,10 @@ export const TOUR_STEPS: TourStep[] = [
     body: "Every connected mailbox syncs here into one inbox. When a lead replies, their follow-ups stop automatically, and bounces and unsubscribes suppress them across every campaign.",
   },
   {
-    id: "outbox",
-    route: "/app/outbox",
-    target: '[data-tour="outbox"]',
-    title: "Track sends in the Outbox",
+    id: "sent",
+    route: "/app/sent",
+    target: '[data-tour="sent"]',
+    title: "Track sends in Sent",
     body: "Every email the worker sends is listed here with its status, opens, and replies, so you can see exactly what went out, from which account, and what it did. That is the whole loop: set up once, then watch real sending.",
   },
 ];

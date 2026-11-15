@@ -10,7 +10,7 @@
  * scan a bounded window of leads and filter with this helper,
  * the same pattern the tag filter has always used. The helper is
  * pure and unit tested, so every search surface (the lead list
- * page, the leads API, and the Outbox, which searches through
+ * page, the leads API, and Sent, which searches through
  * its threads' leads) matches in exactly the same way.
  *
  * Field keys are matched case-insensitively, because CSV imports

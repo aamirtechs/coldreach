@@ -913,9 +913,9 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         },
       });
       // Record the send in the lead's conversation thread (v1.8.1).
-      // The Outbox and the inbox thread history read outbound
+      // The Sent page and the inbox thread history read outbound
       // ThreadMessages; before this, campaign sends wrote only the
-      // SENT event, so real sends never appeared in the Outbox. The
+      // SENT event, so real sends never appeared in Sent. The
       // thread is matched the same way reply sync matches it
       // (workspace + lead + sending account), so a later reply lands
       // in the same conversation. A failure here must not fail the
