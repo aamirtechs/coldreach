@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import type { Membership, User, Workspace } from "@prisma/client";
@@ -78,8 +79,13 @@ export async function clearSessionCookie(): Promise<void> {
  * cookie. Returns null when there is no valid session. Every data query in
  * the app must scope by the returned workspace id; that scoping is what
  * enforces tenant isolation.
+ *
+ * Memoized per request with React cache (v1.28.1): the app layout and
+ * the page below it both resolve the session on every navigation, and
+ * without the cache each paid a separate database round trip for the
+ * same membership row.
  */
-export async function getSessionWorkspace(): Promise<SessionContext | null> {
+export const getSessionWorkspace = cache(async (): Promise<SessionContext | null> => {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) {
@@ -102,7 +108,7 @@ export async function getSessionWorkspace(): Promise<SessionContext | null> {
     return null;
   }
   return { user: membership.user, workspace: membership.workspace, role: membership.role };
-}
+});
 
 const ROLE_RANK: Record<RoleValue, number> = {
   VIEWER: 0,

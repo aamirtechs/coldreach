@@ -20,8 +20,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session) {
     redirect("/login");
   }
-  const workspaces = await listUserWorkspaces(session.user.id);
-  const tourCompletedAt = await getTourCompletedAt(prisma, session.user.id);
+  const [workspaces, tourCompletedAt] = await Promise.all([
+    listUserWorkspaces(session.user.id),
+    getTourCompletedAt(prisma, session.user.id),
+  ]);
 
   return (
     <div className="flex min-h-screen">
