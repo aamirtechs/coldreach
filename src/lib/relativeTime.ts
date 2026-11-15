@@ -43,6 +43,34 @@ export function formatExactTime(date: Date, timeZone?: string): string {
   }).format(date);
 }
 
+/**
+ * Countdown label for a future moment (v1.29.1), the forward-looking
+ * companion to formatRelativeTime: "in under a min", "in 5 mins",
+ * "in 2 hrs 15 mins", "in 1 day 2 hrs". A moment already reached
+ * reads "due now". Used by the In Queue page so a scheduled send
+ * shows how long is left, not only the clock time it leaves at.
+ */
+export function formatTimeUntil(date: Date, now: Date = new Date()): string {
+  const seconds = Math.floor((date.getTime() - now.getTime()) / 1000);
+  if (Number.isNaN(seconds)) return "";
+  if (seconds <= 0) return "due now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 1) return "in under a min";
+  if (minutes < 60) return minutes === 1 ? "in 1 min" : `in ${minutes} mins`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  if (hours < 24) {
+    const hourPart = hours === 1 ? "1 hr" : `${hours} hrs`;
+    if (restMinutes === 0) return `in ${hourPart}`;
+    return `in ${hourPart} ${restMinutes === 1 ? "1 min" : `${restMinutes} mins`}`;
+  }
+  const days = Math.floor(hours / 24);
+  const restHours = hours % 24;
+  const dayPart = days === 1 ? "1 day" : `${days} days`;
+  if (restHours === 0) return `in ${dayPart}`;
+  return `in ${dayPart} ${restHours === 1 ? "1 hr" : `${restHours} hrs`}`;
+}
+
 /** Just the clock time, "01:00", for pairing with a date already shown. */
 export function formatTimeOfDay(date: Date, timeZone?: string): string {
   return new Intl.DateTimeFormat("en-GB", {

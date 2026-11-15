@@ -3,8 +3,10 @@ import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { getQueuedSends } from "@/lib/sendingSchedule";
+import { formatTimeUntil } from "@/lib/relativeTime";
 import { LocalTime } from "@/components/LocalTime";
 import { CountryFlag } from "@/components/CountryFlag";
+import { UpcomingPreviewButton } from "@/components/dashboard/UpcomingPreviewButton";
 import { EmptyState } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +18,10 @@ export const dynamic = "force-dynamic";
  * due pool (ACTIVE enrollments with a send stamp on RUNNING
  * campaigns, read through getQueuedSends), so the page can disagree
  * with the worker only if the records do. A row marked Due leaves on
- * the next tick; the worker ticks every few minutes.
+ * the next tick; the worker ticks every few minutes. Each row also
+ * carries a View Email button (v1.29.1) that previews the exact
+ * rendered email for that enrollment, and a countdown in hours and
+ * minutes until the send.
  */
 
 const PAGE_SIZE = 100;
@@ -59,6 +64,7 @@ export default async function QueuePage({
   const params = await searchParams;
   const campaignId = params.campaign ?? "";
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
+  const now = new Date();
 
   const [campaigns, queue] = await Promise.all([
     prisma.campaign.findMany({
@@ -70,6 +76,7 @@ export default async function QueuePage({
       campaignId: campaignId || undefined,
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
+      now,
     }),
   ]);
   const pageCount = Math.max(1, Math.ceil(queue.total / PAGE_SIZE));
@@ -116,7 +123,7 @@ export default async function QueuePage({
         </div>
       ) : (
         <div className="card mt-3 overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
+          <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-3 font-medium">Scheduled</th>
@@ -124,6 +131,7 @@ export default async function QueuePage({
                 <th className="px-4 py-3 font-medium">Campaign</th>
                 <th className="px-4 py-3 font-medium">Step</th>
                 <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Email</th>
               </tr>
             </thead>
             <tbody>
@@ -162,8 +170,14 @@ export default async function QueuePage({
                     {send.due ? (
                       <span className="badge bg-accent-soft text-accent">Due now</span>
                     ) : (
-                      <span className="badge bg-surface text-muted">Scheduled</span>
+                      <>
+                        <span className="badge bg-surface text-muted">Scheduled</span>
+                        <p className="mt-1 text-xs text-muted">{formatTimeUntil(send.at, now)}</p>
+                      </>
                     )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <UpcomingPreviewButton enrollmentId={send.enrollmentId} label="View Email" />
                   </td>
                 </tr>
               ))}

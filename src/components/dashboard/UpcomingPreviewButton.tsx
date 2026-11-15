@@ -27,13 +27,21 @@ interface Preview {
 }
 
 /**
- * "Preview email" for one Upcoming sends row (v1.16.0). Fetches the
- * exact rendered copy for that enrollment from
- * GET /api/enrollments/[id]/preview (the same renderer the sending
- * worker uses) and shows it in a modal: recipient, subject, and the
- * complete plain-text email including signature and footer.
+ * "Preview email" for one queued enrollment (v1.16.0, for the
+ * dashboard's Upcoming sends; reused by the In Queue page in
+ * v1.29.1 with a "View Email" label). Fetches the exact rendered
+ * copy for that enrollment from GET /api/enrollments/[id]/preview
+ * (the same renderer the sending worker uses) and shows it in a
+ * modal: recipient, subject, and the complete plain-text email
+ * including signature and footer.
  */
-export function UpcomingPreviewButton({ enrollmentId }: { enrollmentId: string }) {
+export function UpcomingPreviewButton({
+  enrollmentId,
+  label = "Preview email",
+}: {
+  enrollmentId: string;
+  label?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +90,7 @@ export function UpcomingPreviewButton({ enrollmentId }: { enrollmentId: string }
         onClick={() => setOpen(true)}
         aria-label="Preview the exact email that will be sent to this lead"
       >
-        <Eye className="h-3.5 w-3.5" /> Preview email
+        <Eye className="h-3.5 w-3.5" /> {label}
       </button>
       {open ? (
         <div
