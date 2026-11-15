@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession, stringField } from "@/lib/api";
+import { hasWorkspaceFeature } from "@/lib/billing/subscription";
+import { featureUpgradeMessage } from "@/lib/domain/plans";
 import { hasEncryptionKey } from "@/lib/security/crypto";
 import {
   WEBHOOK_EVENT_TYPES,
@@ -57,6 +59,12 @@ export async function POST(request: Request) {
   const session = await requireSession("ADMIN");
   if ("error" in session) return session.error;
   const { ctx } = session;
+  if (!(await hasWorkspaceFeature(prisma, ctx.workspace.id, "webhooks"))) {
+    return NextResponse.json(
+      { error: featureUpgradeMessage("webhooks") },
+      { status: 403 },
+    );
+  }
   const body = await readJson<{ url?: unknown; eventTypes?: unknown }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   const url = stringField(body.url);

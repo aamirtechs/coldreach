@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { PLANS, isPlanId, type PlanId } from "@/lib/domain/plans";
+import { PLANS, isPlanId, planPriceLabelPkr, type PlanId } from "@/lib/domain/plans";
 
 /**
  * Stripe access over the plain HTTPS API (no SDK dependency).
@@ -195,10 +195,9 @@ export function verifyStripeSignature(
   });
 }
 
-/** Placeholder-price sanity note used by the billing UI copy. */
+/** Price label used by the billing UI copy (PKR since v1.32.0). */
 export function planPriceLabel(plan: PlanId): string {
-  const entry = PLANS[plan];
-  return entry.priceMonthlyUsd === 0 ? "Free" : `$${entry.priceMonthlyUsd}/mo`;
+  return planPriceLabelPkr(PLANS[plan]);
 }
 
 export { isPlanId };

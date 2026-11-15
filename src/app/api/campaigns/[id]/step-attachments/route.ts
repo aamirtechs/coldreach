@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireSession } from "@/lib/api";
+import { hasWorkspaceFeature } from "@/lib/billing/subscription";
+import { featureUpgradeMessage } from "@/lib/domain/plans";
 import { writeAuditLog } from "@/lib/audit";
 import { validateAttachment } from "@/lib/attachments";
 
@@ -67,6 +69,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
     const gate = editGate(campaign.status);
     if (gate) return gate;
+
+    if (!(await hasWorkspaceFeature(prisma, ctx.workspace.id, "attachments"))) {
+      return NextResponse.json(
+        { error: featureUpgradeMessage("attachments") },
+        { status: 403 },
+      );
+    }
 
     const form = await request.formData().catch(() => null);
     if (!form) {

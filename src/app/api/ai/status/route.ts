@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/api";
 import { getWorkspaceAiStatus } from "@/lib/ai/workspaceAi";
+import { hasWorkspaceFeature } from "@/lib/billing/subscription";
 
 /**
  * Reports whether AI assistance can run in THIS workspace (v1.8.0).
@@ -15,6 +16,9 @@ export async function GET() {
   if ("error" in session) return session.error;
   const { ctx } = session;
   const status = await getWorkspaceAiStatus(prisma, ctx.workspace.id);
+  // Plan gate (v1.32.0): AI is a Growth and Pro feature. The UI uses
+  // planAllowed to show the upgrade note instead of dead controls.
+  const planAllowed = await hasWorkspaceFeature(prisma, ctx.workspace.id, "ai");
   return NextResponse.json({
     configured: status.configured,
     missingEnv: status.configured ? [] : ["workspace AI key"],
@@ -22,5 +26,6 @@ export async function GET() {
     model: status.model,
     source: status.source,
     keyUnreadable: status.keyUnreadable,
+    planAllowed,
   });
 }

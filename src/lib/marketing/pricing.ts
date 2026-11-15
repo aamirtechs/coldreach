@@ -1,4 +1,4 @@
-import { PLAN_ORDER, PLANS, type PlanId } from "@/lib/domain/plans";
+import { PLAN_ORDER, PLANS, planPriceLabelPkr, type PlanId } from "@/lib/domain/plans";
 
 /**
  * Pricing page data (Phase 6, Stage B).
@@ -9,21 +9,21 @@ import { PLAN_ORDER, PLANS, type PlanId } from "@/lib/domain/plans";
  * the quota engine enforces and the billing page shows. The test in
  * pricing.test.ts pins that relationship.
  *
- * Prices in the catalog are placeholder pricing until the owner
- * creates the real Stripe products and prices; every surface that
- * shows them carries PLACEHOLDER_PRICING_NOTE, exactly as the
- * billing page does.
+ * Prices are monthly, in PKR (v1.32.0). Paid plans are activated
+ * with subscription keys sold by the ColdReach team; every surface
+ * that shows prices carries PLACEHOLDER_PRICING_NOTE (the export
+ * name is historical), exactly as the billing page does.
  */
 
 export const PLACEHOLDER_PRICING_NOTE =
-  "Prices shown are placeholder pricing until the owner creates the real Stripe prices.";
+  "Prices are in Pakistani Rupees (PKR) per month. Paid plans are activated with a subscription key from the ColdReach team.";
 
 export interface PricingRow {
   id: PlanId;
   name: string;
-  /** "$29/mo", or "Free" for the FREE plan. */
+  /** "Rs. 499/mo", or "Free" for the FREE plan. */
   priceLabel: string;
-  priceMonthlyUsd: number;
+  priceMonthlyPkr: number;
   /** "Unlimited" when the catalog carries null. */
   seatsLabel: string;
   seats: number | null;
@@ -34,9 +34,9 @@ export interface PricingRow {
 
 const BLURBS: Record<PlanId, string> = {
   FREE: "The full workflow on a small list: campaigns, preflight, inbox, and analytics.",
-  STARTER: "For founders and solo senders running campaigns every week.",
-  PRO: "For sales teams sending from several mailboxes with room to grow.",
-  AGENCY: "For lead generation agencies running many client workspaces.",
+  STARTER: "For solo senders getting started with regular campaigns.",
+  PRO: "For growing senders who need AI help, webhooks, and more mailboxes.",
+  AGENCY: "Every feature included, with the highest limits, for heavy senders and agencies.",
 };
 
 export function pricingRows(): PricingRow[] {
@@ -45,8 +45,8 @@ export function pricingRows(): PricingRow[] {
     return {
       id: plan.id,
       name: plan.name,
-      priceLabel: plan.priceMonthlyUsd === 0 ? "Free" : `$${plan.priceMonthlyUsd}/mo`,
-      priceMonthlyUsd: plan.priceMonthlyUsd,
+      priceLabel: planPriceLabelPkr(plan),
+      priceMonthlyPkr: plan.priceMonthlyPkr,
       seatsLabel: plan.seats === null ? "Unlimited" : String(plan.seats),
       seats: plan.seats,
       sendingAccounts: plan.sendingAccounts,

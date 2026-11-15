@@ -109,6 +109,7 @@ model Workspace {
   supportTickets  SupportTicket[]
   webhookEndpoints WebhookEndpoint[]
   subscription    Subscription?
+  subscriptionKeys SubscriptionKey[]
   crmConnections  CrmConnection[]
 }
 
@@ -800,6 +801,31 @@ model Subscription {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// Subscription keys (v1.32.0). The platform owner generates keys in
+// the admin panel; each key grants one paid plan for a fixed number
+// of days when a workspace owner redeems it on the Billing page.
+// Only the SHA-256 hash of the code is stored, plus a display hint
+// (first and last group); the full code is shown once, at generation.
+// status is one of UNUSED, REDEEMED, REVOKED.
+model SubscriptionKey {
+  id                    String    @id @default(cuid())
+  codeHash              String    @unique
+  codeHint              String
+  plan                  PlanTier
+  durationDays          Int       @default(30)
+  status                String    @default("UNUSED")
+  note                  String?
+  createdByUserId       String?
+  redeemedByWorkspaceId String?
+  redeemedAt            DateTime?
+  revokedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  redeemedByWorkspace   Workspace? @relation(fields: [redeemedByWorkspaceId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([redeemedByWorkspaceId])
 }
 
 // Support tickets (v1.22.0). Created from the in-app Support page;

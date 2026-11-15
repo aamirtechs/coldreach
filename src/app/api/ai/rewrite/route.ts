@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession, stringField } from "@/lib/api";
+import { hasWorkspaceFeature } from "@/lib/billing/subscription";
+import { featureUpgradeMessage } from "@/lib/domain/plans";
 import { resolveWorkspaceAi } from "@/lib/ai/workspaceAi";
 import { REWRITE_INSTRUCTIONS, type RewriteInstruction } from "@/lib/ai/provider";
 
@@ -24,6 +26,12 @@ export async function POST(request: Request) {
   const session = await requireSession("MEMBER");
   if ("error" in session) return session.error;
   const { ctx } = session;
+  if (!(await hasWorkspaceFeature(prisma, ctx.workspace.id, "ai"))) {
+    return NextResponse.json(
+      { error: featureUpgradeMessage("ai") },
+      { status: 403 },
+    );
+  }
   let resolved;
   try {
     resolved = await resolveWorkspaceAi(prisma, ctx.workspace.id);

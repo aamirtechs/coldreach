@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { publicOrigin } from "@/lib/publicOrigin";
 
 const SESSION_COOKIE = "coldreach_session";
 
@@ -21,19 +22,24 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const valid = await hasValidSession(request);
 
+  // Redirects must use the public origin, not request.nextUrl: behind
+  // the production proxy, nextUrl points at localhost:3000 (v1.32.0).
+  const origin = publicOrigin({
+    forwardedHost: request.headers.get("x-forwarded-host"),
+    forwardedProto: request.headers.get("x-forwarded-proto"),
+    host: request.headers.get("host"),
+    appUrl: process.env.APP_URL,
+    fallback: request.nextUrl.origin,
+  });
+
   if (pathname.startsWith("/app") && !valid) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.search = "";
+    const url = new URL("/login", origin);
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
 
   if ((pathname === "/login" || pathname === "/signup") && valid) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/app";
-    url.search = "";
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL("/app", origin));
   }
 
   return NextResponse.next();

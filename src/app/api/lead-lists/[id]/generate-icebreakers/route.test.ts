@@ -17,9 +17,13 @@ const mocks = vi.hoisted(() => ({
   resolveWorkspaceAi: vi.fn(),
   writeAuditLog: vi.fn(async () => undefined),
   icebreaker: vi.fn(),
+  hasWorkspaceFeature: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: mocks.prisma }));
+vi.mock("@/lib/billing/subscription", () => ({
+  hasWorkspaceFeature: mocks.hasWorkspaceFeature,
+}));
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return { ...actual, requireSession: mocks.requireSession };
@@ -42,6 +46,15 @@ function lead(id: string, fields: Record<string, unknown>) {
 }
 
 describe("POST /api/lead-lists/[id]/generate-icebreakers", () => {
+  it("returns 403 when the workspace plan does not include AI", async () => {
+    mocks.hasWorkspaceFeature.mockResolvedValueOnce(false);
+    const response = await POST(request(), params);
+    expect(response.status).toBe(403);
+    const data = await response.json();
+    expect(data.error).toContain("does not include");
+    expect(mocks.resolveWorkspaceAi).not.toHaveBeenCalled();
+  });
+
   it("returns a clear 400 when AI is not configured for the workspace", async () => {
     mocks.prisma.leadList.findFirst.mockResolvedValue({ id: "list-1" });
     mocks.resolveWorkspaceAi.mockResolvedValue(null);

@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireSession } from "@/lib/api";
 import { PLAN_ORDER, PLANS } from "@/lib/domain/plans";
-import { getOrCreateSubscription, getWorkspaceUsage } from "@/lib/billing/subscription";
+import {
+  effectivePlan,
+  getOrCreateSubscription,
+  getWorkspaceUsage,
+  subscriptionExpired,
+} from "@/lib/billing/subscription";
 import { stripeMissingEnv } from "@/lib/billing/stripe";
 
 /**
@@ -30,6 +35,10 @@ export async function GET() {
         stripeSubscriptionId: subscription.stripeSubscriptionId,
         currentPeriodEnd: subscription.currentPeriodEnd,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        // v1.32.0: the plan quotas and features actually run on.
+        // Differs from plan when key-granted time has run out.
+        effectivePlan: effectivePlan(subscription).id,
+        expired: subscriptionExpired(subscription),
       },
       plans: PLAN_ORDER.map((id) => PLANS[id]),
       usage: {

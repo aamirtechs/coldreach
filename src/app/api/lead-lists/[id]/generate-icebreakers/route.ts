@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireSession } from "@/lib/api";
+import { hasWorkspaceFeature } from "@/lib/billing/subscription";
+import { featureUpgradeMessage } from "@/lib/domain/plans";
 import { resolveWorkspaceAi } from "@/lib/ai/workspaceAi";
 import {
   buildIcebreakerContext,
@@ -56,6 +58,12 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const session = await requireSession("MEMBER");
   if ("error" in session) return session.error;
   const { ctx } = session;
+  if (!(await hasWorkspaceFeature(prisma, ctx.workspace.id, "ai"))) {
+    return NextResponse.json(
+      { error: featureUpgradeMessage("ai") },
+      { status: 403 },
+    );
+  }
   const { id } = await params;
   try {
     const list = await prisma.leadList.findFirst({

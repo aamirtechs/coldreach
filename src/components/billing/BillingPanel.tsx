@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PLAN_FEATURES, PLAN_FEATURE_LABELS, type PlanFeature } from "@/lib/domain/plans";
 
 interface PlanInfo {
   id: string;
   name: string;
-  priceMonthlyUsd: number;
+  priceMonthlyPkr: number;
   seats: number | null;
   sendingAccounts: number;
   monthlySends: number;
+  features: Record<PlanFeature, boolean>;
 }
 
 interface BillingData {
@@ -19,6 +21,8 @@ interface BillingData {
     stripeCustomerId: string | null;
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
+    effectivePlan: string;
+    expired: boolean;
   };
   plans: PlanInfo[];
   usage: {
@@ -96,6 +100,35 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
     window.location.href = result.url;
   }
 
+  const [keyCode, setKeyCode] = useState("");
+
+  async function redeem() {
+    setBusy("redeem");
+    setNotice(null);
+    try {
+      const response = await fetch("/api/billing/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: keyCode }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setNotice(result.error ?? "That key could not be redeemed.");
+        return;
+      }
+      setKeyCode("");
+      setNotice(
+        `${result.planName} is active until ${new Date(result.currentPeriodEnd).toLocaleDateString()}.`,
+      );
+      load();
+      router.refresh();
+    } catch {
+      setNotice("That key could not be redeemed. Check your connection and try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function override(plan: string) {
     setBusy(`override:${plan}`);
     setNotice(null);
@@ -119,19 +152,20 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
     return <p className="mt-6 text-sm text-muted">Loading billing...</p>;
   }
 
-  const current = data.plans.find((plan) => plan.id === data.subscription.plan) ?? data.plans[0];
+  const granted = data.plans.find((plan) => plan.id === data.subscription.plan) ?? data.plans[0];
+  const current =
+    data.plans.find((plan) => plan.id === data.subscription.effectivePlan) ?? granted;
 
   return (
     <div>
       {!data.stripe.configured ? (
         <div className="card mt-6 border-dashed p-6">
-          <h2 className="font-display text-lg font-semibold">Billing is not configured</h2>
+          <h2 className="font-display text-lg font-semibold">Pay with a subscription key</h2>
           <p className="mt-1 text-sm text-muted">
-            Stripe checkout is off because the server is missing:{" "}
-            <span className="font-mono text-xs">{data.stripe.missingEnv.join(", ")}</span>. The
-            owner setup steps are in INTEGRATIONS.md. Until then, plan quotas still apply and an
-            owner can set the plan with the manual override below. Prices shown are placeholder
-            pricing until the owner creates the real Stripe prices.
+            Paid plans are activated with a subscription key from the ColdReach team. Buy a key,
+            then redeem it below and the plan runs for the key's days. Card checkout (Stripe) is
+            not configured on this server yet, so the manual override below remains available to
+            owners.
           </p>
         </div>
       ) : !data.stripe.webhookConfigured ? (
@@ -146,12 +180,22 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
           Current plan: {current.name}
           <span className="ml-2 align-middle text-sm font-normal text-muted">
             status {data.subscription.status}
-            {data.subscription.currentPeriodEnd
-              ? ` · period ends ${new Date(data.subscription.currentPeriodEnd).toLocaleDateString()}`
+            {data.subscription.currentPeriodEnd && !data.subscription.expired
+              ? ` · paid until ${new Date(data.subscription.currentPeriodEnd).toLocaleDateString()}`
               : ""}
             {data.subscription.cancelAtPeriodEnd ? " · cancels at period end" : ""}
           </span>
         </h2>
+        {data.subscription.expired ? (
+          <p className="mt-2 text-sm text-warning">
+            Your {granted.name} time ended
+            {data.subscription.currentPeriodEnd
+              ? ` on ${new Date(data.subscription.currentPeriodEnd).toLocaleDateString()}`
+              : ""}
+            . This workspace is running on Free limits now. Redeem a new key below to switch
+            back, your data and campaigns are untouched.
+          </p>
+        ) : null}
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <UsageBar label="Sends this month" used={data.usage.sentThisMonth} limit={current.monthlySends} />
           <UsageBar label="Sending accounts" used={data.usage.sendingAccounts} limit={current.sendingAccounts} />
@@ -169,26 +213,58 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
         ) : null}
       </section>
 
+      {isOwner ? (
+        <section className="card mt-6 p-6">
+          <h2 className="font-display text-lg font-semibold">Have a subscription key?</h2>
+          <p className="mt-1 text-sm text-muted">
+            Paste the key you received from the ColdReach team. It activates its plan for this
+            workspace only, and if you still have paid time left, the new days are added on top
+            so no days are lost.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <input
+              className="input w-80 font-mono"
+              type="text"
+              placeholder="CR-XXXX-XXXX-XXXX-XXXX"
+              value={keyCode}
+              onChange={(event) => setKeyCode(event.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={redeem}
+              disabled={busy !== null || keyCode.trim().length === 0}
+            >
+              {busy === "redeem" ? "Redeeming..." : "Redeem key"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {data.plans.map((plan) => {
           const isCurrent = plan.id === data.subscription.plan;
+          const includedFeatures = PLAN_FEATURES.filter((feature) => plan.features[feature]);
           return (
             <div key={plan.id} className={`card p-5 ${isCurrent ? "border-accent" : ""}`}>
               <h3 className="font-display text-base font-semibold">{plan.name}</h3>
               <p className="mt-1 font-display text-2xl font-semibold">
-                {plan.priceMonthlyUsd === 0 ? "Free" : `$${plan.priceMonthlyUsd}`}
-                {plan.priceMonthlyUsd > 0 ? <span className="text-sm font-normal text-muted">/mo</span> : null}
+                {plan.priceMonthlyPkr === 0 ? "Free" : `Rs. ${plan.priceMonthlyPkr}`}
+                {plan.priceMonthlyPkr > 0 ? <span className="text-sm font-normal text-muted">/mo</span> : null}
               </p>
               <ul className="mt-3 space-y-1 text-sm text-muted">
                 <li>{plan.monthlySends.toLocaleString()} sends / month</li>
                 <li>{plan.sendingAccounts} sending accounts</li>
                 <li>{plan.seats === null ? "Unlimited seats" : `${plan.seats} seats`}</li>
+                {includedFeatures.map((feature) => (
+                  <li key={feature}>{PLAN_FEATURE_LABELS[feature]}</li>
+                ))}
               </ul>
               {isCurrent ? (
                 <p className="mt-4 text-sm font-medium text-accent">Current plan</p>
               ) : isOwner ? (
                 <div className="mt-4 flex flex-col gap-2">
-                  {data.stripe.configured && plan.priceMonthlyUsd > 0 ? (
+                  {data.stripe.configured && plan.priceMonthlyPkr > 0 ? (
                     <button
                       type="button"
                       className="btn-primary"

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  PLAN_FEATURES,
   PLANS,
   canSend,
   getPlan,
   monthWindowEnd,
   monthWindowStart,
+  planHasFeature,
+  planPriceLabelPkr,
   projectionWithinQuota,
   remainingMonthlySends,
   withinAccountLimit,
@@ -14,11 +17,31 @@ import { runPreflight, type PreflightInput } from "./preflight";
 
 describe("plan catalog", () => {
   it("matches the published catalog", () => {
-    expect(getPlan("FREE")).toMatchObject({ seats: 2, sendingAccounts: 2, monthlySends: 1000, priceMonthlyUsd: 0 });
-    expect(getPlan("STARTER")).toMatchObject({ seats: 5, sendingAccounts: 5, monthlySends: 10000, priceMonthlyUsd: 29 });
-    expect(getPlan("PRO")).toMatchObject({ seats: 15, sendingAccounts: 15, monthlySends: 50000, priceMonthlyUsd: 79 });
-    expect(getPlan("AGENCY")).toMatchObject({ seats: null, sendingAccounts: 40, monthlySends: 200000, priceMonthlyUsd: 199 });
+    expect(getPlan("FREE")).toMatchObject({ name: "Free", seats: 2, sendingAccounts: 2, monthlySends: 1000, priceMonthlyPkr: 0 });
+    expect(getPlan("STARTER")).toMatchObject({ name: "Starter", seats: 3, sendingAccounts: 3, monthlySends: 5000, priceMonthlyPkr: 299 });
+    expect(getPlan("PRO")).toMatchObject({ name: "Growth", seats: 10, sendingAccounts: 10, monthlySends: 25000, priceMonthlyPkr: 499 });
+    expect(getPlan("AGENCY")).toMatchObject({ name: "Pro", seats: null, sendingAccounts: 40, monthlySends: 100000, priceMonthlyPkr: 699 });
     expect(Object.keys(PLANS)).toHaveLength(4);
+  });
+
+  it("gates optional features by tier, with the top tier holding all of them", () => {
+    for (const feature of PLAN_FEATURES) {
+      expect(planHasFeature(PLANS.FREE, feature)).toBe(false);
+      expect(planHasFeature(PLANS.STARTER, feature)).toBe(false);
+      expect(planHasFeature(PLANS.AGENCY, feature)).toBe(true);
+    }
+    expect(planHasFeature(PLANS.PRO, "ai")).toBe(true);
+    expect(planHasFeature(PLANS.PRO, "webhooks")).toBe(true);
+    expect(planHasFeature(PLANS.PRO, "attachments")).toBe(true);
+    expect(planHasFeature(PLANS.PRO, "trackingDomain")).toBe(true);
+    expect(planHasFeature(PLANS.PRO, "api")).toBe(false);
+    expect(planHasFeature(PLANS.PRO, "crm")).toBe(false);
+  });
+
+  it("formats PKR price labels", () => {
+    expect(planPriceLabelPkr(PLANS.FREE)).toBe("Free");
+    expect(planPriceLabelPkr(PLANS.STARTER)).toBe("Rs. 299/mo");
+    expect(planPriceLabelPkr(PLANS.AGENCY)).toBe("Rs. 699/mo");
   });
 });
 
@@ -37,7 +60,7 @@ describe("quota math", () => {
   it("projection check includes this month's usage", () => {
     expect(projectionWithinQuota(PLANS.FREE, 900, 100)).toBe(true);
     expect(projectionWithinQuota(PLANS.FREE, 900, 101)).toBe(false);
-    expect(projectionWithinQuota(PLANS.PRO, 0, 50000)).toBe(true);
+    expect(projectionWithinQuota(PLANS.PRO, 0, 25000)).toBe(true);
   });
 
   it("seat limits treat null as unlimited", () => {

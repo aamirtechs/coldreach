@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession, stringField } from "@/lib/api";
+import { hasWorkspaceFeature } from "@/lib/billing/subscription";
+import { featureUpgradeMessage } from "@/lib/domain/plans";
 import { writeAuditLog } from "@/lib/audit";
 
 export async function GET() {
@@ -42,6 +44,14 @@ export async function PATCH(request: Request) {
     if (!raw) {
       data.trackingDomain = null;
     } else if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(raw)) {
+      // Plan gate (v1.32.0): setting a custom tracking domain needs
+      // the feature; clearing one never does.
+      if (raw !== ctx.workspace.trackingDomain && !(await hasWorkspaceFeature(prisma, ctx.workspace.id, "trackingDomain"))) {
+        return NextResponse.json(
+          { error: featureUpgradeMessage("trackingDomain") },
+          { status: 403 },
+        );
+      }
       data.trackingDomain = raw;
     } else {
       return NextResponse.json(

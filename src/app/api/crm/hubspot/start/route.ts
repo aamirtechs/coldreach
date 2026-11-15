@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { apiError, requireSession } from "@/lib/api";
+import { hasWorkspaceFeature } from "@/lib/billing/subscription";
+import { featureUpgradeMessage } from "@/lib/domain/plans";
 import { buildHubSpotAuthorizeUrl, getHubSpotConfig, hubspotMissingEnv } from "@/lib/crm/hubspot";
 import { createCrmState } from "@/lib/crm/state";
 import { hasEncryptionKey } from "@/lib/security/crypto";
@@ -16,6 +19,12 @@ export async function GET() {
   const session = await requireSession("ADMIN");
   if ("error" in session) return session.error;
   const { ctx } = session;
+  if (!(await hasWorkspaceFeature(prisma, ctx.workspace.id, "crm"))) {
+    return NextResponse.json(
+      { error: featureUpgradeMessage("crm") },
+      { status: 403 },
+    );
+  }
   const config = getHubSpotConfig();
   if (!config) {
     return NextResponse.json(

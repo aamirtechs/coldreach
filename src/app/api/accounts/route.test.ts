@@ -71,11 +71,12 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/billing/subscription", () => ({
   getPlanForWorkspace: async () => ({
     id: "PRO",
-    name: "Pro",
-    priceMonthlyUsd: 79,
+    name: "Growth",
+    priceMonthlyPkr: 499,
     seats: 15,
     sendingAccounts: 15,
     monthlySends: 50000,
+    features: { ai: true, webhooks: true, attachments: true, trackingDomain: true, api: false, crm: false },
   }),
   getWorkspaceUsage: async () => ({ sendingAccounts: 0 }),
 }));
