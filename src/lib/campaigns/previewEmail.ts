@@ -96,6 +96,17 @@ export function renderEmailCopy(input: {
       workspaceName: input.workspace.name,
     }),
   };
+  // Hook alias (v1.30.1): leads imported from CSVs headed "Hook"
+  // before the importer learned that header carry their opening
+  // line under `hook`, not `icebreaker`. Treat the hook as the
+  // icebreaker at render time so those leads' emails, and their
+  // previews, use the line instead of the token fallback.
+  const icebreakerText =
+    renderFields.icebreaker == null ? "" : String(renderFields.icebreaker).trim();
+  const hookText = renderFields.hook == null ? "" : String(renderFields.hook).trim();
+  if (!icebreakerText && hookText) {
+    renderFields.icebreaker = renderFields.hook;
+  }
   // Spintax: after template rendering, resolve any {a|b|c} groups.
   // The seed is the enrollment and step, so a retry of this send
   // renders the identical text while different leads get different

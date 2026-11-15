@@ -50,7 +50,10 @@ export function guessImportTarget(header: string): string {
   if (["firstname", "first", "givenname"].includes(h)) return "firstName";
   if (["lastname", "last", "surname", "familyname"].includes(h)) return "lastName";
   if (["company", "organisation", "organization", "employer"].includes(h)) return "company";
-  if (["icebreaker", "icebreakers", "icebreakerline", "openingline"].includes(h)) return "icebreaker";
+  if (
+    ["icebreaker", "icebreakers", "icebreakerline", "openingline", "hook", "hooks", "hookline", "hooklines"].includes(h)
+  )
+    return "icebreaker";
   return header;
 }
 

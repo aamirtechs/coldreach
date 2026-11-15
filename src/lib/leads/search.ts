@@ -63,10 +63,13 @@ export function leadCompanyOf(fields: unknown): string | null {
  * personalised opening line the {{icebreaker}} token drops into a
  * campaign email. Surfaced as its own column on the Leads surfaces
  * so the line can be read at a glance instead of hunted for inside
- * the fields JSON.
+ * the fields JSON. Falls back to a stray `hook` field (v1.30.1):
+ * CSVs headed "Hook" imported before the importer learned that
+ * header stored the line under its own name, and the line should
+ * still be visible for those leads.
  */
 export function leadIcebreakerOf(fields: unknown): string | null {
-  return leadFieldValue(fields, "icebreaker");
+  return leadFieldValue(fields, "icebreaker") ?? leadFieldValue(fields, "hook");
 }
 
 /**

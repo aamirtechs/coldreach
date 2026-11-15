@@ -103,4 +103,10 @@ describe("leadIcebreakerOf (v1.30.0, the hook line)", () => {
     expect(leadIcebreakerOf({ icebreaker: "   " })).toBeNull();
     expect(leadIcebreakerOf(null)).toBeNull();
   });
+
+  it("falls back to a stray hook field, but icebreaker wins when both exist (v1.30.1)", () => {
+    expect(leadIcebreakerOf({ hook: "From the hook column." })).toBe("From the hook column.");
+    expect(leadIcebreakerOf({ icebreaker: "Canonical.", hook: "Stray." })).toBe("Canonical.");
+    expect(leadIcebreakerOf({ icebreaker: "  ", hook: "Stray." })).toBe("Stray.");
+  });
 });

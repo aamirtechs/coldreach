@@ -30,6 +30,27 @@ describe("renderEmailCopy", () => {
     );
   });
 
+  it("uses a stray hook field as the icebreaker when no icebreaker is stored (v1.30.1)", () => {
+    const step = {
+      subject: "For {{company}}",
+      body: "{{icebreaker|Worth a chat?}}\n\nMore detail.",
+      variants: [],
+    };
+    const fromHook = renderEmailCopy({
+      ...base,
+      step,
+      leadFields: { company: "Acme Hauling", hook: "Loved your new terminal photos." },
+    });
+    expect(fromHook.bodyText).toContain("Loved your new terminal photos.");
+    const canonical = renderEmailCopy({
+      ...base,
+      step,
+      leadFields: { company: "Acme Hauling", icebreaker: "Canonical line.", hook: "Stray line." },
+    });
+    expect(canonical.bodyText).toContain("Canonical line.");
+    expect(canonical.bodyText).not.toContain("Stray line.");
+  });
+
   it("prefers an explicit campaign signature and drops the footer name line", () => {
     const copy = renderEmailCopy({
       ...base,

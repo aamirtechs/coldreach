@@ -39,6 +39,12 @@ describe("guessImportTarget", () => {
     }
   });
 
+  it("recognises the hook column spellings as the icebreaker (v1.30.1)", () => {
+    for (const header of ["Hook", "hook", "HOOK", "Hook Line", "hook_line", "Hooks"]) {
+      expect(guessImportTarget(header)).toBe("icebreaker");
+    }
+  });
+
   it("keeps the existing standard guesses and passes custom headers through", () => {
     expect(guessImportTarget("Email Address")).toBe("email");
     expect(guessImportTarget("First Name")).toBe("firstName");
