@@ -123,24 +123,24 @@ export default async function QueuePage({
         </div>
       ) : (
         <div className="card mt-3 overflow-x-auto">
-          <table className="w-full min-w-[880px] text-left text-sm">
+          <table className="w-full min-w-[1080px] text-left text-sm">
             <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
               <tr>
-                <th className="px-4 py-3 font-medium">Scheduled</th>
+                <th className="w-60 px-4 py-3 font-medium">Scheduled</th>
                 <th className="px-4 py-3 font-medium">To</th>
-                <th className="px-4 py-3 font-medium">Campaign</th>
-                <th className="px-4 py-3 font-medium">Step</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Email</th>
+                <th className="w-64 px-4 py-3 font-medium">Campaign</th>
+                <th className="w-20 px-4 py-3 font-medium">Step</th>
+                <th className="w-44 px-4 py-3 font-medium">Status</th>
+                <th className="w-36 px-4 py-3 font-medium">Email</th>
               </tr>
             </thead>
             <tbody>
               {queue.sends.map((send) => (
-                <tr key={send.enrollmentId} className="border-b border-line last:border-0 hover:bg-elevated/60">
+                <tr key={send.enrollmentId} className="border-b border-line align-top last:border-0 hover:bg-elevated/60">
                   <td className="px-4 py-3">
-                    <span className="font-medium">{formatInZone(send.at, send.timezone)}</span>
-                    <p className="mt-0.5 text-xs text-muted">
-                      {send.timezone} ·{" "}
+                    <span className="whitespace-nowrap font-medium">{formatInZone(send.at, send.timezone)}</span>
+                    <p className="mt-0.5 whitespace-nowrap text-xs text-muted">{send.timezone}</p>
+                    <p className="whitespace-nowrap text-xs text-muted">
                       <LocalTime
                         iso={send.at.toISOString()}
                         fallback={`${formatInZone(send.at, "UTC")} UTC`}
@@ -168,16 +168,20 @@ export default async function QueuePage({
                   <td className="px-4 py-3">Step {send.stepNumber}</td>
                   <td className="px-4 py-3">
                     {send.due ? (
-                      <span className="badge bg-accent-soft text-accent">Due now</span>
+                      <span className="badge whitespace-nowrap bg-accent-soft text-accent">Due now</span>
                     ) : (
                       <>
-                        <span className="badge bg-surface text-muted">Scheduled</span>
-                        <p className="mt-1 text-xs text-muted">{formatTimeUntil(send.at, now)}</p>
+                        <span className="badge whitespace-nowrap bg-surface text-muted">Scheduled</span>
+                        <p className="mt-1 whitespace-nowrap text-xs text-muted">{formatTimeUntil(send.at, now)}</p>
                       </>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <UpcomingPreviewButton enrollmentId={send.enrollmentId} label="View Email" />
+                    <UpcomingPreviewButton
+                      enrollmentId={send.enrollmentId}
+                      label="View Email"
+                      className="whitespace-nowrap"
+                    />
                   </td>
                 </tr>
               ))}

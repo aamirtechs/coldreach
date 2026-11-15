@@ -38,9 +38,11 @@ interface Preview {
 export function UpcomingPreviewButton({
   enrollmentId,
   label = "Preview email",
+  className = "",
 }: {
   enrollmentId: string;
   label?: string;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -86,7 +88,7 @@ export function UpcomingPreviewButton({
     <>
       <button
         type="button"
-        className="btn-secondary !px-2.5 !py-1 text-xs"
+        className={`btn-secondary !px-2.5 !py-1 text-xs ${className}`}
         onClick={() => setOpen(true)}
         aria-label="Preview the exact email that will be sent to this lead"
       >
