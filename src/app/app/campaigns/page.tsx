@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { CreateCampaignForm } from "@/components/campaigns/CreateCampaignForm";
+import { PauseAllCampaignsButton } from "@/components/campaigns/PauseAllCampaignsButton";
 import { DeleteCampaignButton } from "@/components/campaigns/DeleteCampaignButton";
 import { EmptyState, StatusBadge } from "@/components/ui";
 
@@ -62,6 +63,9 @@ export default async function CampaignsPage({
   const visibleCampaigns = query
     ? campaigns.filter((campaign) => campaign.name.toLowerCase().includes(query.toLowerCase()))
     : campaigns;
+  const pausableCount = campaigns.filter(
+    (campaign) => campaign.status === "RUNNING" || campaign.status === "SCHEDULED",
+  ).length;
   const contactedByCampaign = new Map(contactedRows.map((row) => [row.campaignId, row._count._all]));
   const sentByCampaign = new Map(sentRows.map((row) => [row.campaignId, row._count._all]));
   const clickedByCampaign = new Map(clickedRows.map((row) => [row.campaignId, row._count._all]));
@@ -76,7 +80,10 @@ export default async function CampaignsPage({
             suppression enforced before every send.
           </p>
         </div>
-        <CreateCampaignForm lists={lists} />
+        <div className="flex items-start gap-3">
+          <PauseAllCampaignsButton activeCount={pausableCount} />
+          <CreateCampaignForm lists={lists} />
+        </div>
       </div>
 
       {campaigns.length > 0 ? (
