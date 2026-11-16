@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parseCsv, toCsv } from "@/lib/csv";
 import { guessImportTarget } from "@/lib/leads/import";
 import { streamVerification, type VerifyStreamResult } from "@/lib/verify/streamClient";
+import { verificationExportFileName } from "@/lib/verify/exportNames";
 import {
   VerificationCompletedBar,
   VerificationProgress,
@@ -41,6 +42,7 @@ export function VerifyTool() {
   const [result, setResult] = useState<VerifyStreamResult | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!running) return;
@@ -153,6 +155,21 @@ export function VerifyTool() {
     setError("Verification cancelled.");
   }
 
+  /** Clears inputs and results so a fresh batch can be verified. */
+  function startOver() {
+    setPasted("");
+    setFileName("");
+    setCsvHeaders([]);
+    setCsvEmails([]);
+    setCsvRows([]);
+    setEmailColumn("");
+    setResult(null);
+    setProgress(null);
+    setError(null);
+    setDownloadOpen(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   function downloadCsv(filterStatus: string | null, fileName: string) {
     const selected = filterStatus ? rows.filter((row) => row.status === filterStatus) : rows;
     const csv = toCsv(
@@ -175,11 +192,11 @@ export function VerifyTool() {
   }
 
   const downloadOptions = [
-    { label: "Good Emails Only", status: "VALID", file: "good-emails.csv" },
-    { label: "Risky Emails Only", status: "RISKY", file: "risky-emails.csv" },
-    { label: "Bad Emails Only", status: "INVALID", file: "bad-emails.csv" },
-    { label: "Unknown Emails Only", status: "UNKNOWN", file: "unknown-emails.csv" },
-    { label: "Full Report", status: null, file: "verification-full-report.csv" },
+    { label: "Good Emails Only", status: "VALID", file: verificationExportFileName("good", fileName) },
+    { label: "Risky Emails Only", status: "RISKY", file: verificationExportFileName("risky", fileName) },
+    { label: "Bad Emails Only", status: "INVALID", file: verificationExportFileName("bad", fileName) },
+    { label: "Unknown Emails Only", status: "UNKNOWN", file: verificationExportFileName("unknown", fileName) },
+    { label: "Full Report", status: null, file: verificationExportFileName("full", fileName) },
   ] as const;
 
   return (
@@ -208,7 +225,7 @@ export function VerifyTool() {
         <label className="label" htmlFor="verify-file">
           Or upload a CSV file
         </label>
-        <input id="verify-file" type="file" accept=".csv,text/csv" onChange={onFile} className="text-sm" />
+        <input id="verify-file" ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={onFile} className="text-sm" />
         {fileName ? <p className="mt-2 text-xs text-muted">Selected: {fileName}</p> : null}
         {csvHeaders.length > 0 && !emailColumn ? (
           <div className="mt-3 max-w-sm">
@@ -258,7 +275,7 @@ export function VerifyTool() {
           <div className="mt-4">
             <VerificationSummaryCards counts={result.counts} total={result.uniqueEmails} />
           </div>
-          <div className="relative mt-4">
+          <div className="relative mt-4 flex flex-wrap items-center gap-3">
             <button
               type="button"
               className="btn-primary"
@@ -266,8 +283,11 @@ export function VerifyTool() {
             >
               Download Reports
             </button>
+            <button type="button" className="btn-secondary" onClick={startOver}>
+              Verify new emails
+            </button>
             {downloadOpen ? (
-              <div className="absolute left-0 z-10 mt-2 w-56 rounded-lg border border-line bg-elevated p-1 shadow-lg">
+              <div className="absolute left-0 top-full z-10 mt-2 w-56 rounded-lg border border-line bg-elevated p-1 shadow-lg">
                 {downloadOptions.map((option) => (
                   <button
                     key={option.label}
