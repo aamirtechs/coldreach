@@ -107,7 +107,7 @@ describe("provider gating (Reacher)", () => {
     ).resolves.toEqual({ result: "risky", status: "RISKY" });
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("unknown") }),
-    ).resolves.toEqual({ result: "unknown", status: null });
+    ).resolves.toEqual({ result: "unknown", status: "UNKNOWN" });
   });
 
   it("throws on a sidecar failure so the caller keeps the built-in verdict", async () => {
@@ -158,6 +158,22 @@ describe("verifyLeadEmail composition", () => {
     expect(result.status).toBe("INVALID");
     expect(result.detail.provider).toEqual({ name: "reacher", result: "invalid" });
     expect(result.detail.source).toBe("builtin+provider");
+  });
+
+  it("marks the address Unknown when the probe is inconclusive instead of calling it Good", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ is_reachable: "unknown" }),
+    })) as unknown as typeof fetch;
+    const result = await verifyLeadEmail("ada@acme.com", {
+      resolveMx: mxFound,
+      reacherUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(result.status).toBe("UNKNOWN");
+    expect(result.detail.provider).toEqual({ name: "reacher", result: "unknown" });
+    expect(result.detail.reasons.join(" ")).toContain("could not confirm the mailbox");
   });
 
   it("keeps the built-in verdict and records the error when the provider fails", async () => {

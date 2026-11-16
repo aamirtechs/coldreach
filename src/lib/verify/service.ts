@@ -69,7 +69,11 @@ export async function verifyLeadEmail(
       detail.source = "builtin+provider";
       if (verdict.status) {
         status = verdict.status;
-        detail.reasons.push(`Reacher reports "${verdict.result}".`);
+        detail.reasons.push(
+          verdict.result === "unknown"
+            ? 'Reacher reports "unknown"; the probe could not confirm the mailbox, so the address is marked Unknown rather than Good.'
+            : `Reacher reports "${verdict.result}".`,
+        );
       } else {
         detail.reasons.push(`Reacher reports "${verdict.result}"; built-in verdict stands.`);
       }

@@ -294,7 +294,9 @@ degrades to UNKNOWN when DNS cannot answer. Setting
 syntactically valid address gets an SMTP mailbox probe whose
 verdict (safe, invalid, risky, unknown) refines the built-in one
 and is stored in the lead's verification detail alongside the
-built-in evidence. Since v1.34.0 Reacher is the only provider;
+built-in evidence. Since v1.35.2, an inconclusive probe (unknown)
+marks the address UNKNOWN instead of letting the built-in verdict
+stand, so an unprovable mailbox is never reported as Good. Since v1.34.0 Reacher is the only provider;
 NeverBounce was removed. Without the variable, verification still
 works and the summary says "Built-in checks only." A sidecar
 outage never fails a verification run; the error is recorded in

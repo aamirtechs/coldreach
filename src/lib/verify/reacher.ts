@@ -19,8 +19,16 @@ import type { VerificationStatus } from "./builtin";
  *   invalid -> INVALID
  *   risky   -> RISKY (catch-all domain, full inbox, disabled or
  *              role mailbox: deliverability unproven either way)
- *   unknown -> null (the probe was inconclusive; the built-in
- *              verdict stands rather than guessing)
+ *   unknown -> UNKNOWN (the probe ran but could not confirm the
+ *              mailbox; since v1.35.2 the address is marked
+ *              Unknown rather than letting the built-in checks
+ *              call it VALID on syntax and MX alone, which is how
+ *              a fake outlook.com address once read as Good)
+ *
+ * A transport or HTTP failure is different from an inconclusive
+ * answer: verifyWithReacher throws for those, and the caller keeps
+ * the built-in verdict, so a sidecar outage never reclassifies a
+ * whole run as Unknown.
  */
 
 export const REACHER_API_URL_ENV = "REACHER_API_URL";
@@ -45,7 +53,7 @@ export function reacherMissingEnv(env: NodeJS.ProcessEnv = process.env): string[
 export interface ReacherVerdict {
   /** The provider's raw is_reachable string, for example "safe". */
   result: string;
-  /** The status it maps to, or null when it changes nothing. */
+  /** The status it maps to, or null for an unrecognized result. */
   status: VerificationStatus | null;
 }
 
@@ -53,7 +61,7 @@ const RESULT_MAP: Record<string, VerificationStatus | null> = {
   safe: "VALID",
   invalid: "INVALID",
   risky: "RISKY",
-  unknown: null,
+  unknown: "UNKNOWN",
 };
 
 type FetchImpl = typeof fetch;
