@@ -29,6 +29,14 @@ import type { VerificationStatus } from "./builtin";
  * answer: verifyWithReacher throws for those, and the caller keeps
  * the built-in verdict, so a sidecar outage never reclassifies a
  * whole run as Unknown.
+ *
+ * Gateway caveat (v1.35.3): some domains sit behind enterprise
+ * mail gateways (Microsoft 365, Sophos, Proofpoint, Mimecast,
+ * Barracuda) that refuse mailbox probes from untrusted sources,
+ * rejecting real and fake recipients alike. An "invalid" from
+ * such a domain carries no per-mailbox information, so the
+ * service layer downgrades it to UNKNOWN using gatewayFromMxHosts
+ * below and the MX hosts parsed from the same probe response.
  */
 
 export const REACHER_API_URL_ENV = "REACHER_API_URL";
@@ -55,6 +63,41 @@ export interface ReacherVerdict {
   result: string;
   /** The status it maps to, or null for an unrecognized result. */
   status: VerificationStatus | null;
+  /** MX hostnames from the same probe response (may be empty). */
+  mxHosts: string[];
+}
+
+/**
+ * Enterprise mail gateways that refuse mailbox probes from
+ * untrusted sources. An "invalid" verdict for a domain whose MX
+ * points at one of these says nothing about the mailbox: the
+ * gateway rejects every recipient it is asked about. Matched by
+ * hostname suffix, case-insensitively.
+ */
+const GATEWAY_MX_SUFFIXES: { suffix: string; name: string }[] = [
+  { suffix: "mail.protection.outlook.com", name: "Microsoft 365" },
+  { suffix: "hydra.sophos.com", name: "Sophos" },
+  { suffix: "pphosted.com", name: "Proofpoint" },
+  { suffix: "ppe-hosted.com", name: "Proofpoint Essentials" },
+  { suffix: "mimecast.com", name: "Mimecast" },
+  { suffix: "barracudanetworks.com", name: "Barracuda" },
+];
+
+/**
+ * Returns the gateway's display name when any MX host belongs to
+ * a known probe-blocking gateway, or null when the domain's mail
+ * is served by a host that answers probes normally.
+ */
+export function gatewayFromMxHosts(mxHosts: string[]): string | null {
+  for (const host of mxHosts) {
+    const normalized = host.trim().toLowerCase().replace(/\.+$/, "");
+    for (const gateway of GATEWAY_MX_SUFFIXES) {
+      if (normalized === gateway.suffix || normalized.endsWith(`.${gateway.suffix}`)) {
+        return gateway.name;
+      }
+    }
+  }
+  return null;
 }
 
 const RESULT_MAP: Record<string, VerificationStatus | null> = {
@@ -99,7 +142,12 @@ export async function verifyWithReacher(
   if (!response.ok) {
     throw new Error(`Reacher check failed (HTTP ${response.status})`);
   }
-  const data = (await response.json()) as { is_reachable?: unknown };
+  const data = (await response.json()) as {
+    is_reachable?: unknown;
+    mx?: { records?: unknown };
+  };
   const result = typeof data.is_reachable === "string" ? data.is_reachable : "unknown";
-  return { result, status: RESULT_MAP[result] ?? null };
+  const records = Array.isArray(data.mx?.records) ? data.mx.records : [];
+  const mxHosts = records.filter((r): r is string => typeof r === "string");
+  return { result, status: RESULT_MAP[result] ?? null, mxHosts };
 }

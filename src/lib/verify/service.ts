@@ -4,7 +4,12 @@ import {
   type ResolveMx,
   type VerificationStatus,
 } from "./builtin";
-import { reacherApiUrl, reacherConfigured, verifyWithReacher } from "./reacher";
+import {
+  gatewayFromMxHosts,
+  reacherApiUrl,
+  reacherConfigured,
+  verifyWithReacher,
+} from "./reacher";
 
 /**
  * Verification service (Phase 6).
@@ -69,11 +74,25 @@ export async function verifyLeadEmail(
       detail.source = "builtin+provider";
       if (verdict.status) {
         status = verdict.status;
-        detail.reasons.push(
-          verdict.result === "unknown"
-            ? 'Reacher reports "unknown"; the probe could not confirm the mailbox, so the address is marked Unknown rather than Good.'
-            : `Reacher reports "${verdict.result}".`,
-        );
+        // An "invalid" from behind a probe-blocking gateway is
+        // not evidence about the mailbox: the gateway rejects
+        // every recipient it is asked about. Downgrade it to
+        // UNKNOWN so a real lead is never dropped as Bad on the
+        // strength of a refused probe (v1.35.3).
+        const gateway =
+          verdict.result === "invalid" ? gatewayFromMxHosts(verdict.mxHosts) : null;
+        if (gateway) {
+          status = "UNKNOWN";
+          detail.reasons.push(
+            `Reacher reports "invalid", but this domain's mail is handled by ${gateway}, which blocks mailbox probes and rejects real and fake addresses alike. Marked Unknown rather than Bad.`,
+          );
+        } else if (verdict.result === "unknown") {
+          detail.reasons.push(
+            'Reacher reports "unknown"; the probe could not confirm the mailbox, so the address is marked Unknown rather than Good.',
+          );
+        } else {
+          detail.reasons.push(`Reacher reports "${verdict.result}".`);
+        }
       } else {
         detail.reasons.push(`Reacher reports "${verdict.result}"; built-in verdict stands.`);
       }

@@ -3,7 +3,13 @@ import type { PrismaClient } from "@prisma/client";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 import { hasValidSyntax, runBuiltinChecks, type ResolveMx } from "./builtin";
 import { isDisposableDomain } from "./disposable";
-import { reacherApiUrl, reacherConfigured, reacherMissingEnv, verifyWithReacher } from "./reacher";
+import {
+  gatewayFromMxHosts,
+  reacherApiUrl,
+  reacherConfigured,
+  reacherMissingEnv,
+  verifyWithReacher,
+} from "./reacher";
 import { verifyLeadEmail, verifyList } from "./service";
 
 describe("syntax validation", () => {
@@ -98,16 +104,49 @@ describe("provider gating (Reacher)", () => {
       })) as unknown as typeof fetch;
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("safe") }),
-    ).resolves.toEqual({ result: "safe", status: "VALID" });
+    ).resolves.toEqual({ result: "safe", status: "VALID", mxHosts: [] });
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("invalid") }),
-    ).resolves.toEqual({ result: "invalid", status: "INVALID" });
+    ).resolves.toEqual({ result: "invalid", status: "INVALID", mxHosts: [] });
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("risky") }),
-    ).resolves.toEqual({ result: "risky", status: "RISKY" });
+    ).resolves.toEqual({ result: "risky", status: "RISKY", mxHosts: [] });
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("unknown") }),
-    ).resolves.toEqual({ result: "unknown", status: "UNKNOWN" });
+    ).resolves.toEqual({ result: "unknown", status: "UNKNOWN", mxHosts: [] });
+  });
+
+  it("parses the MX hosts out of the probe response", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        is_reachable: "invalid",
+        mx: { records: ["acme-com.mail.protection.outlook.com.", 42, null] },
+      }),
+    })) as unknown as typeof fetch;
+    const verdict = await verifyWithReacher("a@acme.com", {
+      apiUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(verdict.mxHosts).toEqual(["acme-com.mail.protection.outlook.com."]);
+  });
+});
+
+describe("gatewayFromMxHosts", () => {
+  it("recognises the probe-blocking gateways by MX suffix", () => {
+    expect(gatewayFromMxHosts(["acme-com.mail.protection.outlook.com."])).toBe("Microsoft 365");
+    expect(gatewayFromMxHosts(["mx-01-us-west-2.prod.hydra.sophos.com."])).toBe("Sophos");
+    expect(gatewayFromMxHosts(["mx1-us1.pphosted.com"])).toBe("Proofpoint");
+    expect(gatewayFromMxHosts(["us-smtp-inbound-1.mimecast.com"])).toBe("Mimecast");
+    expect(gatewayFromMxHosts(["d123.ess.barracudanetworks.com"])).toBe("Barracuda");
+  });
+
+  it("returns null for hosts that answer probes normally", () => {
+    expect(gatewayFromMxHosts(["aspmx.l.google.com", "alt1.aspmx.l.google.com"])).toBeNull();
+    expect(gatewayFromMxHosts(["mx1.privateemail.com", "mx2.privateemail.com"])).toBeNull();
+    expect(gatewayFromMxHosts(["mail.aamirtechs.com"])).toBeNull();
+    expect(gatewayFromMxHosts([])).toBeNull();
   });
 
   it("throws on a sidecar failure so the caller keeps the built-in verdict", async () => {
@@ -158,6 +197,43 @@ describe("verifyLeadEmail composition", () => {
     expect(result.status).toBe("INVALID");
     expect(result.detail.provider).toEqual({ name: "reacher", result: "invalid" });
     expect(result.detail.source).toBe("builtin+provider");
+  });
+
+  it("downgrades a gateway-blocked invalid to Unknown instead of Bad", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        is_reachable: "invalid",
+        mx: { records: ["acme-com.mail.protection.outlook.com."] },
+      }),
+    })) as unknown as typeof fetch;
+    const result = await verifyLeadEmail("ada@acme.com", {
+      resolveMx: mxFound,
+      reacherUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(result.status).toBe("UNKNOWN");
+    expect(result.detail.provider).toEqual({ name: "reacher", result: "invalid" });
+    expect(result.detail.reasons.join(" ")).toContain("Microsoft 365");
+    expect(result.detail.reasons.join(" ")).toContain("Marked Unknown rather than Bad");
+  });
+
+  it("keeps an invalid verdict from a host that answers probes normally", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        is_reachable: "invalid",
+        mx: { records: ["aspmx.l.google.com."] },
+      }),
+    })) as unknown as typeof fetch;
+    const result = await verifyLeadEmail("ada@acme.com", {
+      resolveMx: mxFound,
+      reacherUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(result.status).toBe("INVALID");
   });
 
   it("marks the address Unknown when the probe is inconclusive instead of calling it Good", async () => {
