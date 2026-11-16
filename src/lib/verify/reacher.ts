@@ -37,6 +37,20 @@ import type { VerificationStatus } from "./builtin";
  * such a domain carries no per-mailbox information, so the
  * service layer downgrades it to UNKNOWN using gatewayFromMxHosts
  * below and the MX hosts parsed from the same probe response.
+ *
+ * Probe-rejection caveat (v1.40.0): the gateway case turned out
+ * to be one instance of a wider failure. Many ordinary servers
+ * also refuse the probe itself (a datacenter IP asking about a
+ * mailbox looks like address harvesting), and Reacher reports
+ * that refusal as "invalid" even though the server said nothing
+ * about the mailbox. The one signal that separates the two is
+ * Reacher's own smtp.is_disabled flag, set only when the server
+ * explicitly flags the account as disabled or nonexistent.
+ * Validated 2026-11-16 against a MillionVerifier report on 53
+ * addresses Reacher had called invalid: 45 were deliverable or
+ * catch-all, and 44 of those 45 carried is_disabled false. The
+ * service layer therefore keeps INVALID only when is_disabled
+ * is true and downgrades every other "invalid" to UNKNOWN.
  */
 
 export const REACHER_API_URL_ENV = "REACHER_API_URL";
@@ -65,6 +79,13 @@ export interface ReacherVerdict {
   status: VerificationStatus | null;
   /** MX hostnames from the same probe response (may be empty). */
   mxHosts: string[];
+  /**
+   * Reacher's smtp.is_disabled flag: true only when the receiving
+   * server explicitly flagged the account as disabled or
+   * nonexistent. Null when the probe response carried no smtp
+   * block or the field was not a boolean.
+   */
+  isDisabled: boolean | null;
 }
 
 /**
@@ -145,9 +166,11 @@ export async function verifyWithReacher(
   const data = (await response.json()) as {
     is_reachable?: unknown;
     mx?: { records?: unknown };
+    smtp?: { is_disabled?: unknown };
   };
   const result = typeof data.is_reachable === "string" ? data.is_reachable : "unknown";
   const records = Array.isArray(data.mx?.records) ? data.mx.records : [];
   const mxHosts = records.filter((r): r is string => typeof r === "string");
-  return { result, status: RESULT_MAP[result] ?? null, mxHosts };
+  const isDisabled = typeof data.smtp?.is_disabled === "boolean" ? data.smtp.is_disabled : null;
+  return { result, status: RESULT_MAP[result] ?? null, mxHosts, isDisabled };
 }

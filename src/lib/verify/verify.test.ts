@@ -104,16 +104,49 @@ describe("provider gating (Reacher)", () => {
       })) as unknown as typeof fetch;
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("safe") }),
-    ).resolves.toEqual({ result: "safe", status: "VALID", mxHosts: [] });
+    ).resolves.toEqual({ result: "safe", status: "VALID", mxHosts: [], isDisabled: null });
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("invalid") }),
-    ).resolves.toEqual({ result: "invalid", status: "INVALID", mxHosts: [] });
+    ).resolves.toEqual({ result: "invalid", status: "INVALID", mxHosts: [], isDisabled: null });
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("risky") }),
-    ).resolves.toEqual({ result: "risky", status: "RISKY", mxHosts: [] });
+    ).resolves.toEqual({ result: "risky", status: "RISKY", mxHosts: [], isDisabled: null });
     await expect(
       verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("unknown") }),
-    ).resolves.toEqual({ result: "unknown", status: "UNKNOWN", mxHosts: [] });
+    ).resolves.toEqual({ result: "unknown", status: "UNKNOWN", mxHosts: [], isDisabled: null });
+  });
+
+  it("parses the smtp.is_disabled flag out of the probe response", async () => {
+    const fetchFor = (smtp: unknown) =>
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ is_reachable: "invalid", smtp }),
+      })) as unknown as typeof fetch;
+    await expect(
+      verifyWithReacher("a@acme.com", {
+        apiUrl: "http://reacher.test",
+        fetchImpl: fetchFor({ is_disabled: true }),
+      }),
+    ).resolves.toMatchObject({ isDisabled: true });
+    await expect(
+      verifyWithReacher("a@acme.com", {
+        apiUrl: "http://reacher.test",
+        fetchImpl: fetchFor({ is_disabled: false }),
+      }),
+    ).resolves.toMatchObject({ isDisabled: false });
+    await expect(
+      verifyWithReacher("a@acme.com", {
+        apiUrl: "http://reacher.test",
+        fetchImpl: fetchFor({ is_disabled: "yes" }),
+      }),
+    ).resolves.toMatchObject({ isDisabled: null });
+    await expect(
+      verifyWithReacher("a@acme.com", {
+        apiUrl: "http://reacher.test",
+        fetchImpl: fetchFor(undefined),
+      }),
+    ).resolves.toMatchObject({ isDisabled: null });
   });
 
   it("parses the MX hosts out of the probe response", async () => {
@@ -187,7 +220,7 @@ describe("verifyLeadEmail composition", () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ is_reachable: "invalid" }),
+      json: async () => ({ is_reachable: "invalid", smtp: { is_disabled: true } }),
     })) as unknown as typeof fetch;
     const result = await verifyLeadEmail("ada@acme.com", {
       resolveMx: mxFound,
@@ -258,13 +291,14 @@ describe("verifyLeadEmail composition", () => {
     expect(result.detail.reasons.join(" ")).toContain("Marked Unknown rather than Bad");
   });
 
-  it("keeps an invalid verdict from a host that answers probes normally", async () => {
+  it("keeps an invalid verdict when the server flagged the account disabled", async () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       status: 200,
       json: async () => ({
         is_reachable: "invalid",
         mx: { records: ["aspmx.l.google.com."] },
+        smtp: { is_disabled: true },
       }),
     })) as unknown as typeof fetch;
     const result = await verifyLeadEmail("ada@acme.com", {
@@ -273,6 +307,63 @@ describe("verifyLeadEmail composition", () => {
       fetchImpl,
     });
     expect(result.status).toBe("INVALID");
+    expect(result.detail.reasons.join(" ")).toContain("flagged the account as disabled");
+  });
+
+  it("keeps an invalid verdict with the disabled flag even behind a gateway", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        is_reachable: "invalid",
+        mx: { records: ["acme-com.mail.protection.outlook.com."] },
+        smtp: { is_disabled: true },
+      }),
+    })) as unknown as typeof fetch;
+    const result = await verifyLeadEmail("ada@acme.com", {
+      resolveMx: mxFound,
+      reacherUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(result.status).toBe("INVALID");
+  });
+
+  it("downgrades an invalid without the disabled flag to Unknown, not Bad", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        is_reachable: "invalid",
+        mx: { records: ["aspmx.l.google.com."] },
+        smtp: { is_disabled: false },
+      }),
+    })) as unknown as typeof fetch;
+    const result = await verifyLeadEmail("ada@acme.com", {
+      resolveMx: mxFound,
+      reacherUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(result.status).toBe("UNKNOWN");
+    expect(result.detail.provider).toEqual({ name: "reacher", result: "invalid" });
+    expect(result.detail.reasons.join(" ")).toContain("refused probe");
+    expect(result.detail.reasons.join(" ")).toContain("Marked Unknown rather than Bad");
+  });
+
+  it("downgrades an invalid with no smtp block at all to Unknown", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        is_reachable: "invalid",
+        mx: { records: ["mx1.privateemail.com."] },
+      }),
+    })) as unknown as typeof fetch;
+    const result = await verifyLeadEmail("ada@acme.com", {
+      resolveMx: mxFound,
+      reacherUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(result.status).toBe("UNKNOWN");
   });
 
   it("marks the address Unknown when the probe is inconclusive instead of calling it Good", async () => {

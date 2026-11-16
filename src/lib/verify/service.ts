@@ -96,18 +96,32 @@ export async function verifyLeadEmail(
       detail.source = "builtin+provider";
       if (verdict.status) {
         status = verdict.status;
-        // An "invalid" from behind a probe-blocking gateway is
-        // not evidence about the mailbox: the gateway rejects
-        // every recipient it is asked about. Downgrade it to
-        // UNKNOWN so a real lead is never dropped as Bad on the
-        // strength of a refused probe (v1.35.3).
-        const gateway =
-          verdict.result === "invalid" ? gatewayFromMxHosts(verdict.mxHosts) : null;
-        if (gateway) {
-          status = "UNKNOWN";
+        if (verdict.result === "invalid" && verdict.isDisabled === true) {
+          // The receiving server explicitly flagged this account
+          // as disabled or nonexistent. That is per-mailbox
+          // evidence, so the Bad verdict stands, even behind a
+          // probe-blocking gateway (v1.40.0).
           detail.reasons.push(
-            `Reacher reports "invalid", but this domain's mail is handled by ${gateway}, which blocks mailbox probes and rejects real and fake addresses alike. Marked Unknown rather than Bad.`,
+            'Reacher reports "invalid" and the receiving server flagged the account as disabled, so the verdict stands as Bad.',
           );
+        } else if (verdict.result === "invalid") {
+          // An "invalid" without the disabled flag is not
+          // evidence about the mailbox: servers routinely refuse
+          // the probe itself, and Reacher reports the refusal as
+          // "invalid". Downgrade it to UNKNOWN so a real lead is
+          // never dropped as Bad on the strength of a refused
+          // probe (gateways v1.35.3, generalised v1.40.0).
+          status = "UNKNOWN";
+          const gateway = gatewayFromMxHosts(verdict.mxHosts);
+          if (gateway) {
+            detail.reasons.push(
+              `Reacher reports "invalid", but this domain's mail is handled by ${gateway}, which blocks mailbox probes and rejects real and fake addresses alike. Marked Unknown rather than Bad.`,
+            );
+          } else {
+            detail.reasons.push(
+              'Reacher reports "invalid", but the receiving server did not flag the account as disabled, so the rejection is treated as a refused probe. Marked Unknown rather than Bad.',
+            );
+          }
         } else if (verdict.result === "unknown") {
           detail.reasons.push(
             'Reacher reports "unknown"; the probe could not confirm the mailbox, so the address is marked Unknown rather than Good.',

@@ -39,7 +39,7 @@ describe("verifyImportEmails (import wizard step 2)", () => {
     const fetchImpl = (async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ is_reachable: "invalid" }),
+      json: async () => ({ is_reachable: "invalid", smtp: { is_disabled: true } }),
     })) as unknown as typeof fetch;
     const result = await verifyImportEmails("Email\nghost@acme.com", "Email", {
       resolveMx: mxFound,
