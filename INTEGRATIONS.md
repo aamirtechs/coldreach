@@ -300,7 +300,11 @@ works and the summary says "Built-in checks only." A sidecar
 outage never fails a verification run; the error is recorded in
 the detail and the built-in verdict stands. The import wizard
 also verifies a file's addresses before importing (step 2), using
-this same service. See ACTIVATION.md section 6 for setup.
+this same service; the step streams live progress (counts, latest
+results, estimated time remaining) while the checks run. The same
+engine also powers the standalone Verify Emails tool in the
+sidebar (paste or upload, live progress, results downloadable as
+CSV, nothing saved to a list) via POST /api/verify-emails. See ACTIVATION.md section 6 for setup.
 
 ## 12. cPanel and custom mail servers (SMTP / IMAP)
 

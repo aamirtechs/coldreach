@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession } from "@/lib/api";
-import { verifyImportEmails } from "@/lib/leads/importVerify";
+import { prepareImportVerification, verifyPreparedImportEmails } from "@/lib/leads/importVerify";
 import { writeAuditLog } from "@/lib/audit";
 
 /**
- * Step 2 of the import wizard (v1.34.0): verify the uploaded file's
- * unique addresses before anything is imported. Returns per-address
- * verdicts, which the wizard passes back to the import call so the
- * chosen policy is enforced and imported leads keep their verdicts.
+ * Step 2 of the import wizard: verify the uploaded file's unique
+ * addresses before anything is imported (v1.34.0). Since v1.35.0
+ * the response streams NDJSON progress lines as each address
+ * completes ({type:"start"}, {type:"progress", done, total,
+ * counts, last}), ending with {type:"done", ...result} or
+ * {type:"error"}, so the wizard can show a live progress bar,
+ * ticking counts and an estimated time remaining. Validation
+ * failures are answered before the stream starts, as plain JSON.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession("MEMBER");
@@ -23,22 +27,74 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (typeof body.emailColumn !== "string" || !body.emailColumn) {
     return NextResponse.json({ error: "emailColumn is required" }, { status: 400 });
   }
+
+  let prepared;
   try {
     const list = await prisma.leadList.findFirst({
       where: { id, workspaceId: ctx.workspace.id },
       select: { id: true },
     });
     if (!list) return NextResponse.json({ error: "List not found" }, { status: 404 });
-
-    const result = await verifyImportEmails(body.csvText, body.emailColumn);
-    await writeAuditLog({
-      action: "lead.import_verify",
-      userId: ctx.user.id,
-      workspaceId: ctx.workspace.id,
-      metadata: { listId: list.id, uniqueEmails: result.uniqueEmails, counts: { ...result.counts } },
-    });
-    return NextResponse.json(result);
+    prepared = prepareImportVerification(body.csvText, body.emailColumn);
   } catch (error) {
     return apiError(error);
   }
+
+  let stopped = false;
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (line: unknown) => {
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+        } catch {
+          // The client went away mid-run; shouldStop ends the work.
+          stopped = true;
+        }
+      };
+      send({ type: "start", total: prepared.emails.length, totalRows: prepared.totalRows });
+      try {
+        const result = await verifyPreparedImportEmails(prepared.emails, {}, {
+          shouldStop: () => stopped,
+          onProgress: (progress) => send({ type: "progress", ...progress }),
+        });
+        await writeAuditLog({
+          action: "lead.import_verify",
+          userId: ctx.user.id,
+          workspaceId: ctx.workspace.id,
+          metadata: { listId: id, uniqueEmails: prepared.emails.length, counts: { ...result.counts } },
+        });
+        send({
+          type: "done",
+          totalRows: prepared.totalRows,
+          uniqueEmails: prepared.emails.length,
+          counts: result.counts,
+          verdicts: result.verdicts,
+        });
+      } catch (error) {
+        if (!stopped) {
+          send({
+            type: "error",
+            error: error instanceof Error ? error.message : "Verification failed",
+          });
+        }
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the runtime when the client hung up.
+        }
+      }
+    },
+    cancel() {
+      stopped = true;
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }

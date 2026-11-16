@@ -53,3 +53,42 @@ describe("verifyImportEmails (import wizard step 2)", () => {
     });
   });
 });
+
+describe("verifyImportEmails progress streaming (v1.35.0)", () => {
+  it("reports progress after every address with cumulative counts", async () => {
+    const events: { done: number; total: number; valid: number }[] = [];
+    const csv = ["Email", "one@acme.com", "two@acme.com", "broken"].join("\n");
+    const result = await verifyImportEmails(
+      csv,
+      "Email",
+      { resolveMx: mxFound, reacherUrl: null },
+      {
+        onProgress: (p) =>
+          events.push({ done: p.done, total: p.total, valid: p.counts.valid }),
+      },
+    );
+    expect(result.uniqueEmails).toBe(3);
+    expect(events).toHaveLength(3);
+    expect(events.map((e) => e.done).sort()).toEqual([1, 2, 3]);
+    expect(events.every((e) => e.total === 3)).toBe(true);
+    expect(events.reduce((max, e) => Math.max(max, e.valid), 0)).toBe(2);
+  });
+
+  it("stops starting new probes when shouldStop fires and throws", async () => {
+    let calls = 0;
+    const csv = ["Email", "one@acme.com", "two@acme.com", "three@acme.com"].join("\n");
+    await expect(
+      verifyImportEmails(
+        csv,
+        "Email",
+        { resolveMx: mxFound, reacherUrl: null },
+        {
+          shouldStop: () => {
+            calls += 1;
+            return calls > 1;
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ status: 499 });
+  });
+});

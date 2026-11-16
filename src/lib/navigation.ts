@@ -1,4 +1,5 @@
 import {
+  BadgeCheck,
   BarChart3,
   Building2,
   CreditCard,
@@ -33,6 +34,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
   { href: "/app/campaigns", label: "Campaigns", icon: Send },
   { href: "/app/leads", label: "Leads", icon: ListChecks },
+  { href: "/app/verify", label: "Verify Emails", icon: BadgeCheck },
   { href: "/app/inbox", label: "Inbox", icon: Inbox },
   { href: "/app/sent", label: "Sent", icon: MailCheck },
   { href: "/app/queue", label: "In Queue", icon: Hourglass },

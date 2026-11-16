@@ -1,9 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseCsv, toCsv } from "@/lib/csv";
 import { guessImportTarget, STANDARD_FIELD_TARGETS } from "@/lib/leads/import";
+import { streamVerification } from "@/lib/verify/streamClient";
+import {
+  VerificationCompletedBar,
+  VerificationProgress,
+  VerificationSummaryCards,
+  type ProgressState,
+} from "@/components/verify/VerificationProgress";
 
 interface ImportSummary {
   total: number;
@@ -59,6 +66,15 @@ export function ImportWizard({ listId }: { listId: string }) {
   const [updateExisting, setUpdateExisting] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
+  const [progress, setProgress] = useState<ProgressState | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!verifying) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [verifying]);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["VALID"]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,19 +109,58 @@ export function ImportWizard({ listId }: { listId: string }) {
     setVerifying(true);
     setError(null);
     setVerifyResult(null);
-    const response = await fetch(`/api/lead-lists/${listId}/import/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ csvText, emailColumn }),
+    setProgress({
+      done: 0,
+      total: 0,
+      counts: { valid: 0, risky: 0, invalid: 0, unknown: 0 },
+      recent: [],
+      startedAt: Date.now(),
+      finishedMs: null,
     });
-    const data = await response.json();
-    setVerifying(false);
-    if (!response.ok) {
-      setError(data.error ?? "Verification failed");
-      return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const result = await streamVerification({
+        url: `/api/lead-lists/${listId}/import/verify`,
+        body: { csvText, emailColumn },
+        signal: controller.signal,
+        onStart: (total) => setProgress((p) => (p ? { ...p, total } : p)),
+        onProgress: (event) =>
+          setProgress((p) =>
+            p
+              ? {
+                  ...p,
+                  done: event.done,
+                  total: event.total,
+                  counts: event.counts,
+                  recent: [event.last, ...p.recent].slice(0, 8),
+                }
+              : p,
+          ),
+      });
+      setVerifyResult({
+        totalRows: result.totalRows,
+        uniqueEmails: result.uniqueEmails,
+        counts: result.counts,
+        verdicts: result.verdicts as Record<string, ImportVerdict>,
+      });
+      setProgress((p) => (p ? { ...p, finishedMs: Date.now() - p.startedAt } : p));
+      setMapping((current) => ({ ...current, [emailColumn]: "email" }));
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setError(error instanceof Error ? error.message : "Verification failed");
+      }
+    } finally {
+      setVerifying(false);
     }
-    setVerifyResult(data as VerifyResult);
-    setMapping((current) => ({ ...current, [emailColumn]: "email" }));
+  }
+
+  function cancelVerification() {
+    abortRef.current?.abort();
+    setVerifying(false);
+    setProgress(null);
+    setError("Verification cancelled. Nothing was imported.");
+    setStep(1);
   }
 
   async function runImport() {
@@ -257,23 +312,32 @@ export function ImportWizard({ listId }: { listId: string }) {
 
       {step === 2 ? (
         <>
-          {verifying ? (
-            <p className="mt-4 text-sm text-muted">
-              Verifying the unique addresses in this file. Each address gets the built-in checks
-              plus a live mailbox probe, which takes a second or two per address, so a large file
-              can take a few minutes. Nothing is imported yet.
-            </p>
+          {progress && !verifyResult ? (
+            <div className="mt-4">
+              <VerificationProgress progress={progress} nowMs={nowMs} onCancel={cancelVerification} />
+              <p className="mt-3 text-xs text-muted">
+                Each address gets the built-in checks plus a live mailbox probe. Nothing is
+                imported yet.
+              </p>
+            </div>
           ) : null}
           {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
           {verifyResult ? (
             <>
-              <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
-                <div><dt className="text-muted">Addresses checked</dt><dd className="font-semibold">{verifyResult.uniqueEmails}</dd></div>
-                <div><dt className="text-muted">Valid</dt><dd className="font-semibold">{verifyResult.counts.valid}</dd></div>
-                <div><dt className="text-muted">Risky</dt><dd className="font-semibold">{verifyResult.counts.risky}</dd></div>
-                <div><dt className="text-muted">Invalid</dt><dd className="font-semibold">{verifyResult.counts.invalid}</dd></div>
-                <div><dt className="text-muted">Unknown</dt><dd className="font-semibold">{verifyResult.counts.unknown}</dd></div>
-              </dl>
+              <div className="mt-4">
+                <VerificationCompletedBar
+                  total={verifyResult.uniqueEmails}
+                  durationSec={
+                    progress?.finishedMs ? Math.max(1, Math.round(progress.finishedMs / 1000)) : null
+                  }
+                />
+              </div>
+              <div className="mt-4">
+                <VerificationSummaryCards
+                  counts={verifyResult.counts}
+                  total={verifyResult.uniqueEmails}
+                />
+              </div>
               <p className="mt-3 text-sm text-muted">
                 Choose which groups to import. You can select more than one.
               </p>
