@@ -302,7 +302,11 @@ the domain's MX points at a known probe-blocking gateway
 (Microsoft 365, Sophos, Proofpoint, Mimecast, Barracuda): those
 gateways reject real and fake recipients alike, so the verdict
 carries no per-mailbox evidence and a real lead must not be
-dropped as Bad on the strength of a refused probe. Since v1.34.0 Reacher is the only provider;
+dropped as Bad on the strength of a refused probe. Since
+v1.35.4, a probe call that fails outright (a timeout or dropped
+request under load) is retried once before the built-in verdict
+is allowed to stand, so a Good verdict means the probe actually
+confirmed the mailbox. Since v1.34.0 Reacher is the only provider;
 NeverBounce was removed. Without the variable, verification still
 works and the summary says "Built-in checks only." A sidecar
 outage never fails a verification run; the error is recorded in

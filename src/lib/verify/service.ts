@@ -9,6 +9,7 @@ import {
   reacherApiUrl,
   reacherConfigured,
   verifyWithReacher,
+  type ReacherVerdict,
 } from "./reacher";
 
 /**
@@ -47,6 +48,27 @@ export interface LeadVerification {
   detail: VerificationDetail;
 }
 
+/**
+ * Calls Reacher, retrying a transport or HTTP failure once before
+ * giving up. A returned verdict is never retried. The retry exists
+ * so a single dropped call under load cannot leave the built-in
+ * verdict standing in for a probe that never happened: a Good
+ * verdict should mean the probe confirmed the mailbox (v1.35.4).
+ * A genuine sidecar outage still falls back after the one retry,
+ * exactly as before.
+ */
+async function verifyWithReacherRetried(
+  email: string,
+  apiUrl: string,
+  fetchImpl?: typeof fetch,
+): Promise<ReacherVerdict> {
+  try {
+    return await verifyWithReacher(email, { apiUrl, fetchImpl });
+  } catch {
+    return verifyWithReacher(email, { apiUrl, fetchImpl });
+  }
+}
+
 export async function verifyLeadEmail(
   email: string,
   deps: VerifyDeps = {},
@@ -69,7 +91,7 @@ export async function verifyLeadEmail(
   // verdict is already certain and the probe would waste time.
   if (apiUrl && builtin.syntax) {
     try {
-      const verdict = await verifyWithReacher(email, { apiUrl, fetchImpl: deps.fetchImpl });
+      const verdict = await verifyWithReacherRetried(email, apiUrl, deps.fetchImpl);
       detail.provider = { name: "reacher", result: verdict.result };
       detail.source = "builtin+provider";
       if (verdict.status) {

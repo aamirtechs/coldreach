@@ -199,6 +199,45 @@ describe("verifyLeadEmail composition", () => {
     expect(result.detail.source).toBe("builtin+provider");
   });
 
+  it("retries a failed probe once and uses the recovered verdict", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error("socket timeout");
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ is_reachable: "safe" }),
+      };
+    }) as unknown as typeof fetch;
+    const result = await verifyLeadEmail("ada@acme.com", {
+      resolveMx: mxFound,
+      reacherUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(calls).toBe(2);
+    expect(result.status).toBe("VALID");
+    expect(result.detail.provider).toEqual({ name: "reacher", result: "safe" });
+    expect(result.detail.providerError).toBeNull();
+  });
+
+  it("falls back to the built-in verdict when the probe fails twice", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    const result = await verifyLeadEmail("ada@acme.com", {
+      resolveMx: mxFound,
+      reacherUrl: "http://reacher.test",
+      fetchImpl,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe("VALID");
+    expect(result.detail.providerError).toContain("ECONNREFUSED");
+    expect(result.detail.provider).toBeNull();
+  });
+
   it("downgrades a gateway-blocked invalid to Unknown instead of Bad", async () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,
