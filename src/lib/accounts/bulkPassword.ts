@@ -32,6 +32,12 @@ import {
  * IMAP, username equal to the email address. The live test is the
  * safety net either way: derived settings that do not authenticate
  * are never saved.
+ *
+ * Optional daily limit (v1.39.0): the caller may pass a dailyLimit
+ * to set on every account that connects successfully, so a bulk
+ * reconnect can also bring a fleet onto the same per-mailbox cap
+ * instead of editing accounts one by one afterwards. Accounts that
+ * fail the live test are left completely untouched, limit included.
  */
 
 export interface BulkPasswordAccount {
@@ -82,6 +88,7 @@ export async function applyPasswordToAccounts(
   accounts: BulkPasswordAccount[],
   password: string,
   verifier?: MailboxConnectionVerifier,
+  options?: { dailyLimit?: number },
 ): Promise<BulkPasswordResult[]> {
   const results: BulkPasswordResult[] = [];
   for (const account of accounts) {
@@ -108,6 +115,7 @@ export async function applyPasswordToAccounts(
           credentialRef: null,
           status: "CONNECTED",
           lastError: null,
+          ...(options?.dailyLimit !== undefined ? { dailyLimit: options.dailyLimit } : {}),
         },
       });
       results.push({ accountId: account.id, email: account.email, ok: true });

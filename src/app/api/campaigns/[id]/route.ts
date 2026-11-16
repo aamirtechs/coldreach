@@ -37,6 +37,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         windowEnd: campaign.windowEnd,
         businessDaysOnly: campaign.businessDaysOnly,
         requireOpenForFollowUps: campaign.requireOpenForFollowUps,
+        dailySendCap: campaign.dailySendCap,
         signatureText: campaign.signatureText,
         senderName: campaign.senderName,
         companyName: campaign.companyName,
@@ -68,6 +69,7 @@ interface PatchBody {
   windowEnd?: unknown;
   businessDaysOnly?: unknown;
   requireOpenForFollowUps?: unknown;
+  dailySendCap?: unknown;
   signatureText?: unknown;
   senderName?: unknown;
   companyName?: unknown;
@@ -168,6 +170,27 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     if (body.requireOpenForFollowUps !== undefined) {
       data.requireOpenForFollowUps = body.requireOpenForFollowUps === true;
+    }
+    if (body.dailySendCap !== undefined) {
+      // Per-campaign daily send cap (v1.39.0): null clears it back
+      // to no campaign cap. Anything else must be a whole number in
+      // range; a silent clamp here would hide a typo in exactly the
+      // field the user set to protect their domains.
+      if (body.dailySendCap === null) {
+        data.dailySendCap = null;
+      } else if (
+        typeof body.dailySendCap === "number" &&
+        Number.isInteger(body.dailySendCap) &&
+        body.dailySendCap >= 1 &&
+        body.dailySendCap <= 100000
+      ) {
+        data.dailySendCap = body.dailySendCap;
+      } else {
+        return NextResponse.json(
+          { error: "dailySendCap must be a whole number between 1 and 100000, or null to clear it" },
+          { status: 400 },
+        );
+      }
     }
     if (body.signatureText !== undefined) {
       // Signature is free text printed under every email this

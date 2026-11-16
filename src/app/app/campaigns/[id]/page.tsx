@@ -179,6 +179,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           windowEnd: campaign.windowEnd,
           businessDaysOnly: campaign.businessDaysOnly,
           requireOpenForFollowUps: campaign.requireOpenForFollowUps,
+          dailySendCap: campaign.dailySendCap,
           signatureText: campaign.signatureText ?? "",
           senderName: campaign.senderName ?? "",
           companyName: campaign.companyName ?? "",

@@ -314,6 +314,12 @@ model Campaign {
   // schedule regardless of views. Per campaign, editable in the
   // campaign Settings.
   requireOpenForFollowUps Boolean   @default(true)
+  // Per-campaign daily send cap (v1.39.0): when set, the worker
+  // sends at most this many emails for this campaign per UTC day
+  // (the same day boundary the per-account daily limits use) and
+  // defers the rest, still due, to the next day. Null means no
+  // campaign cap; the account limits and pacing budgets apply.
+  dailySendCap Int?
   // Optional per-campaign email signature (plain text, may use the
   // lead personalisation tokens). The worker renders it between the
   // step body and the compliance footer on every send, so editing it

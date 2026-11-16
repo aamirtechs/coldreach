@@ -84,6 +84,10 @@ export interface SendTickSummary {
   /** Sends deferred because this tick reached its per-tick send
    *  ceiling (v1.11.4 pacing). */
   deferredTickPacing: number;
+  /** Sends deferred because the campaign reached its own daily
+   *  send cap (v1.39.0, Campaign.dailySendCap). The enrollments
+   *  stay due and send the next UTC day. */
+  deferredCampaignCap: number;
   failed: number;
   /** Sends refused because the workspace hit its plan's monthly quota. */
   quotaBlocked: number;
@@ -198,6 +202,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     deferredOutsideWindow: 0,
     deferredHourlyCap: 0,
     deferredTickPacing: 0,
+    deferredCampaignCap: 0,
     failed: 0,
     quotaBlocked: 0,
     skippedNotOpened: 0,
@@ -363,6 +368,23 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       where: { sendingAccountId: account.id, type: "SENT", occurredAt: { gte: dayStart } },
     });
     sentTodayCache.set(account.id, count);
+    return count;
+  };
+
+  // Per-campaign daily send counts (v1.39.0), the campaign-level
+  // sibling of sentTodayFor: same UTC day boundary, same SENT
+  // events, counted per campaign so a campaign's own cap in
+  // Settings can be enforced alongside the account limits.
+  const campaignSentTodayCache = new Map<string, number>();
+  const campaignSentTodayFor = async (campaignId: string): Promise<number> => {
+    const cached = campaignSentTodayCache.get(campaignId);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const count = await db.emailEvent.count({
+      where: { campaignId, type: "SENT", occurredAt: { gte: dayStart } },
+    });
+    campaignSentTodayCache.set(campaignId, count);
     return count;
   };
 
@@ -607,6 +629,21 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       });
       summary.quarantined += 1;
       continue;
+    }
+
+    // Gate: per-campaign daily send cap (v1.39.0). A campaign can
+    // carry its own ceiling in Settings, for owners whose mail
+    // provider allows less than the account limits would suggest,
+    // or who want one campaign throttled independently of the
+    // others sharing its accounts. Reaching the cap defers the
+    // enrollment untouched: it stays due, keeps its stamp, and
+    // sends tomorrow, exactly like a pacing deferral.
+    if (campaign.dailySendCap != null) {
+      const campaignSentToday = await campaignSentTodayFor(campaign.id);
+      if (campaignSentToday >= campaign.dailySendCap) {
+        summary.deferredCampaignCap += 1;
+        continue;
+      }
     }
 
     // Gate 2: capacity, honouring each account's effective daily
@@ -960,6 +997,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
         logger.error("Outbound thread recording failed after send", { error, requestId });
       }
       sentTodayCache.set(chosen.id, (sentTodayCache.get(chosen.id) ?? 0) + 1);
+      campaignSentTodayCache.set(campaign.id, (campaignSentTodayCache.get(campaign.id) ?? 0) + 1);
       quota.sentThisMonth += 1;
       summary.sent += 1;
       if (provider.isSimulation) {
@@ -1016,6 +1054,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     quotaBlocked: summary.quotaBlocked,
     deferredHourlyCap: summary.deferredHourlyCap,
     deferredTickPacing: summary.deferredTickPacing,
+    deferredCampaignCap: summary.deferredCampaignCap,
     // Log every deferral bucket (v1.11.5): the 2026-10-30 sending
     // stall showed ticks processing 200 enrollments with zero sends
     // and zero in every logged counter, which left the real bucket

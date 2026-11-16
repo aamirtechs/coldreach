@@ -29,6 +29,7 @@ export function BulkPasswordConnect({ accounts }: { accounts: BulkAccount[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState("");
+  const [dailyLimit, setDailyLimit] = useState("");
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(accounts.map((account) => account.id)),
   );
@@ -60,7 +61,11 @@ export function BulkPasswordConnect({ accounts }: { accounts: BulkAccount[] }) {
       const response = await fetch("/api/accounts/bulk-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, accountIds: [...selected] }),
+        body: JSON.stringify({
+          password,
+          accountIds: [...selected],
+          dailyLimit: dailyLimit.trim() === "" ? undefined : Number(dailyLimit),
+        }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         results?: BulkResult[];
@@ -71,6 +76,7 @@ export function BulkPasswordConnect({ accounts }: { accounts: BulkAccount[] }) {
       }
       setResults(payload.results ?? []);
       setPassword("");
+      setDailyLimit("");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not apply the password");
@@ -108,6 +114,25 @@ export function BulkPasswordConnect({ accounts }: { accounts: BulkAccount[] }) {
             onChange={(event) => setPassword(event.target.value)}
             placeholder="The password these mailboxes share"
           />
+          <div className="mt-4">
+            <label className="label" htmlFor="bulk-daily-limit">Daily limit for connected accounts (optional)</label>
+            <input
+              id="bulk-daily-limit"
+              className="input max-w-md"
+              type="number"
+              min={1}
+              max={10000}
+              step={1}
+              value={dailyLimit}
+              onChange={(event) => setDailyLimit(event.target.value)}
+              placeholder="Leave empty to keep each account's current limit"
+            />
+            <p className="mt-1 text-xs text-muted">
+              Sets the same daily send cap on every account that connects, so a whole
+              fleet can be brought onto one limit here instead of editing accounts one
+              by one. Accounts that fail the test keep their current limit.
+            </p>
+          </div>
           <div className="mt-4 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
             {accounts.map((account) => (
               <label key={account.id} className="flex items-center gap-2 text-sm">

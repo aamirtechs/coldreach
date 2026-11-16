@@ -119,6 +119,8 @@ describe("POST /api/accounts/bulk-password", () => {
         { id: "a2", email: "two@example.com", encryptedCredentials: "blob-2" },
       ],
       PASSWORD,
+      undefined,
+      undefined,
     );
     const text = await response.text();
     expect(text).not.toContain(PASSWORD);
@@ -126,5 +128,29 @@ describe("POST /api/accounts/bulk-password", () => {
     expect(payload.connected).toBe(1);
     expect(payload.failed).toBe(1);
     expect(payload.results).toHaveLength(2);
+  });
+
+  it("passes a valid dailyLimit through as an option (v1.39.0)", async () => {
+    const response = await POST(
+      postRequest({ password: PASSWORD, accountIds: ["a1", "a2"], dailyLimit: 15 }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.applyPasswordToAccounts).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      PASSWORD,
+      undefined,
+      { dailyLimit: 15 },
+    );
+  });
+
+  it("rejects an invalid dailyLimit without applying anything (v1.39.0)", async () => {
+    for (const dailyLimit of [0, -3, 2.5, "15", 10001]) {
+      const response = await POST(
+        postRequest({ password: PASSWORD, accountIds: ["a1"], dailyLimit }),
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(mocks.applyPasswordToAccounts).not.toHaveBeenCalled();
   });
 });

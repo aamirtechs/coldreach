@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   const session = await requireSession("ADMIN");
   if ("error" in session) return session.error;
   const { ctx } = session;
-  const body = await readJson<{ password?: unknown; accountIds?: unknown }>(request);
+  const body = await readJson<{ password?: unknown; accountIds?: unknown; dailyLimit?: unknown }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
 
   // The password is read verbatim, exactly as typed: never trimmed.
@@ -29,6 +29,25 @@ export async function POST(request: Request) {
   }
   if (body.accountIds.length > 100) {
     return NextResponse.json({ error: "At most 100 accounts per request" }, { status: 400 });
+  }
+  // Optional daily limit (v1.39.0): when given, it is set on every
+  // account that connects successfully, so a bulk reconnect can also
+  // bring the fleet onto one per-mailbox cap. Absent means each
+  // account keeps the limit it already has.
+  let dailyLimit: number | undefined;
+  if (body.dailyLimit !== undefined) {
+    if (
+      typeof body.dailyLimit !== "number" ||
+      !Number.isInteger(body.dailyLimit) ||
+      body.dailyLimit < 1 ||
+      body.dailyLimit > 10000
+    ) {
+      return NextResponse.json(
+        { error: "dailyLimit must be a whole number between 1 and 10000" },
+        { status: 400 },
+      );
+    }
+    dailyLimit = body.dailyLimit;
   }
   const accountIds = body.accountIds.filter(
     (value): value is string => typeof value === "string" && value.length > 0,
@@ -54,13 +73,24 @@ export async function POST(request: Request) {
       .map((id) => byId.get(id))
       .filter((account): account is (typeof accounts)[number] => account !== undefined);
 
-    const results = await applyPasswordToAccounts(prisma, ordered, body.password);
+    const results = await applyPasswordToAccounts(
+      prisma,
+      ordered,
+      body.password,
+      undefined,
+      dailyLimit !== undefined ? { dailyLimit } : undefined,
+    );
     const connected = results.filter((result) => result.ok).length;
     await writeAuditLog({
       action: "account.bulk_password",
       userId: ctx.user.id,
       workspaceId: ctx.workspace.id,
-      metadata: { attempted: results.length, connected, failed: results.length - connected },
+      metadata: {
+        attempted: results.length,
+        connected,
+        failed: results.length - connected,
+        ...(dailyLimit !== undefined ? { dailyLimit } : {}),
+      },
     });
     return NextResponse.json({ results, connected, failed: results.length - connected });
   } catch (error) {

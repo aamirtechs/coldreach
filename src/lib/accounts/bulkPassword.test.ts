@@ -184,4 +184,47 @@ describe("applyPasswordToAccounts", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0].where).toEqual({ id: "a2" });
   });
+
+  it("sets the daily limit on an account that connects when one is given (v1.39.0)", async () => {
+    const { prisma, updates } = fakePrisma();
+    const { verifier } = capturingVerifier();
+    const results = await applyPasswordToAccounts(
+      prisma,
+      [{ id: "a1", email: "owner@example.com", encryptedCredentials: null }],
+      NEW_PASSWORD,
+      verifier,
+      { dailyLimit: 15 },
+    );
+    expect(results[0].ok).toBe(true);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].data.dailyLimit).toBe(15);
+  });
+
+  it("leaves the daily limit alone when none is given (v1.39.0)", async () => {
+    const { prisma, updates } = fakePrisma();
+    const { verifier } = capturingVerifier();
+    const results = await applyPasswordToAccounts(
+      prisma,
+      [{ id: "a1", email: "owner@example.com", encryptedCredentials: null }],
+      NEW_PASSWORD,
+      verifier,
+    );
+    expect(results[0].ok).toBe(true);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].data).not.toHaveProperty("dailyLimit");
+  });
+
+  it("never sets the daily limit on an account whose test fails (v1.39.0)", async () => {
+    const { prisma, updates } = fakePrisma();
+    const { verifier } = capturingVerifier("smtp");
+    const results = await applyPasswordToAccounts(
+      prisma,
+      [{ id: "a1", email: "owner@example.com", encryptedCredentials: null }],
+      NEW_PASSWORD,
+      verifier,
+      { dailyLimit: 15 },
+    );
+    expect(results[0].ok).toBe(false);
+    expect(updates).toHaveLength(0);
+  });
 });

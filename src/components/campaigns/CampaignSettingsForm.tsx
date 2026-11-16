@@ -20,6 +20,7 @@ interface CampaignSettingsFormProps {
     windowEnd: string;
     businessDaysOnly: boolean;
     requireOpenForFollowUps: boolean;
+    dailySendCap: number | null;
     signatureText: string;
     senderName: string;
     companyName: string;
@@ -53,6 +54,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
   const [windowEnd, setWindowEnd] = useState(initial.windowEnd);
   const [businessDaysOnly, setBusinessDaysOnly] = useState(initial.businessDaysOnly);
   const [requireOpenForFollowUps, setRequireOpenForFollowUps] = useState(initial.requireOpenForFollowUps);
+  const [dailySendCap, setDailySendCap] = useState(initial.dailySendCap?.toString() ?? "");
   const [signatureText, setSignatureText] = useState(initial.signatureText);
   const [senderName, setSenderName] = useState(initial.senderName);
   const [companyName, setCompanyName] = useState(initial.companyName);
@@ -79,6 +81,7 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
         windowEnd,
         businessDaysOnly,
         requireOpenForFollowUps,
+        dailySendCap: dailySendCap.trim() === "" ? null : Number(dailySendCap),
         signatureText,
         senderName,
         companyName,
@@ -154,6 +157,27 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
             Turn it off and follow-ups send to everyone on schedule, viewed or not. Views are
             approximate: some mail apps load the tracking image automatically, and others
             block it for real readers.
+          </p>
+        </div>
+        <div>
+          <label className="label" htmlFor="cs-daily-cap">Daily send cap (optional)</label>
+          <input
+            id="cs-daily-cap"
+            className="input"
+            type="number"
+            min={1}
+            max={100000}
+            step={1}
+            value={dailySendCap}
+            disabled={!editable}
+            onChange={(e) => setDailySendCap(e.target.value)}
+            placeholder="No campaign cap"
+          />
+          <p className="mt-1 text-xs text-muted">
+            The most emails this campaign sends per day, counted on the UTC day like the
+            per-mailbox daily limits. Sends past the cap stay due and go out the next
+            day. Leave empty for no campaign cap; the mailbox limits and the workspace
+            hourly cap still apply.
           </p>
         </div>
       </div>
