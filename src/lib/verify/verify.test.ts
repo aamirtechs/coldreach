@@ -3,7 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 import { hasValidSyntax, runBuiltinChecks, type ResolveMx } from "./builtin";
 import { isDisposableDomain } from "./disposable";
-import { verifyProviderConfigured, verifyProviderMissingEnv, verifyWithProvider } from "./provider";
+import { reacherApiUrl, reacherConfigured, reacherMissingEnv, verifyWithReacher } from "./reacher";
 import { verifyLeadEmail, verifyList } from "./service";
 
 describe("syntax validation", () => {
@@ -79,47 +79,46 @@ describe("runBuiltinChecks with injected MX resolvers", () => {
   });
 });
 
-describe("provider gating (NeverBounce)", () => {
-  it("reports the exact missing variable when VERIFY_API_KEY is unset", () => {
-    expect(verifyProviderMissingEnv({} as NodeJS.ProcessEnv)).toEqual(["VERIFY_API_KEY"]);
-    expect(verifyProviderConfigured({} as NodeJS.ProcessEnv)).toBe(false);
-    expect(verifyProviderMissingEnv({ VERIFY_API_KEY: "key" } as unknown as NodeJS.ProcessEnv)).toEqual([]);
-    expect(verifyProviderConfigured({ VERIFY_API_KEY: "key" } as unknown as NodeJS.ProcessEnv)).toBe(true);
+describe("provider gating (Reacher)", () => {
+  it("reports the exact missing variable when REACHER_API_URL is unset", () => {
+    expect(reacherMissingEnv({} as NodeJS.ProcessEnv)).toEqual(["REACHER_API_URL"]);
+    expect(reacherConfigured({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(reacherApiUrl({ REACHER_API_URL: " http://127.0.0.1:8080/ " } as unknown as NodeJS.ProcessEnv)).toBe(
+      "http://127.0.0.1:8080",
+    );
+    expect(reacherConfigured({ REACHER_API_URL: "http://127.0.0.1:8080" } as unknown as NodeJS.ProcessEnv)).toBe(true);
   });
 
-  it("maps provider verdicts onto the shared status enum", async () => {
-    const fetchFor = (result: string) =>
+  it("maps Reacher verdicts onto the shared status enum", async () => {
+    const fetchFor = (is_reachable: string) =>
       vi.fn(async () => ({
         ok: true,
         status: 200,
-        json: async () => ({ status: "success", result }),
+        json: async () => ({ is_reachable }),
       })) as unknown as typeof fetch;
     await expect(
-      verifyWithProvider("a@acme.com", { apiKey: "k", fetchImpl: fetchFor("valid") }),
-    ).resolves.toEqual({ result: "valid", status: "VALID" });
+      verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("safe") }),
+    ).resolves.toEqual({ result: "safe", status: "VALID" });
     await expect(
-      verifyWithProvider("a@acme.com", { apiKey: "k", fetchImpl: fetchFor("invalid") }),
+      verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("invalid") }),
     ).resolves.toEqual({ result: "invalid", status: "INVALID" });
     await expect(
-      verifyWithProvider("a@acme.com", { apiKey: "k", fetchImpl: fetchFor("disposable") }),
-    ).resolves.toEqual({ result: "disposable", status: "RISKY" });
+      verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("risky") }),
+    ).resolves.toEqual({ result: "risky", status: "RISKY" });
     await expect(
-      verifyWithProvider("a@acme.com", { apiKey: "k", fetchImpl: fetchFor("catchall") }),
-    ).resolves.toEqual({ result: "catchall", status: "RISKY" });
-    await expect(
-      verifyWithProvider("a@acme.com", { apiKey: "k", fetchImpl: fetchFor("unknown") }),
+      verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: fetchFor("unknown") }),
     ).resolves.toEqual({ result: "unknown", status: null });
   });
 
-  it("throws on a provider API failure so the caller keeps the built-in verdict", async () => {
+  it("throws on a sidecar failure so the caller keeps the built-in verdict", async () => {
     const failing = vi.fn(async () => ({
       ok: false,
       status: 500,
-      json: async () => ({ status: "failure", message: "boom" }),
+      json: async () => ({}),
     })) as unknown as typeof fetch;
     await expect(
-      verifyWithProvider("a@acme.com", { apiKey: "k", fetchImpl: failing }),
-    ).rejects.toThrow(/NeverBounce check failed/);
+      verifyWithReacher("a@acme.com", { apiUrl: "http://reacher.test", fetchImpl: failing }),
+    ).rejects.toThrow(/Reacher check failed/);
   });
 });
 
@@ -127,7 +126,7 @@ describe("verifyLeadEmail composition", () => {
   it("runs built-in checks only when no provider key is configured", async () => {
     const result = await verifyLeadEmail("ada@acme.com", {
       resolveMx: mxFound,
-      providerApiKey: null,
+      reacherUrl: null,
     });
     expect(result.status).toBe("VALID");
     expect(result.detail.provider).toBeNull();
@@ -138,7 +137,7 @@ describe("verifyLeadEmail composition", () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     const result = await verifyLeadEmail("nope", {
       resolveMx: mxFound,
-      providerApiKey: "k",
+      reacherUrl: "http://reacher.test",
       fetchImpl,
     });
     expect(result.status).toBe("INVALID");
@@ -149,15 +148,15 @@ describe("verifyLeadEmail composition", () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ status: "success", result: "invalid" }),
+      json: async () => ({ is_reachable: "invalid" }),
     })) as unknown as typeof fetch;
     const result = await verifyLeadEmail("ada@acme.com", {
       resolveMx: mxFound,
-      providerApiKey: "k",
+      reacherUrl: "http://reacher.test",
       fetchImpl,
     });
     expect(result.status).toBe("INVALID");
-    expect(result.detail.provider).toEqual({ name: "neverbounce", result: "invalid" });
+    expect(result.detail.provider).toEqual({ name: "reacher", result: "invalid" });
     expect(result.detail.source).toBe("builtin+provider");
   });
 
@@ -165,15 +164,15 @@ describe("verifyLeadEmail composition", () => {
     const fetchImpl = vi.fn(async () => ({
       ok: false,
       status: 500,
-      json: async () => ({ status: "failure", message: "down" }),
+      json: async () => ({}),
     })) as unknown as typeof fetch;
     const result = await verifyLeadEmail("ada@acme.com", {
       resolveMx: mxFound,
-      providerApiKey: "k",
+      reacherUrl: "http://reacher.test",
       fetchImpl,
     });
     expect(result.status).toBe("VALID");
-    expect(result.detail.providerError).toContain("NeverBounce check failed");
+    expect(result.detail.providerError).toContain("Reacher check failed");
   });
 });
 
@@ -205,7 +204,7 @@ describe("verifyList (database backed)", () => {
     const summary = await verifyList(
       db,
       { workspaceId, listId: list.id },
-      { resolveMx, providerApiKey: null },
+      { resolveMx, reacherUrl: null },
     );
     expect(summary.total).toBe(4);
     expect(summary.valid).toBe(1);

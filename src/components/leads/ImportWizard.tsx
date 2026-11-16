@@ -13,24 +13,53 @@ interface ImportSummary {
   suppressed: number;
   alreadyExisted: number;
   updated: number;
+  verificationSkipped: number;
 }
 interface ImportErrorRow {
   row: number;
   email: string;
   reason: string;
 }
+interface ImportVerdict {
+  status: string;
+  detail: unknown;
+}
+interface VerifyResult {
+  totalRows: number;
+  uniqueEmails: number;
+  counts: { valid: number; risky: number; invalid: number; unknown: number };
+  verdicts: Record<string, ImportVerdict>;
+}
 
 const STANDARD_TARGETS = ["email", ...STANDARD_FIELD_TARGETS, "ignore"] as const;
 
+type Step = 1 | 2 | 3;
+
+/**
+ * Lead CSV import as a three step wizard (v1.34.0):
+ * 1. Upload the file and confirm which column holds the email.
+ * 2. Verify: every unique address is checked (built-in checks plus
+ *    the Reacher SMTP probe) before anything is saved; the results
+ *    are shown by group and the user picks which groups to import
+ *    (Good emails only carries the Recommended badge; All selects
+ *    every group).
+ * 3. Map the remaining columns and run the import; imported leads
+ *    keep the verdicts from step 2.
+ */
 export function ImportWizard({ listId }: { listId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<Step>(1);
   const [fileName, setFileName] = useState("");
   const [csvText, setCsvText] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
+  const [emailColumn, setEmailColumn] = useState("");
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [updateExisting, setUpdateExisting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["VALID"]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ summary: ImportSummary; errors: ImportErrorRow[] } | null>(null);
@@ -51,8 +80,32 @@ export function ImportWizard({ listId }: { listId: string }) {
       initial[header] = guessImportTarget(header);
     }
     setMapping(initial);
+    const guessedEmail = parsed.headers.find((h) => guessImportTarget(h) === "email") ?? "";
+    setEmailColumn(guessedEmail);
+    setStep(1);
+    setVerifyResult(null);
     setResult(null);
     setError(null);
+  }
+
+  async function runVerification() {
+    setStep(2);
+    setVerifying(true);
+    setError(null);
+    setVerifyResult(null);
+    const response = await fetch(`/api/lead-lists/${listId}/import/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csvText, emailColumn }),
+    });
+    const data = await response.json();
+    setVerifying(false);
+    if (!response.ok) {
+      setError(data.error ?? "Verification failed");
+      return;
+    }
+    setVerifyResult(data as VerifyResult);
+    setMapping((current) => ({ ...current, [emailColumn]: "email" }));
   }
 
   async function runImport() {
@@ -61,7 +114,14 @@ export function ImportWizard({ listId }: { listId: string }) {
     const response = await fetch(`/api/lead-lists/${listId}/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ csvText, mapping, updateExisting }),
+      body: JSON.stringify({
+        csvText,
+        mapping,
+        updateExisting,
+        verification: verifyResult
+          ? { verdicts: verifyResult.verdicts, statuses: selectedStatuses }
+          : undefined,
+      }),
     });
     const data = await response.json();
     setBusy(false);
@@ -95,6 +155,12 @@ export function ImportWizard({ listId }: { listId: string }) {
     );
   }
 
+  const stepLabel = (n: Step, label: string) => (
+    <span className={step === n ? "font-semibold" : "text-muted"}>
+      Step {n}: {label}
+    </span>
+  );
+
   return (
     <section className="card mt-6 p-6">
       <div className="flex items-center justify-between">
@@ -103,32 +169,228 @@ export function ImportWizard({ listId }: { listId: string }) {
           Close
         </button>
       </div>
-      <p className="mt-1 text-sm text-muted">
-        Rows are deduplicated inside the file, checked against leads already in the workspace,
-        and checked against the suppression list before anything is saved.
-      </p>
-
-      <div className="mt-4">
-        <label className="label" htmlFor="import-csv-file">
-          Choose a CSV file
-        </label>
-        <input
-          id="import-csv-file"
-          type="file"
-          accept=".csv,text/csv"
-          onChange={onFile}
-          className="text-sm"
-        />
-        {fileName ? <p className="mt-2 text-xs text-muted">Selected: {fileName}</p> : null}
+      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+        {stepLabel(1, "Upload")}
+        {stepLabel(2, "Verify")}
+        {stepLabel(3, "Map and import")}
       </div>
 
-      {headers.length > 0 && !result ? (
+      {step === 1 ? (
         <>
-          <h3 className="mt-6 text-sm font-semibold">Map columns</h3>
+          <p className="mt-3 text-sm text-muted">
+            Rows are deduplicated inside the file, checked against leads already in the workspace,
+            and checked against the suppression list before anything is saved.
+          </p>
+          <div className="mt-4">
+            <label className="label" htmlFor="import-csv-file">
+              Choose a CSV file
+            </label>
+            <input
+              id="import-csv-file"
+              type="file"
+              accept=".csv,text/csv"
+              onChange={onFile}
+              className="text-sm"
+            />
+            {fileName ? <p className="mt-2 text-xs text-muted">Selected: {fileName}</p> : null}
+          </div>
+          {headers.length > 0 ? (
+            <>
+              <div className="mt-5 max-w-sm">
+                <label className="label" htmlFor="import-email-column">
+                  Which column holds the email address?
+                </label>
+                <select
+                  id="import-email-column"
+                  className="input"
+                  value={emailColumn}
+                  onChange={(e) => setEmailColumn(e.target.value)}
+                >
+                  <option value="">Choose a column</option>
+                  {headers.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {previewRows.length > 0 ? (
+                <div className="mt-4 overflow-x-auto rounded-lg border border-line">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-elevated text-muted">
+                      <tr>
+                        {headers.map((h) => (
+                          <th key={h} className="px-3 py-2 font-medium">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows.map((row, i) => (
+                        <tr key={i} className="border-t border-line">
+                          {headers.map((h) => (
+                            <td key={h} className="px-3 py-2">{row[h]}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
+              <div className="mt-5">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={!emailColumn}
+                  onClick={runVerification}
+                >
+                  Continue to verification
+                </button>
+                {!emailColumn ? (
+                  <span className="ml-3 text-xs text-warning">Choose the email column first.</span>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === 2 ? (
+        <>
+          {verifying ? (
+            <p className="mt-4 text-sm text-muted">
+              Verifying the unique addresses in this file. Each address gets the built-in checks
+              plus a live mailbox probe, which takes a second or two per address, so a large file
+              can take a few minutes. Nothing is imported yet.
+            </p>
+          ) : null}
+          {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
+          {verifyResult ? (
+            <>
+              <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+                <div><dt className="text-muted">Addresses checked</dt><dd className="font-semibold">{verifyResult.uniqueEmails}</dd></div>
+                <div><dt className="text-muted">Valid</dt><dd className="font-semibold">{verifyResult.counts.valid}</dd></div>
+                <div><dt className="text-muted">Risky</dt><dd className="font-semibold">{verifyResult.counts.risky}</dd></div>
+                <div><dt className="text-muted">Invalid</dt><dd className="font-semibold">{verifyResult.counts.invalid}</dd></div>
+                <div><dt className="text-muted">Unknown</dt><dd className="font-semibold">{verifyResult.counts.unknown}</dd></div>
+              </dl>
+              <p className="mt-3 text-sm text-muted">
+                Choose which groups to import. You can select more than one.
+              </p>
+              {(
+                [
+                  {
+                    status: "VALID",
+                    label: "Good emails only",
+                    count: verifyResult.counts.valid,
+                    note: "Verified mailboxes. The safe choice.",
+                    badge: "Recommended",
+                  },
+                  {
+                    status: "RISKY",
+                    label: "Catch-all (risky)",
+                    count: verifyResult.counts.risky,
+                    note: "The domain accepts mail for every address, so the mailbox could not be proven.",
+                    badge: null,
+                  },
+                  {
+                    status: "UNKNOWN",
+                    label: "Unknown",
+                    count: verifyResult.counts.unknown,
+                    note: "The check itself was inconclusive, for example the mail server did not answer.",
+                    badge: null,
+                  },
+                  {
+                    status: "INVALID",
+                    label: "Invalid",
+                    count: verifyResult.counts.invalid,
+                    note: "These cannot receive mail. Importing keeps them on record, but they cannot join a campaign.",
+                    badge: null,
+                  },
+                ] as const
+              ).map((group) => (
+                <label key={group.status} className="mt-3 flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedStatuses.includes(group.status)}
+                    onChange={(e) =>
+                      setSelectedStatuses((current) =>
+                        e.target.checked
+                          ? [...current, group.status]
+                          : current.filter((s) => s !== group.status),
+                      )
+                    }
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">{group.label}</span> ({group.count})
+                    {group.badge ? (
+                      <span className="ml-2 rounded-full bg-elevated px-2 py-0.5 text-xs font-semibold">
+                        {group.badge}
+                      </span>
+                    ) : null}
+                    <span className="block text-xs text-muted">{group.note}</span>
+                  </span>
+                </label>
+              ))}
+              <label className="mt-3 flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={selectedStatuses.length === 4}
+                  onChange={(e) =>
+                    setSelectedStatuses(
+                      e.target.checked ? ["VALID", "RISKY", "UNKNOWN", "INVALID"] : ["VALID"],
+                    )
+                  }
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">All</span> ({verifyResult.uniqueEmails})
+                  <span className="block text-xs text-muted">Import every group above.</span>
+                </span>
+              </label>
+              <p className="mt-4 text-sm">
+                {selectedStatuses.reduce(
+                  (sum, s) =>
+                    sum +
+                    (s === "VALID"
+                      ? verifyResult.counts.valid
+                      : s === "RISKY"
+                        ? verifyResult.counts.risky
+                        : s === "INVALID"
+                          ? verifyResult.counts.invalid
+                          : verifyResult.counts.unknown),
+                  0,
+                )}{" "}
+                of {verifyResult.uniqueEmails} addresses will be imported
+                {selectedStatuses.length === 0 ? ". Select at least one group to continue" : ""}.
+              </p>
+            </>
+          ) : null}
+          <div className="mt-5 flex gap-3">
+            <button type="button" className="btn-ghost" onClick={() => setStep(1)}>
+              Back
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={verifying || !verifyResult || selectedStatuses.length === 0}
+              onClick={() => setStep(3)}
+            >
+              Continue to mapping
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {step === 3 && !result ? (
+        <>
+          <h3 className="mt-2 text-sm font-semibold">Map columns</h3>
           <p className="mt-1 text-xs text-muted">
-            One column must map to email. Any other column name becomes a lead field usable as a
-            personalisation token, for example {"{{company}}"} or {"{{icebreaker}}"}. Map your
-            opening line column to the icebreaker target so it lands in the icebreaker field.
+            The email column is already set from step 1. Any other column name becomes a lead field
+            usable as a personalisation token, for example {"{{company}}"} or {"{{icebreaker}}"}.
+            Map your opening line column to the icebreaker target so it lands in the icebreaker
+            field.
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {headers.map((header) => (
@@ -137,6 +399,7 @@ export function ImportWizard({ listId }: { listId: string }) {
                 <select
                   className="input"
                   value={mapping[header] ?? "ignore"}
+                  disabled={header === emailColumn}
                   onChange={(e) => setMapping({ ...mapping, [header]: e.target.value })}
                 >
                   {STANDARD_TARGETS.map((target) => (
@@ -152,28 +415,6 @@ export function ImportWizard({ listId }: { listId: string }) {
               </label>
             ))}
           </div>
-          {previewRows.length > 0 ? (
-            <div className="mt-4 overflow-x-auto rounded-lg border border-line">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-elevated text-muted">
-                  <tr>
-                    {headers.map((h) => (
-                      <th key={h} className="px-3 py-2 font-medium">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {previewRows.map((row, i) => (
-                    <tr key={i} className="border-t border-line">
-                      {headers.map((h) => (
-                        <td key={h} className="px-3 py-2">{row[h]}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
           {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
           <label className="mt-5 flex items-start gap-2 text-sm">
             <input
@@ -188,13 +429,13 @@ export function ImportWizard({ listId }: { listId: string }) {
               personalisation field.
             </span>
           </label>
-          <div className="mt-5">
+          <div className="mt-5 flex gap-3">
+            <button type="button" className="btn-ghost" onClick={() => setStep(2)}>
+              Back
+            </button>
             <button type="button" className="btn-primary" disabled={busy || !emailMapped} onClick={runImport}>
               {busy ? "Importing..." : "Run import"}
             </button>
-            {!emailMapped ? (
-              <span className="ml-3 text-xs text-warning">Map one column to email first.</span>
-            ) : null}
           </div>
         </>
       ) : null}
@@ -209,6 +450,12 @@ export function ImportWizard({ listId }: { listId: string }) {
             <div><dt className="text-muted">Invalid</dt><dd className="font-semibold">{result.summary.invalid}</dd></div>
             <div><dt className="text-muted">Suppressed</dt><dd className="font-semibold">{result.summary.suppressed}</dd></div>
           </dl>
+          {result.summary.verificationSkipped > 0 ? (
+            <p className="mt-2 text-xs text-muted">
+              {result.summary.verificationSkipped} rows were skipped by the verification step:
+              they belong to groups you did not select for import.
+            </p>
+          ) : null}
           {result.summary.alreadyExisted > 0 ? (
             <p className="mt-2 text-xs text-muted">
               {result.summary.alreadyExisted} of the duplicates already existed in this workspace.

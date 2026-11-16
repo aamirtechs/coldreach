@@ -4,17 +4,17 @@ import {
   type ResolveMx,
   type VerificationStatus,
 } from "./builtin";
-import { verifyProviderConfigured, verifyWithProvider } from "./provider";
+import { reacherApiUrl, reacherConfigured, verifyWithReacher } from "./reacher";
 
 /**
  * Verification service (Phase 6).
  *
  * verifyLeadEmail runs the built-in checks for one address and, when
- * VERIFY_API_KEY is configured, refines the verdict with the
- * provider. verifyList applies it to a whole list in bounded batches
- * and stores the outcome on each Lead (verificationStatus,
- * verificationDetail, verifiedAt). Statuses feed campaign
- * enrollment: INVALID leads are skipped (see
+ * the Reacher sidecar is configured (REACHER_API_URL), refines the
+ * verdict with its SMTP mailbox check. verifyList applies it to a
+ * whole list in bounded batches and stores the outcome on each Lead
+ * (verificationStatus, verificationDetail, verifiedAt). Statuses
+ * feed campaign enrollment: INVALID leads are skipped (see
  * src/lib/campaigns/enroll.ts).
  */
 
@@ -31,9 +31,9 @@ export interface VerificationDetail {
 
 export interface VerifyDeps {
   resolveMx?: ResolveMx;
-  /** Defaults to process.env.VERIFY_API_KEY; pass null to force the
-   *  built-in checks only. */
-  providerApiKey?: string | null;
+  /** Defaults to process.env.REACHER_API_URL; pass null to force
+   *  the built-in checks only. */
+  reacherUrl?: string | null;
   fetchImpl?: typeof fetch;
 }
 
@@ -59,30 +59,49 @@ export async function verifyLeadEmail(
   };
   let status = builtin.status;
 
-  const apiKey =
-    deps.providerApiKey === null
-      ? null
-      : (deps.providerApiKey ?? (verifyProviderConfigured() ? process.env.VERIFY_API_KEY : null));
-  // A syntactically invalid address never reaches the provider: the
-  // verdict is already certain and the call would waste credits.
-  if (apiKey && builtin.syntax) {
+  const apiUrl = deps.reacherUrl === null ? null : (deps.reacherUrl ?? reacherApiUrl());
+  // A syntactically invalid address never reaches Reacher: the
+  // verdict is already certain and the probe would waste time.
+  if (apiUrl && builtin.syntax) {
     try {
-      const verdict = await verifyWithProvider(email, { apiKey, fetchImpl: deps.fetchImpl });
-      detail.provider = { name: "neverbounce", result: verdict.result };
+      const verdict = await verifyWithReacher(email, { apiUrl, fetchImpl: deps.fetchImpl });
+      detail.provider = { name: "reacher", result: verdict.result };
       detail.source = "builtin+provider";
       if (verdict.status) {
         status = verdict.status;
-        detail.reasons.push(`Provider (NeverBounce) reports "${verdict.result}".`);
+        detail.reasons.push(`Reacher reports "${verdict.result}".`);
       } else {
-        detail.reasons.push(`Provider (NeverBounce) reports "${verdict.result}"; built-in verdict stands.`);
+        detail.reasons.push(`Reacher reports "${verdict.result}"; built-in verdict stands.`);
       }
     } catch (error) {
-      detail.providerError = error instanceof Error ? error.message : "Provider check failed";
-      detail.reasons.push("Provider check failed; built-in verdict stands.");
+      detail.providerError = error instanceof Error ? error.message : "Reacher check failed";
+      detail.reasons.push("Reacher check failed; built-in verdict stands.");
     }
   }
 
   return { status, detail };
+}
+
+/** Runs fn over items with a bounded number in flight at once. */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) {
+        return;
+      }
+      results[index] = await fn(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
 }
 
 export interface VerifyListSummary {
@@ -120,7 +139,7 @@ export async function verifyList(
     risky: 0,
     invalid: 0,
     unknown: 0,
-    providerConfigured: verifyProviderConfigured(),
+    providerConfigured: reacherConfigured(),
   };
 
   let cursor: string | undefined;
@@ -135,7 +154,9 @@ export async function verifyList(
     if (batch.length === 0) {
       break;
     }
-    for (const lead of batch) {
+    // SMTP probes are slow (seconds each), so a batch verifies with
+    // modest concurrency instead of one address at a time.
+    const outcomes = await mapWithConcurrency(batch, 5, async (lead) => {
       const { status, detail } = await verifyLeadEmail(lead.email, deps);
       await db.lead.update({
         where: { id: lead.id },
@@ -145,6 +166,9 @@ export async function verifyList(
           verifiedAt: new Date(detail.checkedAt),
         },
       });
+      return status;
+    });
+    for (const status of outcomes) {
       summary.total += 1;
       if (status === "VALID") summary.valid += 1;
       else if (status === "RISKY") summary.risky += 1;

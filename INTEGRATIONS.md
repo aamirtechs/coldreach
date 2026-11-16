@@ -290,14 +290,17 @@ Lead list verification (Leads, a list, Verify list) always runs the
 built-in checks server side: strict syntax validation, a bundled
 partial disposable-domain list, and an MX lookup over DNS that
 degrades to UNKNOWN when DNS cannot answer. Setting
-`VERIFY_API_KEY` adds the NeverBounce single check API on top: each
-syntactically valid address is refined by the provider's verdict
-(valid, invalid, disposable, catchall, unknown), stored in the
-lead's verification detail alongside the built-in evidence. Without
-the key, verification still works and the summary says "Built-in
-checks only." Provider outages never fail a verification run; the
-error is recorded in the detail and the built-in verdict stands.
-See ACTIVATION.md section 6 for signup steps.
+`REACHER_API_URL` adds a self-hosted Reacher sidecar on top: each
+syntactically valid address gets an SMTP mailbox probe whose
+verdict (safe, invalid, risky, unknown) refines the built-in one
+and is stored in the lead's verification detail alongside the
+built-in evidence. Since v1.34.0 Reacher is the only provider;
+NeverBounce was removed. Without the variable, verification still
+works and the summary says "Built-in checks only." A sidecar
+outage never fails a verification run; the error is recorded in
+the detail and the built-in verdict stands. The import wizard
+also verifies a file's addresses before importing (step 2), using
+this same service. See ACTIVATION.md section 6 for setup.
 
 ## 12. cPanel and custom mail servers (SMTP / IMAP)
 

@@ -5,9 +5,9 @@
  * mailbox services, bundled so the built-in verifier works with no
  * external dependency. Disposable domains are created faster than
  * any bundled list can track, so a miss here means "not recognised
- * as disposable", never "proven real". The optional verification
- * provider (src/lib/verify/provider.ts) maintains a far larger list
- * server side; this one is the offline floor.
+ * as disposable", never "proven real". The Reacher sidecar
+ * (src/lib/verify/reacher.ts) adds live SMTP mailbox checks on top;
+ * this list is the offline floor.
  */
 
 const DISPOSABLE_DOMAINS: ReadonlySet<string> = new Set([

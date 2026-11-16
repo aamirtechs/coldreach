@@ -215,19 +215,22 @@ checkout from section 7.
 ## 6. Email verification provider (optional)
 
 Goal: stronger list verification verdicts. The built-in checks
-(syntax, disposable domains, MX lookup) always run; a provider only
-refines them when configured. Variable: `VERIFY_API_KEY`. The
-provider implemented in this phase is NeverBounce.
+(syntax, disposable domains, MX lookup) always run; the Reacher
+sidecar only refines them when configured. Variable:
+`REACHER_API_URL`. Since v1.34.0 Reacher is the only provider
+(NeverBounce was removed).
 
-1. Create an account at neverbounce.com and confirm the email.
-2. In the NeverBounce dashboard, open Apps or API settings and
-   create an API key for server-side use. Copy it.
-3. In Vercel, add `VERIFY_API_KEY` (Production). Redeploy.
+1. Run the Reacher backend (Docker image reacherhq/backend,
+   pinned v0.11.11) on a host with outbound port 25 open, bound
+   to localhost: `docker run -d -p 127.0.0.1:8080:8080
+   reacherhq/backend:v0.11.11`.
+2. Set `REACHER_API_URL=http://127.0.0.1:8080` in the app
+   environment. Restart the app.
 
 Verify: open a lead list and click Verify list. The summary line
-ends with "Provider checks included." Without the key it reads
-"Built-in checks only.", which is the honest unconfigured state,
-not an error.
+ends with "Provider checks included." Without the variable it
+reads "Built-in checks only.", which is the honest unconfigured
+state, not an error.
 
 ## 7. Production verification checklist
 

@@ -3,6 +3,7 @@ import { parseCsv } from "@/lib/csv";
 import { dedupeImport, normalizeEmail, type ImportRow } from "@/lib/domain/dedupe";
 import { findSuppression } from "@/lib/domain/suppression";
 import { loadSuppressions } from "@/lib/suppressions";
+import type { VerificationStatus } from "@/lib/verify/builtin";
 
 /**
  * Lead CSV import.
@@ -71,7 +72,27 @@ export interface ImportSummary {
   suppressed: number;
   alreadyExisted: number;
   updated: number;
+  verificationSkipped: number;
 }
+
+/**
+ * Verdicts from the wizard's verification step, keyed by normalised
+ * email, plus the status groups the user chose to import (the
+ * wizard offers Good, Catch-all/risky, Unknown, Invalid, and All,
+ * multi-select; "Good emails only" carries the Recommended badge).
+ * A row whose verdict status is not in the chosen set is skipped.
+ * When statuses is omitted, the default set is VALID, RISKY and
+ * UNKNOWN (everything except INVALID). Imported leads store their
+ * verdict, so no re-verification is needed before enrollment; note
+ * INVALID leads can be imported for record keeping but enrollment
+ * still skips them.
+ */
+export interface ImportVerificationInput {
+  verdicts: Record<string, { status: string; detail: unknown }>;
+  statuses?: string[];
+}
+
+export const DEFAULT_IMPORT_STATUSES = ["VALID", "RISKY", "UNKNOWN"];
 
 export interface ImportResult {
   summary: ImportSummary;
@@ -82,6 +103,7 @@ export interface ImportResult {
 interface MappedRow extends ImportRow {
   rowNumber: number;
   fields: Record<string, string>;
+  verdict?: { status: string; detail: unknown };
 }
 
 export async function importLeadsFromCsv(
@@ -93,6 +115,7 @@ export async function importLeadsFromCsv(
     mapping: ColumnMapping;
     stripPlusTag?: boolean;
     updateExisting?: boolean;
+    verification?: ImportVerificationInput;
   },
 ): Promise<ImportResult> {
   const { workspaceId, listId } = args;
@@ -148,6 +171,7 @@ export async function importLeadsFromCsv(
   let suppressedCount = 0;
   let alreadyExisted = 0;
   let updatedCount = 0;
+  let verificationSkipped = 0;
   const toInsert: MappedRow[] = [];
   for (const row of deduped.kept) {
     const normalized = normalizeEmail(row.email);
@@ -191,7 +215,20 @@ export async function importLeadsFromCsv(
       });
       continue;
     }
-    toInsert.push({ ...row, email: normalized });
+    const verdict = args.verification?.verdicts[normalized];
+    if (verdict) {
+      const chosen = args.verification?.statuses ?? DEFAULT_IMPORT_STATUSES;
+      if (!chosen.includes(verdict.status)) {
+        verificationSkipped += 1;
+        errors.push({
+          row: row.rowNumber,
+          email: row.email,
+          reason: `Skipped by your import choice: ${verdict.status.toLowerCase()} addresses not selected`,
+        });
+        continue;
+      }
+    }
+    toInsert.push({ ...row, email: normalized, verdict });
   }
 
   if (toInsert.length > 0) {
@@ -203,6 +240,13 @@ export async function importLeadsFromCsv(
         fields: row.fields,
         tags: [],
         status: "NEW" as const,
+        ...(row.verdict
+          ? {
+              verificationStatus: row.verdict.status as VerificationStatus,
+              verificationDetail: row.verdict.detail as object,
+              verifiedAt: new Date(),
+            }
+          : {}),
       })),
     });
   }
@@ -218,6 +262,7 @@ export async function importLeadsFromCsv(
       suppressed: suppressedCount,
       alreadyExisted,
       updated: updatedCount,
+      verificationSkipped,
     },
     errors,
   };

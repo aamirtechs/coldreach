@@ -3,7 +3,7 @@ import { oauthProviderStatuses } from "@/lib/oauth/config";
 import { getWorkspaceAiStatus } from "@/lib/ai/workspaceAi";
 import { stripeMissingEnv } from "@/lib/billing/stripe";
 import { hubspotConfigured, hubspotMissingEnv, HUBSPOT_PROVIDER } from "@/lib/crm/hubspot";
-import { verifyProviderConfigured, verifyProviderMissingEnv } from "@/lib/verify/provider";
+import { reacherConfigured, reacherMissingEnv } from "@/lib/verify/reacher";
 import { hasEncryptionKey } from "@/lib/security/crypto";
 
 /**
@@ -131,12 +131,12 @@ export async function getIntegrationStatuses(
 
   rows.push({
     id: "verify",
-    label: "Email verification provider (NeverBounce)",
-    configured: verifyProviderConfigured(),
-    missingEnv: verifyProviderMissingEnv(),
-    detail: verifyProviderConfigured()
-      ? "Provider checks refine the built-in verifier on lead lists."
-      : "Built-in verification (syntax, disposable list, MX) always runs. The provider only refines it.",
+    label: "Email verification (Reacher sidecar)",
+    configured: reacherConfigured(),
+    missingEnv: reacherMissingEnv(),
+    detail: reacherConfigured()
+      ? "Reacher SMTP mailbox checks refine the built-in verifier on lead lists."
+      : "Built-in verification (syntax, disposable list, MX) always runs. Reacher only refines it.",
     activationAnchor: "6-email-verification-provider-optional",
   });
 

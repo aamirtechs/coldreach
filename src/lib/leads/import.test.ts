@@ -187,3 +187,81 @@ describe("importLeadsFromCsv", () => {
     expect(lead?.fields).toMatchObject({ firstName: "Stay" });
   });
 });
+
+describe("importLeadsFromCsv with wizard verification verdicts (v1.34.0)", () => {
+  const verdicts = {
+    "vinvalid@example.com": { status: "INVALID", detail: { source: "builtin+provider" } },
+    "vrisky@example.com": { status: "RISKY", detail: { source: "builtin+provider" } },
+    "vgood@example.com": { status: "VALID", detail: { source: "builtin+provider" } },
+  };
+  const csv = [
+    "Email,First Name",
+    "vinvalid@example.com,Bad",
+    "vrisky@example.com,Risk",
+    "vgood@example.com,Good",
+  ].join("\n");
+  const mapping = { Email: "email", "First Name": "firstName" };
+
+  it("skips unselected groups and stores verdicts on kept leads", async () => {
+    const list = await db.leadList.create({ data: { workspaceId, name: "Verified import" } });
+    const result = await importLeadsFromCsv(db, {
+      workspaceId,
+      listId: list.id,
+      csvText: csv,
+      mapping,
+      verification: { verdicts, statuses: ["VALID", "RISKY", "UNKNOWN"] },
+    });
+    expect(result.summary.kept).toBe(2);
+    expect(result.summary.verificationSkipped).toBe(1);
+    expect(result.errors.some((e) => e.email === "vinvalid@example.com")).toBe(true);
+    const good = await db.lead.findFirst({ where: { listId: list.id, email: "vgood@example.com" } });
+    expect(good?.verificationStatus).toBe("VALID");
+    expect(good?.verifiedAt).not.toBeNull();
+    const risky = await db.lead.findFirst({ where: { listId: list.id, email: "vrisky@example.com" } });
+    expect(risky?.verificationStatus).toBe("RISKY");
+  });
+
+  it("excludes RISKY verdicts when the group is not selected", async () => {
+    const list = await db.leadList.create({ data: { workspaceId, name: "Verified import strict" } });
+    const strictVerdicts = {
+      "sinvalid@example.com": { status: "INVALID", detail: { source: "builtin+provider" } },
+      "srisky@example.com": { status: "RISKY", detail: { source: "builtin+provider" } },
+      "sgood@example.com": { status: "VALID", detail: { source: "builtin+provider" } },
+    };
+    const strictCsv = [
+      "Email,First Name",
+      "sinvalid@example.com,Bad",
+      "srisky@example.com,Risk",
+      "sgood@example.com,Good",
+    ].join("\n");
+    const result = await importLeadsFromCsv(db, {
+      workspaceId,
+      listId: list.id,
+      csvText: strictCsv,
+      mapping,
+      verification: { verdicts: strictVerdicts, statuses: ["VALID", "UNKNOWN"] },
+    });
+    expect(result.summary.kept).toBe(1);
+    expect(result.summary.verificationSkipped).toBe(2);
+  });
+
+  it("imports INVALID verdicts when the user selects that group, stored as INVALID", async () => {
+    const list = await db.leadList.create({ data: { workspaceId, name: "Verified import all" } });
+    const allVerdicts = {
+      "abad@example.com": { status: "INVALID", detail: { source: "builtin+provider" } },
+      "afine@example.com": { status: "VALID", detail: { source: "builtin+provider" } },
+    };
+    const allCsv = ["Email,First Name", "abad@example.com,Bad", "afine@example.com,Fine"].join("\n");
+    const result = await importLeadsFromCsv(db, {
+      workspaceId,
+      listId: list.id,
+      csvText: allCsv,
+      mapping,
+      verification: { verdicts: allVerdicts, statuses: ["VALID", "RISKY", "UNKNOWN", "INVALID"] },
+    });
+    expect(result.summary.kept).toBe(2);
+    expect(result.summary.verificationSkipped).toBe(0);
+    const bad = await db.lead.findFirst({ where: { listId: list.id, email: "abad@example.com" } });
+    expect(bad?.verificationStatus).toBe("INVALID");
+  });
+});

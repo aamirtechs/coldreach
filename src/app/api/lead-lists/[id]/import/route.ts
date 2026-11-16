@@ -9,7 +9,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if ("error" in session) return session.error;
   const { ctx } = session;
   const { id } = await params;
-  const body = await readJson<{ csvText?: unknown; mapping?: unknown; stripPlusTag?: unknown; updateExisting?: unknown }>(request);
+  const body = await readJson<{
+    csvText?: unknown;
+    mapping?: unknown;
+    stripPlusTag?: unknown;
+    updateExisting?: unknown;
+    verification?: unknown;
+  }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   if (typeof body.csvText !== "string" || !body.csvText.trim()) {
     return NextResponse.json({ error: "csvText is required" }, { status: 400 });
@@ -31,6 +37,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       mapping: body.mapping as ColumnMapping,
       stripPlusTag: body.stripPlusTag === true,
       updateExisting: body.updateExisting === true,
+      verification:
+        body.verification &&
+        typeof body.verification === "object" &&
+        !Array.isArray(body.verification) &&
+        typeof (body.verification as { verdicts?: unknown }).verdicts === "object" &&
+        (body.verification as { verdicts?: unknown }).verdicts !== null
+          ? {
+              verdicts: (body.verification as { verdicts: Record<string, { status: string; detail: unknown }> }).verdicts,
+              statuses: Array.isArray((body.verification as { statuses?: unknown }).statuses)
+                ? ((body.verification as { statuses: unknown[] }).statuses.filter(
+                    (s): s is string =>
+                      typeof s === "string" && ["VALID", "RISKY", "INVALID", "UNKNOWN"].includes(s),
+                  ) as string[])
+                : undefined,
+            }
+          : undefined,
     });
     await writeAuditLog({
       action: "lead.import",

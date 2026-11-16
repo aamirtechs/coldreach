@@ -18,7 +18,7 @@ interface VerifySummary {
  * real summary it returns; INVALID leads are then skipped at
  * campaign enrollment and RISKY leads are flagged in the enrollment
  * summary. The built-in checks always run; a provider only refines
- * them when VERIFY_API_KEY is configured on the server.
+ * them when the Reacher sidecar is configured on the server.
  */
 export function VerifyListButton({ listId }: { listId: string }) {
   const router = useRouter();
