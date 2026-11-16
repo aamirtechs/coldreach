@@ -4,8 +4,8 @@ import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { CreateCampaignForm } from "@/components/campaigns/CreateCampaignForm";
 import { PauseAllCampaignsButton } from "@/components/campaigns/PauseAllCampaignsButton";
-import { DeleteCampaignButton } from "@/components/campaigns/DeleteCampaignButton";
-import { EmptyState, StatusBadge } from "@/components/ui";
+import { CampaignsTable } from "@/components/campaigns/CampaignsTable";
+import { EmptyState } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -115,63 +115,20 @@ export default async function CampaignsPage({
           body="Try a shorter part of the campaign name, or reset the search to see every campaign."
         />
       ) : (
-        <div className="card mt-6 overflow-x-auto" data-tour="campaigns-table">
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-4 py-3 font-medium">Campaign</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">List</th>
-                <th className="px-4 py-3 font-medium">Steps</th>
-                <th className="px-4 py-3 font-medium">Enrolled</th>
-                <th className="px-4 py-3 font-medium">Progress</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {visibleCampaigns.map((campaign) => (
-                <tr key={campaign.id} className="border-b border-line last:border-0 hover:bg-elevated/60">
-                  <td className="px-4 py-3">
-                    <Link href={`/app/campaigns/${campaign.id}`} className="font-medium text-accent hover:underline">
-                      {campaign.name}
-                    </Link>
-                    <p className="mt-0.5 text-xs text-muted">{campaign.timezone}</p>
-                  </td>
-                  <td className="px-4 py-3"><StatusBadge status={campaign.status} /></td>
-                  <td className="px-4 py-3 text-muted">{campaign.leadList?.name ?? "Not attached"}</td>
-                  <td className="px-4 py-3">{campaign._count.steps}</td>
-                  <td className="px-4 py-3">{campaign._count.enrollments}</td>
-                  <td className="px-4 py-3">
-                    {campaign._count.enrollments === 0 ? (
-                      <span className="text-muted">No leads yet</span>
-                    ) : (
-                      <>
-                        <span>
-                          {contactedByCampaign.get(campaign.id) ?? 0} of {campaign._count.enrollments} contacted
-                        </span>
-                        <p className="mt-0.5 text-xs text-muted">
-                          {campaign._count.enrollments - (contactedByCampaign.get(campaign.id) ?? 0)} remaining · {sentByCampaign.get(campaign.id) ?? 0} emails sent · {clickedByCampaign.get(campaign.id) ?? 0} clicks
-                        </p>
-                      </>
-                    )}
-                  </td>
-                  <td className="relative px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <DeleteCampaignButton
-                        campaignId={campaign.id}
-                        campaignName={campaign.name}
-                        status={campaign.status}
-                      />
-                      <Link href={`/app/campaigns/${campaign.id}`} className="btn-secondary !px-3 !py-1.5 text-xs">
-                        Open
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <CampaignsTable
+          campaigns={visibleCampaigns.map((campaign) => ({
+            id: campaign.id,
+            name: campaign.name,
+            status: campaign.status,
+            timezone: campaign.timezone,
+            listName: campaign.leadList?.name ?? null,
+            steps: campaign._count.steps,
+            enrolled: campaign._count.enrollments,
+            contacted: contactedByCampaign.get(campaign.id) ?? 0,
+            sent: sentByCampaign.get(campaign.id) ?? 0,
+            clicked: clickedByCampaign.get(campaign.id) ?? 0,
+          }))}
+        />
       )}
     </div>
   );

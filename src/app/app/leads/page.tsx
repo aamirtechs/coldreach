@@ -2,8 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
-import { LocalTime } from "@/components/LocalTime";
 import { CreateListForm } from "@/components/leads/CreateListForm";
+import { LeadListsTable } from "@/components/leads/LeadListsTable";
 import { EmptyState } from "@/components/ui";
 import { leadCompanyOf, leadIcebreakerOf, leadMatchesSearch, leadNameOf } from "@/lib/leads/search";
 
@@ -156,45 +156,16 @@ export default async function LeadsPage({
           body="Create a list, then import a CSV or add leads by hand. Every import reports exactly what was kept, what was a duplicate, what was invalid, and what was suppressed."
         />
       ) : (
-        <div className="card mt-6 overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left text-sm">
-            <thead className="border-b border-line bg-elevated text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-4 py-3 font-medium">List</th>
-                <th className="px-4 py-3 font-medium">Leads</th>
-                <th className="px-4 py-3 font-medium">Created</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {lists.map((list) => (
-                <tr key={list.id} className="border-b border-line last:border-0 hover:bg-elevated/60">
-                  <td className="px-4 py-3">
-                    <Link href={`/app/leads/${list.id}`} className="font-medium text-accent hover:underline">
-                      {list.name}
-                    </Link>
-                    {list.description ? (
-                      <p className="mt-0.5 text-xs text-muted">{list.description}</p>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-3">{list._count.leads}</td>
-                  <td className="px-4 py-3 text-muted">
-                    <LocalTime
-                      iso={list.createdAt.toISOString()}
-                      fallback={list.createdAt.toLocaleDateString("en-GB", { timeZone: "UTC" })}
-                      format="date"
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link href={`/app/leads/${list.id}`} className="btn-secondary !px-3 !py-1.5 text-xs">
-                      Open
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <LeadListsTable
+          lists={lists.map((list) => ({
+            id: list.id,
+            name: list.name,
+            description: list.description,
+            leadCount: list._count.leads,
+            createdIso: list.createdAt.toISOString(),
+            createdFallback: list.createdAt.toLocaleDateString("en-GB", { timeZone: "UTC" }),
+          }))}
+        />
       )}
       {unlistedCount > 0 ? (
         <p className="mt-4 text-xs text-muted">
