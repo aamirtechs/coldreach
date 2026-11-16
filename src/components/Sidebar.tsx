@@ -11,7 +11,13 @@ import { APP_NAV_ITEMS, PLATFORM_ADMIN_NAV_ITEM } from "@/lib/navigation";
 const NAV_ITEMS = APP_NAV_ITEMS;
 const ADMIN_ITEM = PLATFORM_ADMIN_NAV_ITEM;
 
-export function Sidebar({ showPlatformAdmin = false }: { showPlatformAdmin?: boolean }) {
+export function Sidebar({
+  showPlatformAdmin = false,
+  verificationComingSoon = false,
+}: {
+  showPlatformAdmin?: boolean;
+  verificationComingSoon?: boolean;
+}) {
   const pathname = usePathname();
   const [composeOpen, setComposeOpen] = useState(false);
   const navItems = showPlatformAdmin ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS;
@@ -48,6 +54,11 @@ export function Sidebar({ showPlatformAdmin = false }: { showPlatformAdmin?: boo
               >
                 <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
                 {item.label}
+                {verificationComingSoon && item.href === "/app/verify" ? (
+                  <span className="ml-auto rounded-full bg-elevated px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                    Coming soon
+                  </span>
+                ) : null}
               </Link>
             </Fragment>
           );

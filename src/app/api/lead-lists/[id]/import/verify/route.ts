@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession } from "@/lib/api";
-import { prepareImportVerification, verifyPreparedImportEmails } from "@/lib/leads/importVerify";
+import {
+  prepareImportVerification,
+  verifyPreparedImportEmails,
+  type ImportVerifyResult,
+} from "@/lib/leads/importVerify";
+import { buildExternalVerdicts } from "@/lib/leads/externalVerdicts";
+import { canUseVerification } from "@/lib/admin/featureAccess";
 import { writeAuditLog } from "@/lib/audit";
 
 /**
@@ -13,13 +19,26 @@ import { writeAuditLog } from "@/lib/audit";
  * {type:"error"}, so the wizard can show a live progress bar,
  * ticking counts and an estimated time remaining. Validation
  * failures are answered before the stream starts, as plain JSON.
+ *
+ * Since v1.36.0 there are two modes. With a verdictColumn in the
+ * body, the file already carries verdicts from another tool: they
+ * are read straight from that column (no probing) and the stream
+ * answers start then done immediately. Without one, the probing
+ * path runs, and probing is gated: it is owner-only until the
+ * platform admin opens verification to all users, so other users
+ * get a 403 here (their wizard offers the external path or an
+ * unverified import instead).
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession("MEMBER");
   if ("error" in session) return session.error;
   const { ctx } = session;
   const { id } = await params;
-  const body = await readJson<{ csvText?: unknown; emailColumn?: unknown }>(request);
+  const body = await readJson<{
+    csvText?: unknown;
+    emailColumn?: unknown;
+    verdictColumn?: unknown;
+  }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   if (typeof body.csvText !== "string" || !body.csvText.trim()) {
     return NextResponse.json({ error: "csvText is required" }, { status: 400 });
@@ -27,17 +46,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (typeof body.emailColumn !== "string" || !body.emailColumn) {
     return NextResponse.json({ error: "emailColumn is required" }, { status: 400 });
   }
+  const verdictColumn =
+    typeof body.verdictColumn === "string" && body.verdictColumn ? body.verdictColumn : null;
 
-  let prepared;
+  let prepared: { totalRows: number; emails: string[] };
+  let external: ImportVerifyResult | null = null;
   try {
     const list = await prisma.leadList.findFirst({
       where: { id, workspaceId: ctx.workspace.id },
       select: { id: true },
     });
     if (!list) return NextResponse.json({ error: "List not found" }, { status: 404 });
-    prepared = prepareImportVerification(body.csvText, body.emailColumn);
+    if (verdictColumn) {
+      external = buildExternalVerdicts(body.csvText, body.emailColumn, verdictColumn);
+      prepared = { totalRows: external.totalRows, emails: Object.keys(external.verdicts) };
+    } else {
+      prepared = prepareImportVerification(body.csvText, body.emailColumn);
+    }
   } catch (error) {
     return apiError(error);
+  }
+
+  if (!external && !(await canUseVerification(prisma, ctx.user.email))) {
+    return NextResponse.json({ error: "Email verification is coming soon." }, { status: 403 });
   }
 
   let stopped = false;
@@ -54,23 +85,45 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       };
       send({ type: "start", total: prepared.emails.length, totalRows: prepared.totalRows });
       try {
-        const result = await verifyPreparedImportEmails(prepared.emails, {}, {
-          shouldStop: () => stopped,
-          onProgress: (progress) => send({ type: "progress", ...progress }),
-        });
-        await writeAuditLog({
-          action: "lead.import_verify",
-          userId: ctx.user.id,
-          workspaceId: ctx.workspace.id,
-          metadata: { listId: id, uniqueEmails: prepared.emails.length, counts: { ...result.counts } },
-        });
-        send({
-          type: "done",
-          totalRows: prepared.totalRows,
-          uniqueEmails: prepared.emails.length,
-          counts: result.counts,
-          verdicts: result.verdicts,
-        });
+        if (external) {
+          await writeAuditLog({
+            action: "lead.import_verify",
+            userId: ctx.user.id,
+            workspaceId: ctx.workspace.id,
+            metadata: {
+              listId: id,
+              uniqueEmails: external.uniqueEmails,
+              counts: { ...external.counts },
+              external: true,
+              verdictColumn,
+            },
+          });
+          send({
+            type: "done",
+            totalRows: external.totalRows,
+            uniqueEmails: external.uniqueEmails,
+            counts: external.counts,
+            verdicts: external.verdicts,
+          });
+        } else {
+          const result = await verifyPreparedImportEmails(prepared.emails, {}, {
+            shouldStop: () => stopped,
+            onProgress: (progress) => send({ type: "progress", ...progress }),
+          });
+          await writeAuditLog({
+            action: "lead.import_verify",
+            userId: ctx.user.id,
+            workspaceId: ctx.workspace.id,
+            metadata: { listId: id, uniqueEmails: prepared.emails.length, counts: { ...result.counts } },
+          });
+          send({
+            type: "done",
+            totalRows: prepared.totalRows,
+            uniqueEmails: prepared.emails.length,
+            counts: result.counts,
+            verdicts: result.verdicts,
+          });
+        }
       } catch (error) {
         if (!stopped) {
           send({

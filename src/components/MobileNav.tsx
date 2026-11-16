@@ -21,7 +21,13 @@ function isActive(pathname: string, href: string): boolean {
  * mobile website had no navigation at all. Renders only on small
  * screens; the sidebar takes over from md up.
  */
-export function MobileNav({ showPlatformAdmin = false }: { showPlatformAdmin?: boolean }) {
+export function MobileNav({
+  showPlatformAdmin = false,
+  verificationComingSoon = false,
+}: {
+  showPlatformAdmin?: boolean;
+  verificationComingSoon?: boolean;
+}) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -117,6 +123,11 @@ export function MobileNav({ showPlatformAdmin = false }: { showPlatformAdmin?: b
                   >
                     <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
                     {item.label}
+                    {verificationComingSoon && item.href === "/app/verify" ? (
+                      <span className="ml-auto rounded-full bg-elevated px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                        Coming soon
+                      </span>
+                    ) : null}
                   </Link>
                 );
               })}

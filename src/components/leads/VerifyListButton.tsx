@@ -20,7 +20,13 @@ interface VerifySummary {
  * summary. The built-in checks always run; a provider only refines
  * them when the Reacher sidecar is configured on the server.
  */
-export function VerifyListButton({ listId }: { listId: string }) {
+export function VerifyListButton({
+  listId,
+  comingSoon = false,
+}: {
+  listId: string;
+  comingSoon?: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState<VerifySummary | null>(null);
@@ -46,6 +52,19 @@ export function VerifyListButton({ listId }: { listId: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (comingSoon) {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <button type="button" className="btn-secondary" disabled>
+          Verify list
+        </button>
+        <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+          Coming soon
+        </span>
+      </div>
+    );
   }
 
   return (

@@ -306,7 +306,18 @@ dropped as Bad on the strength of a refused probe. Since
 v1.35.4, a probe call that fails outright (a timeout or dropped
 request under load) is retried once before the built-in verdict
 is allowed to stand, so a Good verdict means the probe actually
-confirmed the mailbox. Since v1.34.0 Reacher is the only provider;
+confirmed the mailbox. Since v1.36.0 the probing features (the
+Verify Emails tool, list verification, and the import wizard's
+verify step) are owner-only until the platform admin opens them
+to all users with the Feature access switch in Platform Admin
+(the verification_public_enabled platform setting); other users
+see a Coming soon label. The import wizard also offers "Already
+verified by another tool": verdicts are read from a column in
+the file (MillionVerifier's result and quality columns are
+recognised, along with common generic vocabularies; anything
+unrecognized becomes UNKNOWN) and stored with source "external",
+and that path is open to everyone because it does no probing.
+Since v1.34.0 Reacher is the only provider;
 NeverBounce was removed. Without the variable, verification still
 works and the summary says "Built-in checks only." A sidecar
 outage never fails a verification run; the error is recorded in

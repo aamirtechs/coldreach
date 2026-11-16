@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiError, readJson, requireSession } from "@/lib/api";
+import { prisma } from "@/lib/prisma";
+import { canUseVerification } from "@/lib/admin/featureAccess";
 import {
   MAX_IMPORT_VERIFY_EMAILS,
   verifyPreparedImportEmails,
@@ -19,6 +21,9 @@ export async function POST(request: Request) {
   const session = await requireSession("MEMBER");
   if ("error" in session) return session.error;
   const { ctx } = session;
+  if (!(await canUseVerification(prisma, ctx.user.email))) {
+    return NextResponse.json({ error: "Email verification is coming soon." }, { status: 403 });
+  }
   const body = await readJson<{ emails?: unknown }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   if (!Array.isArray(body.emails)) {

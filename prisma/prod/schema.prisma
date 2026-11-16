@@ -870,3 +870,13 @@ model SupportTicketReply {
 
   @@index([ticketId])
 }
+
+// Platform-wide feature switches (v1.36.0), written only from the
+// platform admin panel. One row per switch; a missing row means
+// the switch's default applies.
+model PlatformSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

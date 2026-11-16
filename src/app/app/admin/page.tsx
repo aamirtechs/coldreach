@@ -6,6 +6,7 @@ import { listPlatformTickets } from "@/lib/support/tickets";
 import { SupportTicketsAdmin } from "@/components/support/SupportTicketsAdmin";
 import { StorageCleanup } from "@/components/admin/StorageCleanup";
 import { SubscriptionKeys } from "@/components/admin/SubscriptionKeys";
+import { FeatureAccess } from "@/components/admin/FeatureAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -154,6 +155,17 @@ export default async function PlatformAdminPage() {
           conversations. Deletes are permanent and are written to the audit log.
         </p>
         <StorageCleanup />
+      </section>
+
+      <section className="card mt-6 p-5">
+        <h2 className="text-sm font-medium text-muted">Feature access</h2>
+        <p className="mt-1 text-xs text-muted">
+          Platform-wide switches for features that are not open to customers yet. Changes take
+          effect immediately and are written to the audit log.
+        </p>
+        <div className="mt-3">
+          <FeatureAccess />
+        </div>
       </section>
 
       <section className="card mt-6 p-5">

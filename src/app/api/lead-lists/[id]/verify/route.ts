@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireSession } from "@/lib/api";
 import { verifyList } from "@/lib/verify/service";
+import { canUseVerification } from "@/lib/admin/featureAccess";
 import { writeAuditLog } from "@/lib/audit";
 
 /**
@@ -16,6 +17,9 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const session = await requireSession("MEMBER");
   if ("error" in session) return session.error;
   const { ctx } = session;
+  if (!(await canUseVerification(prisma, ctx.user.email))) {
+    return NextResponse.json({ error: "Email verification is coming soon." }, { status: 403 });
+  }
   const { id } = await params;
   try {
     const summary = await verifyList(prisma, { workspaceId: ctx.workspace.id, listId: id });

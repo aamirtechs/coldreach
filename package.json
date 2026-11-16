@@ -46,5 +46,5 @@
     "typecheck": "tsc --noEmit",
     "worker:once": "tsx scripts/worker-once.ts"
   },
-  "version": "1.35.4"
+  "version": "1.36.0"
 }

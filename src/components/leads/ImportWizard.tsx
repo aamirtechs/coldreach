@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseCsv, toCsv } from "@/lib/csv";
 import { guessImportTarget, STANDARD_FIELD_TARGETS } from "@/lib/leads/import";
+import { guessExternalVerdictColumn } from "@/lib/leads/verdictColumn";
 import { streamVerification } from "@/lib/verify/streamClient";
 import {
   VerificationCompletedBar,
@@ -53,7 +54,13 @@ type Step = 1 | 2 | 3;
  * 3. Map the remaining columns and run the import; imported leads
  *    keep the verdicts from step 2.
  */
-export function ImportWizard({ listId }: { listId: string }) {
+export function ImportWizard({
+  listId,
+  verificationEnabled = true,
+}: {
+  listId: string;
+  verificationEnabled?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>(1);
@@ -62,6 +69,9 @@ export function ImportWizard({ listId }: { listId: string }) {
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
   const [emailColumn, setEmailColumn] = useState("");
+  const [skipVerification, setSkipVerification] = useState(false);
+  const [verdictColumn, setVerdictColumn] = useState("");
+  const [usedExternal, setUsedExternal] = useState(false);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [updateExisting, setUpdateExisting] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -98,6 +108,9 @@ export function ImportWizard({ listId }: { listId: string }) {
     setMapping(initial);
     const guessedEmail = parsed.headers.find((h) => guessImportTarget(h) === "email") ?? "";
     setEmailColumn(guessedEmail);
+    setVerdictColumn(guessExternalVerdictColumn(parsed.headers));
+    setSkipVerification(false);
+    setUsedExternal(false);
     setStep(1);
     setVerifyResult(null);
     setResult(null);
@@ -109,6 +122,7 @@ export function ImportWizard({ listId }: { listId: string }) {
     setVerifying(true);
     setError(null);
     setVerifyResult(null);
+    setUsedExternal(skipVerification && Boolean(verdictColumn));
     setProgress({
       done: 0,
       total: 0,
@@ -122,7 +136,11 @@ export function ImportWizard({ listId }: { listId: string }) {
     try {
       const result = await streamVerification({
         url: `/api/lead-lists/${listId}/import/verify`,
-        body: { csvText, emailColumn },
+        body: {
+          csvText,
+          emailColumn,
+          ...(skipVerification && verdictColumn ? { verdictColumn } : {}),
+        },
         signal: controller.signal,
         onStart: (total) => setProgress((p) => (p ? { ...p, total } : p)),
         onProgress: (event) =>
@@ -153,6 +171,14 @@ export function ImportWizard({ listId }: { listId: string }) {
     } finally {
       setVerifying(false);
     }
+  }
+
+  function continueWithoutVerification() {
+    setError(null);
+    setVerifyResult(null);
+    setUsedExternal(false);
+    setMapping((current) => ({ ...current, [emailColumn]: "email" }));
+    setStep(3);
   }
 
   function cancelVerification() {
@@ -269,6 +295,56 @@ export function ImportWizard({ listId }: { listId: string }) {
                   ))}
                 </select>
               </div>
+              <div className="mt-5 max-w-xl">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={skipVerification}
+                    onChange={(e) => setSkipVerification(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">Already verified by another tool</span>
+                    <span className="block text-xs text-muted">
+                      Skip ColdReach verification and use the verdicts already in this file, for
+                      example from a MillionVerifier report. Imported leads keep those verdicts,
+                      marked as external results.
+                    </span>
+                  </span>
+                </label>
+                {skipVerification ? (
+                  <div className="mt-3 max-w-sm">
+                    <label className="label" htmlFor="import-verdict-column">
+                      Which column holds the verdict?
+                    </label>
+                    <select
+                      id="import-verdict-column"
+                      className="input"
+                      value={verdictColumn}
+                      onChange={(e) => setVerdictColumn(e.target.value)}
+                    >
+                      <option value="">Choose a column</option>
+                      {headers
+                        .filter((h) => h !== emailColumn)
+                        .map((h) => (
+                          <option key={h} value={h}>
+                            {h}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                ) : null}
+                {!verificationEnabled && !skipVerification ? (
+                  <p className="mt-3 text-sm text-muted">
+                    ColdReach verification{" "}
+                    <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                      Coming soon
+                    </span>{" "}
+                    You can import without verification, or tick the option above to use verdicts
+                    from another tool.
+                  </p>
+                ) : null}
+              </div>
               {previewRows.length > 0 ? (
                 <div className="mt-4 overflow-x-auto rounded-lg border border-line">
                   <table className="w-full text-left text-xs">
@@ -296,13 +372,23 @@ export function ImportWizard({ listId }: { listId: string }) {
                 <button
                   type="button"
                   className="btn-primary"
-                  disabled={!emailColumn}
-                  onClick={runVerification}
+                  disabled={!emailColumn || (skipVerification && !verdictColumn)}
+                  onClick={
+                    verificationEnabled || skipVerification
+                      ? runVerification
+                      : continueWithoutVerification
+                  }
                 >
-                  Continue to verification
+                  {skipVerification
+                    ? "Continue with file verdicts"
+                    : verificationEnabled
+                      ? "Continue to verification"
+                      : "Continue without verification"}
                 </button>
                 {!emailColumn ? (
                   <span className="ml-3 text-xs text-warning">Choose the email column first.</span>
+                ) : skipVerification && !verdictColumn ? (
+                  <span className="ml-3 text-xs text-warning">Choose the verdict column first.</span>
                 ) : null}
               </div>
             </>
@@ -332,6 +418,12 @@ export function ImportWizard({ listId }: { listId: string }) {
                   }
                 />
               </div>
+              {usedExternal ? (
+                <p className="mt-3 text-sm text-muted">
+                  These results came from your file&apos;s &quot;{verdictColumn}&quot; column.
+                  ColdReach did not re-verify these addresses.
+                </p>
+              ) : null}
               <div className="mt-4">
                 <VerificationSummaryCards
                   counts={verifyResult.counts}

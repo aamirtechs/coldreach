@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { isPlatformOwner } from "@/lib/admin/platform";
+import { isVerificationPublicEnabled } from "@/lib/admin/featureAccess";
 import { verificationRequired } from "@/lib/auth/emailVerification";
 import { VerificationBar } from "@/components/VerificationBar";
 import { listUserWorkspaces } from "@/lib/auth/workspaces";
@@ -24,10 +25,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     listUserWorkspaces(session.user.id),
     getTourCompletedAt(prisma, session.user.id),
   ]);
+  const platformOwner = isPlatformOwner(session.user.email);
+  const verificationComingSoon =
+    !platformOwner && !(await isVerificationPublicEnabled(prisma));
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar showPlatformAdmin={isPlatformOwner(session.user.email)} />
+      <Sidebar showPlatformAdmin={platformOwner} verificationComingSoon={verificationComingSoon} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-line bg-surface px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
@@ -54,7 +58,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         ) : null}
         <main className="flex-1 px-4 pb-24 pt-6 sm:px-6 md:pb-8 lg:px-8">{children}</main>
       </div>
-      <MobileNav showPlatformAdmin={isPlatformOwner(session.user.email)} />
+      <MobileNav showPlatformAdmin={platformOwner} verificationComingSoon={verificationComingSoon} />
       <InstallPrompt />
       <Suspense fallback={null}>
         <ProductTour tourCompleted={tourCompletedAt !== null} />

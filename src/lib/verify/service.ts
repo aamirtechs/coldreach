@@ -32,7 +32,7 @@ export interface VerificationDetail {
   providerError: string | null;
   reasons: string[];
   checkedAt: string;
-  source: "builtin" | "builtin+provider";
+  source: "builtin" | "builtin+provider" | "external";
 }
 
 export interface VerifyDeps {
