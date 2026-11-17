@@ -4,6 +4,8 @@ import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { CreateListForm } from "@/components/leads/CreateListForm";
 import { LeadListsTable } from "@/components/leads/LeadListsTable";
+import { OrphanLeadsCard } from "@/components/leads/OrphanLeadsCard";
+import { summarizeOrphanLeads } from "@/lib/leads/orphanLeads";
 import { EmptyState } from "@/components/ui";
 import { leadCompanyOf, leadIcebreakerOf, leadMatchesSearch, leadNameOf } from "@/lib/leads/search";
 
@@ -23,13 +25,13 @@ export default async function LeadsPage({
   }
   const workspaceId = session.workspace.id;
   const query = ((await searchParams).q ?? "").trim();
-  const [lists, unlistedCount] = await Promise.all([
+  const [lists, orphanSummary] = await Promise.all([
     prisma.leadList.findMany({
       where: { workspaceId },
       orderBy: { createdAt: "desc" },
       include: { _count: { select: { leads: true } } },
     }),
-    prisma.lead.count({ where: { workspaceId, listId: null } }),
+    summarizeOrphanLeads(prisma, workspaceId),
   ]);
 
   // Workspace-wide lead search (v1.27.2): the per-list search inside
@@ -167,11 +169,11 @@ export default async function LeadsPage({
           }))}
         />
       )}
-      {unlistedCount > 0 ? (
-        <p className="mt-4 text-xs text-muted">
-          {unlistedCount} lead{unlistedCount === 1 ? "" : "s"} in this workspace{" "}
-          {unlistedCount === 1 ? "is" : "are"} not in any list.
-        </p>
+      {orphanSummary.orphanCount > 0 || orphanSummary.unlistedEnrolledCount > 0 ? (
+        <OrphanLeadsCard
+          orphanCount={orphanSummary.orphanCount}
+          unlistedEnrolledCount={orphanSummary.unlistedEnrolledCount}
+        />
       ) : null}
     </div>
   );

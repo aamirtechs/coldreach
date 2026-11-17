@@ -18,6 +18,21 @@
   it exists to trigger the redeploy that loads the corrected
   variable.
 
+## 1.41.0 (2026-11-17)
+
+Orphan lead cleanup on the Leads page.
+
+- New "Orphan leads" card on the Leads home: it counts the
+  leads in the workspace that sit in no list and no campaign
+  (leftovers from deleted lists and campaigns), and offers a
+  one-click delete behind a confirmation that states the rule.
+- Only orphans are ever deleted. Leads in a list, and unlisted
+  leads enrolled in any campaign, are never touched; the card
+  reports the enrolled count separately so the operator can see
+  they were kept on purpose.
+- New GET and DELETE /api/leads/orphans, workspace scoped, with
+  an audit log entry for every delete.
+
 ## 1.27.2 (2026-11-13)
 
 Search is now visible in the three places it was missing. The
