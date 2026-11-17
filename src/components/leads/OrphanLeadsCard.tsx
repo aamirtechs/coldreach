@@ -64,7 +64,9 @@ export function OrphanLeadsCard({
         </p>
       ) : (
         <p className="mt-1 text-sm text-muted">
-          No orphan leads. Every unlisted lead is enrolled in a campaign.
+          {unlistedEnrolledCount > 0
+            ? "No orphan leads. Every unlisted lead is enrolled in a campaign."
+            : "No orphan leads. Every lead in this workspace is in a list or a campaign."}
         </p>
       )}
       {unlistedEnrolledCount > 0 ? (

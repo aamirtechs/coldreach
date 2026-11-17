@@ -169,12 +169,10 @@ export default async function LeadsPage({
           }))}
         />
       )}
-      {orphanSummary.orphanCount > 0 || orphanSummary.unlistedEnrolledCount > 0 ? (
-        <OrphanLeadsCard
-          orphanCount={orphanSummary.orphanCount}
-          unlistedEnrolledCount={orphanSummary.unlistedEnrolledCount}
-        />
-      ) : null}
+      <OrphanLeadsCard
+        orphanCount={orphanSummary.orphanCount}
+        unlistedEnrolledCount={orphanSummary.unlistedEnrolledCount}
+      />
     </div>
   );
 }
