@@ -3,6 +3,7 @@ import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { LocalTime } from "@/components/LocalTime";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
+import { startOfDayInTimezone } from "@/lib/domain/scheduling";
 import { warmupCapFor, warmupProgress } from "@/lib/domain/warmup";
 import { AccountForm } from "@/components/accounts/AccountForm";
 import { AccountActions } from "@/components/accounts/AccountActions";
@@ -43,7 +44,7 @@ export default async function AccountsPage({
     orderBy: { createdAt: "asc" },
   });
 
-  const dayStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+  const dayStart = startOfDayInTimezone(new Date(), session.workspace.timezone ?? "UTC");
   const sentToday = new Map<string, number>();
   if (accounts.length > 0) {
     const grouped = await prisma.emailEvent.groupBy({
@@ -206,7 +207,8 @@ export default async function AccountsPage({
       <p className="mt-4 text-xs text-muted">
         Effective limits come from the limits engine: 20 percent of the cap on day one, rising
         linearly to the full cap over 14 days. Sent today counts recorded SENT events since
-        midnight UTC. Warm-up is a separate, optional ceiling on top of that: when enabled, an
+        midnight in the workspace timezone (change it in Settings). Warm-up is a separate,
+        optional ceiling on top of that: when enabled, an
         account is also capped at 20 sends a day in week 1, 50 in week 2, 100 in week 3, and 200
         in week 4, counted from the day warm-up was switched on; the worker always applies the
         lower of the two limits.

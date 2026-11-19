@@ -89,6 +89,29 @@ function zonedTimeToUtc(
   return new Date(utc);
 }
 
+/**
+ * The UTC instant of local midnight at the start of the day that
+ * contains `date` in `timezone` (v1.42.0). Daily counters (account
+ * daily limits, campaign daily caps, the dashboard's sent today)
+ * count from this instant, so a workspace's day rolls over at its
+ * own midnight instead of at 19:00 or 20:00 local when the UTC
+ * day turns.
+ */
+export function startOfDayInTimezone(date: Date, timezone: string): Date {
+  const p = zonedParts(date, timezone);
+  return zonedTimeToUtc(p.year, p.month, p.day, 0, 0, timezone);
+}
+
+/** True when `value` is an IANA timezone name Intl understands. */
+export function isValidTimezone(value: string): boolean {
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function parseWindowTime(value: string): { hour: number; minute: number } {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
   if (!match) {

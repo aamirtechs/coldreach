@@ -602,19 +602,81 @@ describe("runSendTick per-lead timezone window (v1.5.0)", () => {
     expect(summary.deferredOutsideWindow).toBe(0);
   });
 
-  it("still sends a validly stamped US lead when the only tick runs late", async () => {
+  it("defers a validly stamped US lead when the tick itself runs outside the window (v1.42.0)", async () => {
     const account = await makeAccount(100, "tz-late");
     const list = await db.leadList.create({ data: { workspaceId, name: "List tz-late" } });
     const lead = await makeLeadWithCountry("tz-late", list.id, "United States");
     const campaign = await makeWindowedCampaign("tz-late", account.id, list.id);
     // Stamped 2026-10-26 14:00 UTC, which is 09:00 in Chicago: valid.
-    await enrollDue(campaign.id, lead.id, "2026-10-26T14:00:00Z");
+    const enrollment = await enrollDue(campaign.id, lead.id, "2026-10-26T14:00:00Z");
 
-    // The next tick runs at 05:00 UTC, midnight in Chicago. A sparse
-    // cadence must degrade to late delivery, never starve the lead.
-    const summary = await runSendTick({ db, now: new Date("2026-10-27T05:00:00Z"), skipSync: true });
-    expect(summary.sent).toBe(1);
-    expect(summary.deferredOutsideWindow).toBe(0);
+    // The next tick runs at 05:00 UTC, midnight in Chicago. Before
+    // v1.42.0 the valid stamp sent anyway (the v1.5.0 late-send
+    // rule); now the moment itself is outside the window, so the
+    // enrollment defers to the next opening, 09:00 Chicago.
+    const night = await runSendTick({ db, now: new Date("2026-10-27T05:00:00Z"), skipSync: true });
+    expect(night.sent).toBe(0);
+    expect(night.deferredOutsideWindow).toBe(1);
+    const deferred = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(deferred?.nextSendAt?.toISOString()).toBe("2026-10-27T14:00:00.000Z");
+
+    // Inside the window the next day, the send goes.
+    const morning = await runSendTick({ db, now: new Date("2026-10-27T15:00:00Z"), skipSync: true });
+    expect(morning.sent).toBe(1);
+    expect(morning.deferredOutsideWindow).toBe(0);
+  });
+
+  it("never sends in the small hours against a New York campaign window (v1.42.0, Next Haul report)", async () => {
+    const account = await makeAccount(100, "tz-ny");
+    const list = await db.leadList.create({ data: { workspaceId, name: "List tz-ny" } });
+    const lead = await db.lead.create({
+      data: {
+        workspaceId,
+        listId: list.id,
+        email: "tz-ny@example.com",
+        fields: { firstName: "Test", company: "Acme" },
+        tags: [],
+        status: "NEW",
+      },
+    });
+    const campaign = await db.campaign.create({
+      data: {
+        workspaceId,
+        name: "Campaign tz-ny",
+        status: "RUNNING",
+        timezone: "America/New_York",
+        windowStart: "05:00",
+        windowEnd: "22:00",
+        businessDaysOnly: true,
+        leadListId: list.id,
+      },
+    });
+    await db.sequenceStep.create({
+      data: {
+        campaignId: campaign.id,
+        order: 0,
+        delayDays: 0,
+        delayHours: 0,
+        subject: "Hi {{firstName|there}}",
+        body: "Body",
+      },
+    });
+    await db.campaignAccount.create({ data: { campaignId: campaign.id, sendingAccountId: account.id } });
+    // Stamped Monday 2026-11-16 15:00 UTC, 10:00 EST: inside the
+    // window, but capacity kept it from sending that day.
+    const enrollment = await enrollDue(campaign.id, lead.id, "2026-11-16T15:00:00Z");
+
+    // Tuesday 06:20 UTC is 01:20 EST, deep outside the window. The
+    // backlog must wait for the 05:00 opening, not fire overnight.
+    const night = await runSendTick({ db, now: new Date("2026-11-17T06:20:00Z"), skipSync: true });
+    expect(night.sent).toBe(0);
+    expect(night.deferredOutsideWindow).toBe(1);
+    const deferred = await db.enrollment.findUnique({ where: { id: enrollment.id } });
+    expect(deferred?.nextSendAt?.toISOString()).toBe("2026-11-17T10:00:00.000Z");
+
+    // 08:55 EST, inside the window: the follow-up sends.
+    const morning = await runSendTick({ db, now: new Date("2026-11-17T13:55:00Z"), skipSync: true });
+    expect(morning.sent).toBe(1);
   });
 });
 

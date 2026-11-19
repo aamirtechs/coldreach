@@ -56,6 +56,7 @@ export default async function SettingsPage({
             senderAddress: session.workspace.senderAddress ?? "",
             trackingDomain: session.workspace.trackingDomain ?? "",
             hourlySendCap: session.workspace.hourlySendCap?.toString() ?? "",
+            timezone: session.workspace.timezone ?? "UTC",
           }}
         />
       </div>

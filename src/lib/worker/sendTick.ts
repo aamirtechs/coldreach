@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient, SendingAccount } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { computeNextSendAt } from "@/lib/domain/scheduling";
+import { computeNextSendAt, startOfDayInTimezone } from "@/lib/domain/scheduling";
 import { resolveLeadTimezone } from "@/lib/domain/leadTimezone";
 import { findSuppression, type SuppressionEntry } from "@/lib/domain/suppression";
 import { renderTemplate, type LeadFields } from "@/lib/domain/personalize";
@@ -86,7 +86,8 @@ export interface SendTickSummary {
   deferredTickPacing: number;
   /** Sends deferred because the campaign reached its own daily
    *  send cap (v1.39.0, Campaign.dailySendCap). The enrollments
-   *  stay due and send the next UTC day. */
+   *  stay due and send the next day, counted in the campaign's
+   *  timezone (v1.42.0). */
   deferredCampaignCap: number;
   failed: number;
   /** Sends refused because the workspace hit its plan's monthly quota. */
@@ -107,10 +108,6 @@ export interface SendTickSummary {
 }
 
 const TERMINAL_LEAD_STATUSES = new Set(["UNSUBSCRIBED", "BOUNCED", "SUPPRESSED", "INVALID"]);
-
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
 
 /**
  * Round-robin a due pool across campaigns (v1.8.1). The pool arrives
@@ -274,12 +271,49 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
   // Per-step attachment bytes (v1.19.0), loaded at most once per
   // campaign and step per tick, however many emails share the step.
   const attachmentCache = new Map<string, SendAttachment[]>();
-  const dayStart = startOfUtcDay(now);
+
+  // Day boundaries for the daily counters (v1.42.0): a workspace's
+  // day starts at midnight in the workspace's own timezone, and a
+  // campaign's cap day starts at midnight in the campaign's
+  // timezone. Before this, every counter ran on the UTC day, so a
+  // New York workspace's capacity reset at 19:00 local and a night
+  // of sends could spend the whole next day before its window
+  // opened (Next Haul report, 2026-11-18). The maps are filled
+  // from the due pool here because the counters below are read
+  // through account and campaign ids inside the loop.
+  const safeDayStart = (timezone: string): Date => {
+    try {
+      return startOfDayInTimezone(now, timezone);
+    } catch {
+      // An unparseable timezone must not stall the whole tick (the
+      // v1.23.1 quarantine rule): the schedule gate quarantines
+      // that campaign's enrollments below, and its counters fall
+      // back to the UTC day until the value is fixed.
+      return startOfDayInTimezone(now, "UTC");
+    }
+  };
+  const workspaceDayStart = new Map<string, Date>();
+  const workspaceTimezone = new Map<string, string>();
+  const campaignDayStart = new Map<string, Date>();
+  for (const item of duePool) {
+    const ws = item.campaign.workspace;
+    if (!workspaceDayStart.has(ws.id)) {
+      workspaceDayStart.set(ws.id, safeDayStart(ws.timezone ?? "UTC"));
+      workspaceTimezone.set(ws.id, ws.timezone ?? "UTC");
+    }
+    if (!campaignDayStart.has(item.campaign.id)) {
+      campaignDayStart.set(item.campaign.id, safeDayStart(item.campaign.timezone));
+    }
+  }
+  const dayStartForWorkspace = (wsId: string): Date =>
+    workspaceDayStart.get(wsId) ?? safeDayStart("UTC");
+  const dayStartForCampaign = (campaignId: string): Date =>
+    campaignDayStart.get(campaignId) ?? safeDayStart("UTC");
 
   // Account health gate state (v1.11.0): health is computed once per
   // account per tick, and the auto-pause audit note is written at
-  // most once per account per UTC day (checked against the audit
-  // log itself, so the rule also holds across ticks).
+  // most once per account per workspace day (checked against the
+  // audit log itself, so the rule also holds across ticks).
   const healthCache = new Map<string, AccountHealth>();
   const healthNoted = new Set<string>();
   const healthForAccounts = async (accounts: SendingAccount[]): Promise<Map<string, AccountHealth>> => {
@@ -313,6 +347,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       if (!auditLog?.findMany || !auditLog?.create) {
         return;
       }
+      const dayStart = dayStartForWorkspace(workspaceId);
       const todays = await auditLog.findMany({
         where: { workspaceId, action: "account.auto_paused_health", createdAt: { gte: dayStart } },
         select: { metadata: true },
@@ -332,7 +367,9 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
             accountId: account.id,
             email: account.email,
             reasons,
-            date: dayStart.toISOString().slice(0, 10),
+            date: new Intl.DateTimeFormat("en-CA", {
+              timeZone: workspaceTimezone.get(workspaceId) ?? "UTC",
+            }).format(now),
           },
         },
       });
@@ -365,16 +402,21 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       return cached;
     }
     const count = await db.emailEvent.count({
-      where: { sendingAccountId: account.id, type: "SENT", occurredAt: { gte: dayStart } },
+      where: {
+        sendingAccountId: account.id,
+        type: "SENT",
+        occurredAt: { gte: dayStartForWorkspace(account.workspaceId) },
+      },
     });
     sentTodayCache.set(account.id, count);
     return count;
   };
 
   // Per-campaign daily send counts (v1.39.0), the campaign-level
-  // sibling of sentTodayFor: same UTC day boundary, same SENT
-  // events, counted per campaign so a campaign's own cap in
-  // Settings can be enforced alongside the account limits.
+  // sibling of sentTodayFor: same SENT events, counted per campaign
+  // so a campaign's own cap in Settings can be enforced alongside
+  // the account limits. The day boundary is midnight in the
+  // campaign's own timezone (v1.42.0).
   const campaignSentTodayCache = new Map<string, number>();
   const campaignSentTodayFor = async (campaignId: string): Promise<number> => {
     const cached = campaignSentTodayCache.get(campaignId);
@@ -382,7 +424,7 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
       return cached;
     }
     const count = await db.emailEvent.count({
-      where: { campaignId, type: "SENT", occurredAt: { gte: dayStart } },
+      where: { campaignId, type: "SENT", occurredAt: { gte: dayStartForCampaign(campaignId) } },
     });
     campaignSentTodayCache.set(campaignId, count);
     return count;
@@ -557,11 +599,21 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
     // CURRENT window and business-days rule, in the effective
     // timezone (the lead's, when one resolves, else the
     // campaign's): a stamp that is no longer a valid send moment
-    // is re-stamped to the next valid opening and deferred. A
-    // stamp that IS valid always sends when a tick finds it due,
-    // even if the tick itself runs late, so a sparse tick cadence
-    // still degrades to late delivery rather than starving a lead
-    // (the v1.5.0 rule, unchanged).
+    // is re-stamped to the next valid opening and deferred.
+    //
+    // Current-moment check (v1.42.0, Next Haul report 2026-11-18):
+    // the tick must ALSO be inside the window when it fires. The
+    // v1.5.0 rule let a validly stamped enrollment send whenever a
+    // tick found it due, even hours late, which was meant to keep
+    // a sparse cadence from starving leads. In production the tick
+    // runs every few minutes, so the rule's real effect was that a
+    // backlog blocked by capacity all day fired the moment capacity
+    // freed, including at 01:20 to 04:45 local against a 05:00 to
+    // 22:00 window, and spent the next day's account limits before
+    // the window opened. The window is the promise the customer
+    // configured; a due enrollment whose tick moment falls outside
+    // it is re-stamped to the next opening and deferred, exactly
+    // like an invalid stamp.
     //
     // The same gate recovers null stamps: enrollments created
     // before their campaign had any steps carry nextSendAt null
@@ -601,6 +653,26 @@ export async function runSendTick(deps: SendTickDeps = {}): Promise<SendTickSumm
           await db.enrollment.update({
             where: { id: enrollment.id },
             data: { nextSendAt: slot },
+          });
+          summary.deferredOutsideWindow += 1;
+          continue;
+        }
+        // The stamp is valid, but the send may only leave while
+        // the tick itself is inside the window (v1.42.0, see the
+        // gate comment above). computeNextSendAt returns `now`
+        // unchanged when the moment is inside the window, so a
+        // later slot means the window is currently closed.
+        const nowSlot = computeNextSendAt(now, {
+          timezone: effectiveTimezone,
+          windowStart: campaign.windowStart,
+          windowEnd: campaign.windowEnd,
+          businessDaysOnly: campaign.businessDaysOnly,
+          delayHours: 0,
+        });
+        if (nowSlot.getTime() > now.getTime()) {
+          await db.enrollment.update({
+            where: { id: enrollment.id },
+            data: { nextSendAt: nowSlot },
           });
           summary.deferredOutsideWindow += 1;
           continue;

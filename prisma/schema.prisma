@@ -86,6 +86,12 @@ model Workspace {
   // stay under its own host's limit. The count it is measured
   // against stays per sending domain across workspaces (v1.21.0).
   hourlySendCap   Int?
+  // Workspace timezone (v1.42.0): the daily counters (per-account
+  // daily limits, dashboard sent today) roll over at midnight in
+  // this zone instead of midnight UTC. A campaign's own daily cap
+  // counts in the campaign's timezone; campaign sending windows
+  // keep their per-campaign timezone as before.
+  timezone        String          @default("UTC")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   memberships     Membership[]

@@ -5,10 +5,13 @@ import { dropTestDb, freshTestDb, seedWorkspace } from "@/lib/testing/testDb";
 
 /**
  * Per-campaign daily send cap (v1.39.0): a campaign with
- * dailySendCap set sends at most that many emails per UTC day.
+ * dailySendCap set sends at most that many emails per day.
  * Enrollments past the cap are deferred untouched, still due with
  * their original stamp, and the cap is counted per campaign from
  * the day's real SENT events, including ones from earlier ticks.
+ * The day runs from midnight in the campaign's own timezone
+ * (v1.42.0; it was the UTC day before, which reset a New York
+ * campaign's cap at 19:00 local).
  */
 const DB_NAME = "test-sendtick-campaign-cap";
 let db: PrismaClient;
@@ -35,6 +38,7 @@ async function makeCampaign(args: {
   accountIds: string[];
   dailySendCap: number | null;
   leadCount: number;
+  timezone?: string;
 }) {
   const list = await db.leadList.create({ data: { workspaceId, name: `List ${args.suffix}` } });
   const campaign = await db.campaign.create({
@@ -42,7 +46,7 @@ async function makeCampaign(args: {
       workspaceId,
       name: `Campaign ${args.suffix}`,
       status: "RUNNING",
-      timezone: "UTC",
+      timezone: args.timezone ?? "UTC",
       windowStart: "00:00",
       windowEnd: "23:59",
       businessDaysOnly: false,
@@ -190,5 +194,66 @@ describe("per-campaign daily send cap", () => {
     expect(summary.deferredCampaignCap).toBe(1);
     expect(await db.emailEvent.count({ where: { campaignId: capped.campaign.id, type: "SENT" } })).toBe(1);
     expect(await db.emailEvent.count({ where: { campaignId: open.campaign.id, type: "SENT" } })).toBe(1);
+  });
+
+  it("counts the cap day in the campaign timezone, not UTC (v1.42.0)", async () => {
+    const account = await makeAccount("tz-prev");
+    const { campaign, enrollments } = await makeCampaign({
+      suffix: "tz-prev",
+      accountIds: [account.id],
+      dailySendCap: 1,
+      leadCount: 1,
+      timezone: "America/New_York",
+    });
+    await db.enrollment.update({
+      where: { id: enrollments[0].id },
+      data: { nextSendAt: new Date("2026-10-27T12:00:00Z") },
+    });
+    // A send at 02:00 UTC is 22:00 EDT the previous evening: the
+    // same UTC day as the tick below, but yesterday in New York,
+    // so it must not consume today's single slot.
+    await db.emailEvent.create({
+      data: {
+        workspaceId,
+        campaignId: campaign.id,
+        type: "SENT",
+        idempotencyKey: `seed:${campaign.id}:last-night`,
+        occurredAt: new Date("2026-10-27T02:00:00Z"),
+      },
+    });
+
+    // 13:00 UTC is 09:00 EDT, inside the campaign's all-day window.
+    const summary = await runSendTick({ db, now: new Date("2026-10-27T13:00:00Z"), skipSync: true });
+    expect(summary.sent).toBe(1);
+    expect(summary.deferredCampaignCap).toBe(0);
+  });
+
+  it("a send earlier the same local day still counts against the cap (v1.42.0)", async () => {
+    const account = await makeAccount("tz-same");
+    const { campaign, enrollments } = await makeCampaign({
+      suffix: "tz-same",
+      accountIds: [account.id],
+      dailySendCap: 1,
+      leadCount: 1,
+      timezone: "America/New_York",
+    });
+    await db.enrollment.update({
+      where: { id: enrollments[0].id },
+      data: { nextSendAt: new Date("2026-10-27T12:00:00Z") },
+    });
+    // 06:00 UTC is 02:00 EDT the same New York day: the slot is gone.
+    await db.emailEvent.create({
+      data: {
+        workspaceId,
+        campaignId: campaign.id,
+        type: "SENT",
+        idempotencyKey: `seed:${campaign.id}:this-morning`,
+        occurredAt: new Date("2026-10-27T06:00:00Z"),
+      },
+    });
+
+    const summary = await runSendTick({ db, now: new Date("2026-10-27T13:00:00Z"), skipSync: true });
+    expect(summary.sent).toBe(0);
+    expect(summary.deferredCampaignCap).toBe(1);
   });
 });

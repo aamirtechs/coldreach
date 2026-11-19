@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeNextSendAt, type ScheduleOptions } from "./scheduling";
+import { computeNextSendAt, isValidTimezone, startOfDayInTimezone, type ScheduleOptions } from "./scheduling";
 
 // January 2026 reference points: Thu 1st, Fri 2nd, Sat 3rd, Sun 4th, Mon 5th, Tue 6th.
 const base: ScheduleOptions = {
@@ -156,5 +156,42 @@ describe("computeNextSendAt", () => {
       });
       expect(result.toISOString()).toBe("2026-01-05T17:00:00.000Z");
     });
+  });
+});
+
+describe("startOfDayInTimezone (v1.42.0)", () => {
+  it("returns UTC midnight for the UTC zone", () => {
+    const result = startOfDayInTimezone(new Date("2026-11-18T12:34:00Z"), "UTC");
+    expect(result.toISOString()).toBe("2026-11-18T00:00:00.000Z");
+  });
+
+  it("returns 05:00 UTC for a New York winter day (EST)", () => {
+    const result = startOfDayInTimezone(new Date("2026-11-18T12:00:00Z"), "America/New_York");
+    expect(result.toISOString()).toBe("2026-11-18T05:00:00.000Z");
+  });
+
+  it("returns 04:00 UTC for a New York summer day (EDT)", () => {
+    const result = startOfDayInTimezone(new Date("2026-07-01T12:00:00Z"), "America/New_York");
+    expect(result.toISOString()).toBe("2026-07-01T04:00:00.000Z");
+  });
+
+  it("a New York evening instant still belongs to the same local day", () => {
+    // 2026-11-19 01:30 UTC is 20:30 EST on Nov 18.
+    const result = startOfDayInTimezone(new Date("2026-11-19T01:30:00Z"), "America/New_York");
+    expect(result.toISOString()).toBe("2026-11-18T05:00:00.000Z");
+  });
+
+  it("returns the previous UTC evening for Karachi (UTC+5)", () => {
+    const result = startOfDayInTimezone(new Date("2026-11-18T12:00:00Z"), "Asia/Karachi");
+    expect(result.toISOString()).toBe("2026-11-17T19:00:00.000Z");
+  });
+});
+
+describe("isValidTimezone (v1.42.0)", () => {
+  it("accepts IANA names and rejects junk", () => {
+    expect(isValidTimezone("America/New_York")).toBe(true);
+    expect(isValidTimezone("UTC")).toBe(true);
+    expect(isValidTimezone("Mars/Olympus")).toBe(false);
+    expect(isValidTimezone("")).toBe(false);
   });
 });

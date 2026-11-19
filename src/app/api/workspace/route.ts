@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession, stringField } from "@/lib/api";
 import { hasWorkspaceFeature } from "@/lib/billing/subscription";
 import { featureUpgradeMessage } from "@/lib/domain/plans";
+import { isValidTimezone } from "@/lib/domain/scheduling";
 import { writeAuditLog } from "@/lib/audit";
 
 export async function GET() {
@@ -17,6 +18,7 @@ export async function GET() {
       senderAddress: ctx.workspace.senderAddress,
       trackingDomain: ctx.workspace.trackingDomain,
       hourlySendCap: ctx.workspace.hourlySendCap,
+      timezone: ctx.workspace.timezone,
     },
     role: ctx.role,
   });
@@ -26,7 +28,7 @@ export async function PATCH(request: Request) {
   const session = await requireSession("ADMIN");
   if ("error" in session) return session.error;
   const { ctx } = session;
-  const body = await readJson<{ name?: unknown; senderName?: unknown; senderAddress?: unknown; trackingDomain?: unknown; hourlySendCap?: unknown }>(request);
+  const body = await readJson<{ name?: unknown; senderName?: unknown; senderAddress?: unknown; trackingDomain?: unknown; hourlySendCap?: unknown; timezone?: unknown }>(request);
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   const data: Record<string, unknown> = {};
   if (body.name !== undefined) {
@@ -87,6 +89,23 @@ export async function PATCH(request: Request) {
         { status: 400 },
       );
     }
+  }
+  if (body.timezone !== undefined) {
+    // Workspace timezone (v1.42.0): the daily counters roll over at
+    // midnight in this zone. Any IANA name Intl understands is
+    // accepted; anything else would silently fall back in the
+    // scheduling math, so it is refused here instead.
+    const timezone = stringField(body.timezone).trim();
+    if (!timezone || !isValidTimezone(timezone)) {
+      return NextResponse.json(
+        {
+          error:
+            "Timezone must be a valid IANA name, for example America/New_York or Europe/London.",
+        },
+        { status: 400 },
+      );
+    }
+    data.timezone = timezone;
   }
   try {
     const workspace = await prisma.workspace.update({ where: { id: ctx.workspace.id }, data });

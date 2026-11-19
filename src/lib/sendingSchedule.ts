@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { startOfDayInTimezone } from "@/lib/domain/scheduling";
 import { effectiveDailyLimit } from "@/lib/domain/limits";
 import { effectiveDailyLimit as warmupDailyLimit } from "@/lib/domain/warmup";
 import { resolveLeadCountry, resolveLeadTimezone } from "@/lib/domain/leadTimezone";
@@ -50,7 +51,8 @@ export const UPCOMING_SENDS_LIMIT = 50;
 export interface SendingSchedule {
   /** Most recent recorded SENT event, or null when nothing sent yet. */
   lastSentAt: Date | null;
-  /** SENT events since the start of the current UTC day. */
+  /** SENT events since the start of the current workspace day
+   *  (midnight in the workspace timezone, v1.42.0). */
   sentToday: number;
   /** Effective capacity for today across eligible accounts. */
   capacity: {
@@ -63,10 +65,6 @@ export interface SendingSchedule {
   };
   /** The next sends to come due, soonest first, at most 50. */
   upcoming: UpcomingSend[];
-}
-
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
 function companyOf(fields: unknown): string | null {
@@ -86,7 +84,11 @@ export async function getSendingSchedule(
   workspaceId: string,
   now: Date = new Date(),
 ): Promise<SendingSchedule> {
-  const dayStart = startOfUtcDay(now);
+  const workspace = await db.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { timezone: true },
+  });
+  const dayStart = startOfDayInTimezone(now, workspace?.timezone ?? "UTC");
 
   const [lastSent, sentToday, accounts, upcomingRows] = await Promise.all([
     db.emailEvent.findFirst({

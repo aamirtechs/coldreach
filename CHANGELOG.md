@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.42.0 (2026-11-18)
+
+Sending windows are now enforced at the moment of sending, and
+daily counters run on local days. Both changes come from a
+customer report (Next Haul Dispatch, 2026-11-18): a backlog of
+due follow-ups fired between 01:20 and 04:45 local time against
+a 05:00 to 22:00 America/New_York window, and spent the whole
+day's account capacity before the window opened.
+
+- Send-time window gate in the worker: a due enrollment now
+  sends only while the tick itself is inside the campaign's
+  window (effective timezone, business days included). The
+  stamp revalidation from v1.21.0 stays; the v1.5.0 rule that a
+  valid stamp sends whenever a tick finds it, even hours late,
+  is reversed. An enrollment found due outside the window is
+  re-stamped to the next opening and deferred.
+- Workspace timezone (Settings, default UTC): per-account daily
+  limits, the account health audit day, the dashboard's Sent
+  today, and the Sending Accounts page now count from midnight
+  in the workspace's timezone instead of midnight UTC. A
+  campaign's daily cap counts from midnight in the campaign's
+  own timezone. The campaign settings copy says so.
+- Schema: Workspace.timezone (local and production migrations).
+
 ## Unreleased
 
 - Operations note (2026-11-10): Resend transactional mail was

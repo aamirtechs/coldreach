@@ -10,9 +10,47 @@ interface WorkspaceSettingsFormProps {
     senderAddress: string;
     trackingDomain: string;
     hourlySendCap: string;
+    timezone: string;
   };
   canEdit: boolean;
 }
+
+/** Common IANA zones offered in the picker; the API accepts any
+ *  valid IANA name, and a stored value outside this list is added
+ *  to the options so it stays selectable. */
+const TIMEZONE_OPTIONS = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Phoenix",
+  "America/Los_Angeles",
+  "America/Anchorage",
+  "Pacific/Honolulu",
+  "America/Toronto",
+  "America/Vancouver",
+  "America/Mexico_City",
+  "America/Bogota",
+  "America/Lima",
+  "America/Santiago",
+  "America/Sao_Paulo",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Moscow",
+  "Africa/Cairo",
+  "Africa/Lagos",
+  "Asia/Dubai",
+  "Asia/Karachi",
+  "Asia/Kolkata",
+  "Asia/Dhaka",
+  "Asia/Bangkok",
+  "Asia/Singapore",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
 
 export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFormProps) {
   const router = useRouter();
@@ -21,6 +59,7 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
   const [senderAddress, setSenderAddress] = useState(initial.senderAddress);
   const [trackingDomain, setTrackingDomain] = useState(initial.trackingDomain);
   const [hourlySendCap, setHourlySendCap] = useState(initial.hourlySendCap);
+  const [timezone, setTimezone] = useState(initial.timezone);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -38,6 +77,7 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
         senderAddress,
         trackingDomain,
         hourlySendCap: capText === "" ? null : Number(capText),
+        timezone,
       }),
     });
     const data = await response.json();
@@ -90,6 +130,19 @@ export function WorkspaceSettingsForm({ initial, canEdit }: WorkspaceSettingsFor
             this just under your host's limit (for example 50 if your host allows 60 per hour)
             and the worker spreads sends under it instead of bursting. Leave it empty to use
             the platform default of 90.
+          </p>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="ws-timezone">Workspace timezone</label>
+          <select id="ws-timezone" className="input" value={timezone} disabled={!canEdit} onChange={(e) => setTimezone(e.target.value)}>
+            {(TIMEZONE_OPTIONS.includes(timezone) ? TIMEZONE_OPTIONS : [timezone, ...TIMEZONE_OPTIONS]).map((zone) => (
+              <option key={zone} value={zone}>{zone.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-muted">
+            Your daily sending limits, and the dashboard's Sent today count, reset at midnight
+            in this timezone. Campaign sending windows keep their own timezone, and a
+            campaign's daily cap counts from midnight in the campaign's timezone.
           </p>
         </div>
       </div>

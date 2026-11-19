@@ -174,10 +174,10 @@ export function CampaignSettingsForm({ campaignId, initial, lists, accounts, edi
             placeholder="No campaign cap"
           />
           <p className="mt-1 text-xs text-muted">
-            The most emails this campaign sends per day, counted on the UTC day like the
-            per-mailbox daily limits. Sends past the cap stay due and go out the next
-            day. Leave empty for no campaign cap; the mailbox limits and the workspace
-            hourly cap still apply.
+            The most emails this campaign sends per day, counted from midnight in this
+            campaign's timezone. Sends past the cap stay due and go out the next day.
+            Leave empty for no campaign cap; the mailbox limits (counted in the
+            workspace timezone) and the workspace hourly cap still apply.
           </p>
         </div>
       </div>
