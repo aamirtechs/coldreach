@@ -23,33 +23,33 @@ enum Role {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  name         String
-  email        String       @unique
-  passwordHash String
+  id                        String                   @id @default(cuid())
+  name                      String
+  email                     String                   @unique
+  passwordHash              String
   // Product tour (v1.6.0): when the user finished or skipped the
   // first-run tour. Null means the tour is still offered.
-  tourCompletedAt DateTime?
+  tourCompletedAt           DateTime?
   // Email verification (v1.14.0): when the account's email address
   // was verified. Null means unverified. Accounts that predate
   // enforcement keep null until they verify through the announcement
   // bar; they are never locked out, because requiresEmailVerification
   // is set only on accounts created while enforcement was on, and
   // only those are gated at login.
-  emailVerifiedAt DateTime?
-  requiresEmailVerification Boolean @default(false)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  memberships  Membership[]
-  auditLogs    AuditLog[]
-  assignedThreads Thread[]  @relation("ThreadAssignee")
-  threadNotes  ThreadNote[]
-  snippets     Snippet[]
-  supportTickets SupportTicket[]
-  supportTicketReplies SupportTicketReply[]
-  invitesSent  Invite[]     @relation("InviteSender")
-  apiKeysCreated ApiKey[]   @relation("ApiKeyCreator")
-  verificationTokens EmailVerificationToken[]
+  emailVerifiedAt           DateTime?
+  requiresEmailVerification Boolean                  @default(false)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  memberships               Membership[]
+  auditLogs                 AuditLog[]
+  assignedThreads           Thread[]                 @relation("ThreadAssignee")
+  threadNotes               ThreadNote[]
+  snippets                  Snippet[]
+  supportTickets            SupportTicket[]
+  supportTicketReplies      SupportTicketReply[]
+  invitesSent               Invite[]                 @relation("InviteSender")
+  apiKeysCreated            ApiKey[]                 @relation("ApiKeyCreator")
+  verificationTokens        EmailVerificationToken[]
 }
 
 // Single-use email verification tokens (v1.14.0). Only the SHA-256
@@ -68,51 +68,53 @@ model EmailVerificationToken {
 }
 
 model Workspace {
-  id              String          @id @default(cuid())
-  name            String
-  slug            String          @unique
+  id               String             @id @default(cuid())
+  name             String
+  slug             String             @unique
   // Sender identity used in the compliance footer of every campaign email.
   // senderAddress is the postal address CAN-SPAM style rules require; the
   // campaign preflight refuses to launch while it is missing.
-  senderName      String?
-  senderAddress   String?
+  senderName       String?
+  senderAddress    String?
   // Custom tracking domain (v1.11.0): when set, open and click
   // tracking URLs are built on this host, which the workspace points
   // at the app with a CNAME. Bare host only, no scheme or path.
-  trackingDomain  String?
+  trackingDomain   String?
   // Per-workspace hourly send cap (v1.24.0): when set, replaces
   // the platform hourly default for this workspace's sends, so a
   // workspace whose mail host allows less than the default can
   // stay under its own host's limit. The count it is measured
   // against stays per sending domain across workspaces (v1.21.0).
-  hourlySendCap   Int?
+  hourlySendCap    Int?
   // Workspace timezone (v1.42.0): the daily counters (per-account
   // daily limits, dashboard sent today) roll over at midnight in
   // this zone instead of midnight UTC. A campaign's own daily cap
   // counts in the campaign's timezone; campaign sending windows
   // keep their per-campaign timezone as before.
-  timezone        String          @default("UTC")
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  memberships     Membership[]
-  aiConfig        WorkspaceAiConfig?
-  sendingAccounts SendingAccount[]
-  leadLists       LeadList[]
-  leads           Lead[]
-  campaigns       Campaign[]
-  suppressions    Suppression[]
-  threads         Thread[]
-  auditLogs       AuditLog[]
-  apiKeys         ApiKey[]
-  emailEvents     EmailEvent[]
-  invites         Invite[]
-  threadNotes     ThreadNote[]
-  snippets        Snippet[]
-  supportTickets  SupportTicket[]
+  timezone         String             @default("UTC")
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  memberships      Membership[]
+  aiConfig         WorkspaceAiConfig?
+  sendingAccounts  SendingAccount[]
+  leadLists        LeadList[]
+  leads            Lead[]
+  campaigns        Campaign[]
+  suppressions     Suppression[]
+  threads          Thread[]
+  auditLogs        AuditLog[]
+  apiKeys          ApiKey[]
+  emailEvents      EmailEvent[]
+  invites          Invite[]
+  threadNotes      ThreadNote[]
+  snippets         Snippet[]
+  callScripts      CallScript[]
+  callLogs         CallLog[]
+  supportTickets   SupportTicket[]
   webhookEndpoints WebhookEndpoint[]
-  subscription    Subscription?
+  subscription     Subscription?
   subscriptionKeys SubscriptionKey[]
-  crmConnections  CrmConnection[]
+  crmConnections   CrmConnection[]
 }
 
 // Per-workspace AI provider key (v1.8.0). Each workspace brings its
@@ -174,47 +176,47 @@ enum WarmupStatus {
 }
 
 model SendingAccount {
-  id             String               @id @default(cuid())
-  workspaceId    String
-  email          String
-  displayName    String?
-  provider       SendingProvider
-  status         SendingAccountStatus @default(DISCONNECTED)
-  dailyLimit     Int                  @default(50)
-  warmupStatus   WarmupStatus         @default(OFF)
+  id                   String               @id @default(cuid())
+  workspaceId          String
+  email                String
+  displayName          String?
+  provider             SendingProvider
+  status               SendingAccountStatus @default(DISCONNECTED)
+  dailyLimit           Int                  @default(50)
+  warmupStatus         WarmupStatus         @default(OFF)
   // Phase 6 warm-up schedule. When warmupEnabled is true, the worker
   // additionally caps this account at the warm-up curve in
   // src/lib/domain/warmup.ts, counted from warmupStartedAt: 20 sends
   // a day in week 1, then 50, 100, 200, and the account's own
   // dailyLimit from day 29. warmupStatus above is the separate legacy
   // label for external/simulated warm-up services.
-  warmupEnabled  Boolean              @default(false)
-  warmupStartedAt DateTime?
+  warmupEnabled        Boolean              @default(false)
+  warmupStartedAt      DateTime?
   // Credentials are never stored in plain text. For SMTP this field
   // holds an opaque reference to server environment variables. OAuth
   // tokens (Phase 3) live in encryptedCredentials below, encrypted at
   // rest with AES-256-GCM; the plaintext never touches the database.
-  credentialRef  String?
+  credentialRef        String?
   // AES-256-GCM encrypted JSON blob holding OAuth access and refresh
   // tokens for GMAIL and MS365 accounts. Null until the account is
   // connected through the OAuth flow.
   encryptedCredentials String?
   // When the current OAuth access token expires. The provider layer
   // refreshes and rewrites encryptedCredentials before this passes.
-  tokenExpiresAt DateTime?
+  tokenExpiresAt       DateTime?
   // Last successful reply sync for this account, and the opaque cursor
   // the sync source resumes from (Gmail history id, Graph timestamp).
-  lastSyncAt     DateTime?
-  syncCursor     String?
+  lastSyncAt           DateTime?
+  syncCursor           String?
   // The account's id at the provider (Google sub, Microsoft account id).
-  providerAccountId String?
-  lastError      String?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  threads        Thread[]
-  emailEvents    EmailEvent[]
-  campaigns      CampaignAccount[]
+  providerAccountId    String?
+  lastError            String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  workspace            Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  threads              Thread[]
+  emailEvents          EmailEvent[]
+  campaigns            CampaignAccount[]
 
   @@unique([workspaceId, email])
   @@index([workspaceId])
@@ -244,13 +246,13 @@ enum LeadVerificationStatus {
 }
 
 model LeadList {
-  id          String    @id @default(cuid())
+  id          String     @id @default(cuid())
   workspaceId String
   name        String
   description String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leads       Lead[]
   campaigns   Campaign[]
 
@@ -258,32 +260,33 @@ model LeadList {
 }
 
 model Lead {
-  id          String       @id @default(cuid())
-  workspaceId String
-  listId      String?
-  email       String
+  id                 String                 @id @default(cuid())
+  workspaceId        String
+  listId             String?
+  email              String
   // Arbitrary contact attributes imported from CSV or added by hand,
   // for example firstName, company, role. Stored as JSON for portability.
   // Application code supplies {} on create; a database level default is
   // avoided because SQLite cannot express a JSON literal default portably.
-  fields      Json
-  status      LeadStatus   @default(NEW)
+  fields             Json
+  status             LeadStatus             @default(NEW)
   // Phase 6 verification. verificationDetail is the JSON evidence the
   // verifier recorded (syntax, disposable, MX, provider result);
   // verifiedAt is when the check ran. Both are null until the lead is
   // verified, and verificationStatus starts UNKNOWN.
   verificationStatus LeadVerificationStatus @default(UNKNOWN)
   verificationDetail Json?
-  verifiedAt  DateTime?
+  verifiedAt         DateTime?
   // Tag labels, stored as a JSON array of strings. Application code
   // supplies [] on create, for the same portability reason as fields.
-  tags        Json
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  list        LeadList?    @relation(fields: [listId], references: [id], onDelete: SetNull)
-  enrollments Enrollment[]
-  threads     Thread[]
+  tags               Json
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  workspace          Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  list               LeadList?              @relation(fields: [listId], references: [id], onDelete: SetNull)
+  enrollments        Enrollment[]
+  threads            Thread[]
+  callLogs           CallLog[]
 
   @@unique([workspaceId, email])
   @@index([workspaceId, status])
@@ -302,53 +305,53 @@ enum CampaignStatus {
 }
 
 model Campaign {
-  id               String         @id @default(cuid())
-  workspaceId      String
-  name             String
-  status           CampaignStatus @default(DRAFT)
+  id                      String            @id @default(cuid())
+  workspaceId             String
+  name                    String
+  status                  CampaignStatus    @default(DRAFT)
   // The lead list this campaign sends to. Enrollment reads from this list.
-  leadListId       String?
-  timezone         String         @default("UTC")
+  leadListId              String?
+  timezone                String            @default("UTC")
   // Local sending window, "HH:MM" 24 hour values in the campaign timezone.
-  windowStart      String         @default("09:00")
-  windowEnd        String         @default("17:00")
-  businessDaysOnly Boolean        @default(true)
+  windowStart             String            @default("09:00")
+  windowEnd               String            @default("17:00")
+  businessDaysOnly        Boolean           @default(true)
   // Follow-up open gate (v1.27.0): when true (the default, and the
   // behaviour since v1.17.0), steps 2 and later send only to leads
   // who viewed the previous step; a due follow-up with no view is
   // completed unsent. When false, follow-ups send to every lead on
   // schedule regardless of views. Per campaign, editable in the
   // campaign Settings.
-  requireOpenForFollowUps Boolean   @default(true)
+  requireOpenForFollowUps Boolean           @default(true)
   // Per-campaign daily send cap (v1.39.0): when set, the worker
   // sends at most this many emails for this campaign per UTC day
   // (the same day boundary the per-account daily limits use) and
   // defers the rest, still due, to the next day. Null means no
   // campaign cap; the account limits and pacing budgets apply.
-  dailySendCap Int?
+  dailySendCap            Int?
   // Optional per-campaign email signature (plain text, may use the
   // lead personalisation tokens). The worker renders it between the
   // step body and the compliance footer on every send, so editing it
   // never rewrites sequence steps and applies from the next send on.
-  signatureText    String?
+  signatureText           String?
   // Per-campaign sender identity (v1.12.0): when set, senderName
   // overrides the sending account's From display name on this
   // campaign's sends, and senderName / companyName compose the
   // sign-off block whenever the campaign has no signatureText of its
   // own. Null means fall back to the account name and the workspace
   // identity, exactly as before.
-  senderName       String?
-  companyName      String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  leadList         LeadList?      @relation(fields: [leadListId], references: [id], onDelete: SetNull)
-  accounts         CampaignAccount[]
-  steps            SequenceStep[]
-  stepAttachments  StepAttachment[]
-  enrollments      Enrollment[]
-  threads          Thread[]
-  emailEvents      EmailEvent[]
+  senderName              String?
+  companyName             String?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  workspace               Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leadList                LeadList?         @relation(fields: [leadListId], references: [id], onDelete: SetNull)
+  accounts                CampaignAccount[]
+  steps                   SequenceStep[]
+  stepAttachments         StepAttachment[]
+  enrollments             Enrollment[]
+  threads                 Thread[]
+  emailEvents             EmailEvent[]
 
   @@index([workspaceId, status])
 }
@@ -368,16 +371,16 @@ model CampaignAccount {
 }
 
 model SequenceStep {
-  id         String   @id @default(cuid())
+  id         String        @id @default(cuid())
   campaignId String
   order      Int
-  delayDays  Int      @default(0)
-  delayHours Int      @default(0)
+  delayDays  Int           @default(0)
+  delayHours Int           @default(0)
   subject    String
   body       String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  campaign   Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   variants   StepVariant[]
 
   @@unique([campaignId, order])
@@ -392,15 +395,15 @@ model SequenceStep {
 // (see src/lib/domain/abtest.ts) and records the label on the send
 // event, so analytics can attribute outcomes to the exact copy sent.
 model StepVariant {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
   stepId    String
   label     String
   subject   String?
   bodyText  String
   bodyHtml  String?
-  weight    Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  weight    Int          @default(1)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
   step      SequenceStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
 
   @@unique([stepId, label])
@@ -485,30 +488,30 @@ enum EmailEventType {
 }
 
 model EmailEvent {
-  id               String         @id @default(cuid())
-  workspaceId      String
-  campaignId       String?
-  enrollmentId     String?
-  sendingAccountId String?
-  type             EmailEventType
+  id                String          @id @default(cuid())
+  workspaceId       String
+  campaignId        String?
+  enrollmentId      String?
+  sendingAccountId  String?
+  type              EmailEventType
   // Provider assigned message identifier, when the provider supplies one.
   providerMessageId String?
   // Unique per logical event so webhook retries and provider redeliveries
   // can be deduplicated safely.
-  idempotencyKey   String         @unique
+  idempotencyKey    String          @unique
   // Optional reply classification, for example POSITIVE, NEUTRAL, NEGATIVE.
-  classification   String?
+  classification    String?
   // A/B test variant label (A, B, C) of the step copy this event
   // belongs to, set on SENT and FAILED events when the worker sends.
   // Null on events recorded before variant tracking and on events
   // that carry no copy (the analytics layer reads null as variant A).
-  variant          String?
-  occurredAt       DateTime
-  createdAt        DateTime       @default(now())
-  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  campaign         Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  enrollment       Enrollment?    @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
-  sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
+  variant           String?
+  occurredAt        DateTime
+  createdAt         DateTime        @default(now())
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign          Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  enrollment        Enrollment?     @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  sendingAccount    SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, type])
   @@index([campaignId, type])
@@ -555,29 +558,29 @@ enum MessageDirection {
 }
 
 model Thread {
-  id               String         @id @default(cuid())
+  id               String          @id @default(cuid())
   workspaceId      String
   campaignId       String?
   leadId           String?
   sendingAccountId String?
   assigneeId       String?
   subject          String
-  status           ThreadStatus   @default(OPEN)
+  status           ThreadStatus    @default(OPEN)
   // Maintained by reply sync: set when a new inbound message lands,
   // cleared when a member opens the conversation.
-  unread           Boolean        @default(false)
+  unread           Boolean         @default(false)
   // Latest reply classification from the rules engine in
   // src/lib/domain/classify.ts (POSITIVE, NEGATIVE, OUT_OF_OFFICE,
   // REFERRAL, NEUTRAL, AUTOMATED), or a member's manual override.
   classification   String?
-  lastMessageAt    DateTime       @default(now())
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  campaign         Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  lead             Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lastMessageAt    DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign         Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  lead             Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
   sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
-  assignee         User?          @relation("ThreadAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  assignee         User?           @relation("ThreadAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   messages         ThreadMessage[]
   notes            ThreadNote[]
 
@@ -587,20 +590,20 @@ model Thread {
 }
 
 model ThreadMessage {
-  id        String           @id @default(cuid())
-  threadId  String
-  direction MessageDirection
-  fromEmail String
-  toEmail   String
-  subject   String?
-  body      String
+  id                String           @id @default(cuid())
+  threadId          String
+  direction         MessageDirection
+  fromEmail         String
+  toEmail           String
+  subject           String?
+  body              String
   // The provider's id for this message, when known. Reply sync uses it
   // to stay idempotent: a message already imported is never appended
   // twice, however often sync runs.
   providerMessageId String?
-  occurredAt DateTime        @default(now())
-  createdAt DateTime         @default(now())
-  thread    Thread           @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  occurredAt        DateTime         @default(now())
+  createdAt         DateTime         @default(now())
+  thread            Thread           @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@index([threadId, occurredAt])
   @@index([providerMessageId])
@@ -609,13 +612,13 @@ model ThreadMessage {
 // Internal note on a conversation. Notes are visible only inside the
 // workspace and are never sent to the contact or the provider.
 model ThreadNote {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   threadId    String
   authorId    String
   body        String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   thread      Thread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
   author      User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -629,17 +632,66 @@ model ThreadNote {
 // plain text, never sent automatically, and carry no per-user privacy:
 // anyone in the workspace can use or delete any snippet in it.
 model Snippet {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   title       String
   body        String
   createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Calling (v1.43.0)
+// ---------------------------------------------------------------------------
+
+// A reusable cold call script for the Calling section. Scripts are
+// per-workspace plain text; the body may carry {{placeholder}} tokens
+// (firstName, company, mobileScore, lcp, website, phone) that the
+// call panel fills from the selected lead's fields at call time.
+// objectionNotes holds the short objection replies shown under the
+// script while calling. Anyone in the workspace can edit them.
+model CallScript {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  name           String
+  body           String
+  objectionNotes String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  callLogs       CallLog[]
+
+  @@index([workspaceId, createdAt])
+}
+
+// One logged call from the Calling section. disposition is one of the
+// CALL_DISPOSITIONS values in src/lib/calling/dispositions.ts, kept as
+// a plain string so both dialects store it identically. leadId and
+// scriptId are nullable with SetNull so deleting a lead or a script
+// never erases the workspace's call history.
+model CallLog {
+  id              String      @id @default(cuid())
+  workspaceId     String
+  leadId          String?
+  scriptId        String?
+  disposition     String
+  notes           String?
+  durationSeconds Int?
+  followUpAt      DateTime?
+  calledAt        DateTime    @default(now())
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  workspace       Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead            Lead?       @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  script          CallScript? @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, calledAt])
+  @@index([workspaceId, followUpAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -715,7 +767,7 @@ enum WebhookDeliveryStatus {
 }
 
 model WebhookEndpoint {
-  id          String    @id @default(cuid())
+  id          String            @id @default(cuid())
   workspaceId String
   url         String
   // HMAC signing secret, stored only as AES-256-GCM ciphertext via
@@ -725,10 +777,10 @@ model WebhookEndpoint {
   // Event types this endpoint subscribes to, as a JSON array of
   // strings (REPLIED, BOUNCED, UNSUBSCRIBED, COMPLAINED, DELIVERED).
   eventTypes  Json
-  active      Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   deliveries  WebhookDelivery[]
 
   @@index([workspaceId])
@@ -818,18 +870,18 @@ model Subscription {
 // (first and last group); the full code is shown once, at generation.
 // status is one of UNUSED, REDEEMED, REVOKED.
 model SubscriptionKey {
-  id                    String    @id @default(cuid())
-  codeHash              String    @unique
+  id                    String     @id @default(cuid())
+  codeHash              String     @unique
   codeHint              String
   plan                  PlanTier
-  durationDays          Int       @default(30)
-  status                String    @default("UNUSED")
+  durationDays          Int        @default(30)
+  status                String     @default("UNUSED")
   note                  String?
   createdByUserId       String?
   redeemedByWorkspaceId String?
   redeemedAt            DateTime?
   revokedAt             DateTime?
-  createdAt             DateTime  @default(now())
+  createdAt             DateTime   @default(now())
   redeemedByWorkspace   Workspace? @relation(fields: [redeemedByWorkspaceId], references: [id], onDelete: SetNull)
 
   @@index([status])
@@ -842,18 +894,18 @@ model SubscriptionKey {
 // src/lib/support/tickets.ts). userEmail is snapshotted at creation
 // so the ticket stays replyable even if the account email changes.
 model SupportTicket {
-  id          String    @id @default(cuid())
+  id          String               @id @default(cuid())
   workspaceId String
   userId      String
   userEmail   String
   subject     String
   category    String
   message     String
-  status      String    @default("OPEN")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      String               @default("OPEN")
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   replies     SupportTicketReply[]
 
   @@index([workspaceId])
@@ -866,13 +918,13 @@ model SupportTicket {
 // (emailedAt records that send) unless the author chose not to
 // email it. kind NOTE is internal and never leaves the panel.
 model SupportTicketReply {
-  id        String    @id @default(cuid())
+  id        String        @id @default(cuid())
   ticketId  String
   authorId  String
-  kind      String    @default("REPLY")
+  kind      String        @default("REPLY")
   body      String
   emailedAt DateTime?
-  createdAt DateTime  @default(now())
+  createdAt DateTime      @default(now())
   ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
 

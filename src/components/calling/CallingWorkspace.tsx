@@ -1,0 +1,658 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { ExternalLink, PhoneCall } from "lucide-react";
+import { CALL_DISPOSITIONS, dispositionLabel } from "@/lib/calling/dispositions";
+import { renderScriptTemplate } from "@/lib/calling/renderScript";
+
+export interface CallingLead {
+  id: string;
+  email: string;
+  listId: string | null;
+  fields: Record<string, unknown>;
+  phone: string;
+  lastCall: { disposition: string; calledAt: string } | null;
+}
+
+export interface CallingScript {
+  id: string;
+  name: string;
+  body: string;
+  objectionNotes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CallingLeadRef {
+  email: string;
+  fields: unknown;
+}
+
+export interface CallingHistoryEntry {
+  id: string;
+  leadId: string | null;
+  scriptId: string | null;
+  disposition: string;
+  notes: string | null;
+  durationSeconds: number | null;
+  followUpAt: string | null;
+  calledAt: string;
+  lead: CallingLeadRef | null;
+}
+
+export interface CallingCallback {
+  logId: string;
+  leadId: string | null;
+  followUpAt: string;
+  due: boolean;
+  lead: CallingLeadRef | null;
+}
+
+export interface CallingStatsShape {
+  callsToday: number;
+  totalCalls: number;
+  talked: number;
+  interested: number;
+  callbacksBooked: number;
+}
+
+export interface CallingInitialData {
+  lists: { id: string; name: string }[];
+  leads: CallingLead[];
+  scripts: CallingScript[];
+  stats: CallingStatsShape;
+  callbacks: CallingCallback[];
+  history: CallingHistoryEntry[];
+}
+
+function fieldText(fields: Record<string, unknown> | unknown, key: string): string {
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return "";
+  const value = (fields as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function leadDisplayName(lead: { email: string; fields: unknown }): string {
+  const first = fieldText(lead.fields, "firstName");
+  const last = fieldText(lead.fields, "lastName");
+  const name = `${first} ${last}`.trim();
+  if (name) return name;
+  const company = fieldText(lead.fields, "company");
+  return company || lead.email;
+}
+
+function formatWhen(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+type Tab = "leads" | "scripts" | "tracking";
+
+export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
+  const [tab, setTab] = useState<Tab>("leads");
+  const [lists, setLists] = useState(initial.lists);
+  const [leads, setLeads] = useState<CallingLead[]>(initial.leads);
+  const [scripts, setScripts] = useState<CallingScript[]>(initial.scripts);
+  const [stats, setStats] = useState(initial.stats);
+  const [callbacks, setCallbacks] = useState(initial.callbacks);
+  const [history, setHistory] = useState(initial.history);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+
+  // Call Leads state
+  const [listFilter, setListFilter] = useState("");
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(
+    initial.leads.find((lead) => lead.phone)?.id ?? null,
+  );
+  const [selectedScriptId, setSelectedScriptId] = useState<string>(initial.scripts[0]?.id ?? "");
+  const [disposition, setDisposition] = useState<string>("TALKED");
+  const [callNotes, setCallNotes] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState("");
+  const [followUpAt, setFollowUpAt] = useState("");
+  const [savingCall, setSavingCall] = useState(false);
+  const [addForm, setAddForm] = useState({
+    name: "",
+    company: "",
+    phone: "",
+    website: "",
+    email: "",
+    listId: "",
+    newListName: "",
+  });
+  const [addingLead, setAddingLead] = useState(false);
+
+  // Scripts state
+  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
+  const [scriptForm, setScriptForm] = useState({ name: "", body: "", objectionNotes: "" });
+  const [savingScript, setSavingScript] = useState(false);
+
+  const selectedLead = useMemo(
+    () => leads.find((lead) => lead.id === selectedLeadId) ?? null,
+    [leads, selectedLeadId],
+  );
+  const selectedScript = useMemo(
+    () => scripts.find((script) => script.id === selectedScriptId) ?? null,
+    [scripts, selectedScriptId],
+  );
+  const renderedScript = useMemo(() => {
+    if (!selectedScript || !selectedLead) return "";
+    return renderScriptTemplate(selectedScript.body, {
+      fields: selectedLead.fields,
+      email: selectedLead.email,
+    });
+  }, [selectedScript, selectedLead]);
+  const renderedObjections = useMemo(() => {
+    if (!selectedScript?.objectionNotes || !selectedLead) return "";
+    return renderScriptTemplate(selectedScript.objectionNotes, {
+      fields: selectedLead.fields,
+      email: selectedLead.email,
+    });
+  }, [selectedScript, selectedLead]);
+
+  async function refreshLeads(nextListFilter: string) {
+    const query = nextListFilter ? `?listId=${encodeURIComponent(nextListFilter)}` : "";
+    const response = await fetch(`/api/calling/leads${query}`);
+    if (!response.ok) return;
+    const data = (await response.json()) as { lists: typeof lists; leads: CallingLead[] };
+    setLists(data.lists);
+    setLeads(data.leads);
+  }
+
+  async function refreshTracking() {
+    const response = await fetch("/api/calling/logs");
+    if (!response.ok) return;
+    const data = (await response.json()) as {
+      stats: CallingStatsShape;
+      callbacks: CallingCallback[];
+      history: CallingHistoryEntry[];
+    };
+    setStats(data.stats);
+    setCallbacks(data.callbacks);
+    setHistory(data.history);
+  }
+
+  async function onListFilterChange(value: string) {
+    setListFilter(value);
+    setSelectedLeadId(null);
+    await refreshLeads(value);
+  }
+
+  async function submitAddLead(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setAddingLead(true);
+    try {
+      const response = await fetch("/api/calling/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(addForm),
+      });
+      const data = (await response.json()) as { error?: string; lead?: { id: string } };
+      if (!response.ok) {
+        setError(data.error ?? "Could not add the lead");
+        return;
+      }
+      setAddForm({ name: "", company: "", phone: "", website: "", email: "", listId: "", newListName: "" });
+      await refreshLeads(listFilter);
+      if (data.lead?.id) setSelectedLeadId(data.lead.id);
+      setNotice("Call lead added.");
+    } finally {
+      setAddingLead(false);
+    }
+  }
+
+  async function saveCall() {
+    if (!selectedLead) return;
+    setError("");
+    setNotice("");
+    setSavingCall(true);
+    try {
+      const response = await fetch("/api/calling/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId: selectedLead.id,
+          scriptId: selectedScriptId || null,
+          disposition,
+          notes: callNotes,
+          durationMinutes: durationMinutes === "" ? null : Number(durationMinutes),
+          followUpAt: disposition === "CALLBACK" && followUpAt ? new Date(followUpAt).toISOString() : null,
+        }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setError(data.error ?? "Could not save the call");
+        return;
+      }
+      setCallNotes("");
+      setDurationMinutes("");
+      setFollowUpAt("");
+      setNotice(`Call logged as ${dispositionLabel(disposition)}.`);
+      await Promise.all([refreshLeads(listFilter), refreshTracking()]);
+    } finally {
+      setSavingCall(false);
+    }
+  }
+
+  function startNewScript() {
+    setEditingScriptId(null);
+    setScriptForm({ name: "", body: "", objectionNotes: "" });
+  }
+
+  function startEditScript(script: CallingScript) {
+    setEditingScriptId(script.id);
+    setScriptForm({ name: script.name, body: script.body, objectionNotes: script.objectionNotes ?? "" });
+  }
+
+  async function saveScript(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setSavingScript(true);
+    try {
+      const response = await fetch(
+        editingScriptId ? `/api/calling/scripts/${editingScriptId}` : "/api/calling/scripts",
+        {
+          method: editingScriptId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(scriptForm),
+        },
+      );
+      const data = (await response.json()) as { error?: string; script?: CallingScript };
+      if (!response.ok || !data.script) {
+        setError(data.error ?? "Could not save the script");
+        return;
+      }
+      setScripts((current) => {
+        const rest = current.filter((script) => script.id !== data.script!.id);
+        return [...rest, data.script!].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      setEditingScriptId(data.script.id);
+      if (!selectedScriptId) setSelectedScriptId(data.script.id);
+      setNotice("Script saved.");
+    } finally {
+      setSavingScript(false);
+    }
+  }
+
+  async function deleteScript(script: CallingScript) {
+    if (!window.confirm(`Delete the script "${script.name}"? Call history is kept.`)) return;
+    const response = await fetch(`/api/calling/scripts/${script.id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const data = (await response.json()) as { error?: string };
+      setError(data.error ?? "Could not delete the script");
+      return;
+    }
+    setScripts((current) => current.filter((item) => item.id !== script.id));
+    if (editingScriptId === script.id) startNewScript();
+    if (selectedScriptId === script.id) setSelectedScriptId("");
+    setNotice("Script deleted.");
+  }
+
+  async function insertSampleScript() {
+    setError("");
+    setNotice("");
+    const response = await fetch("/api/calling/scripts/sample", { method: "POST" });
+    const data = (await response.json()) as { error?: string; script?: CallingScript; created?: boolean };
+    if (!response.ok || !data.script) {
+      setError(data.error ?? "Could not insert the sample script");
+      return;
+    }
+    setScripts((current) => {
+      const rest = current.filter((script) => script.id !== data.script!.id);
+      return [...rest, data.script!].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    setSelectedScriptId(data.script.id);
+    startEditScript(data.script);
+    setNotice(data.created ? "Sample script added." : "The sample script is already in your list.");
+  }
+
+  const tabButton = (value: Tab, label: string) => (
+    <button
+      type="button"
+      key={value}
+      onClick={() => setTab(value)}
+      className={tab === value ? "btn-primary" : "btn-secondary"}
+      aria-pressed={tab === value}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="mt-6">
+      <div className="flex flex-wrap gap-2">
+        {tabButton("leads", "Call Leads")}
+        {tabButton("scripts", "Scripts")}
+        {tabButton("tracking", "Tracking")}
+      </div>
+      {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+      {notice ? <p className="mt-4 text-sm text-emerald-600">{notice}</p> : null}
+
+      {tab === "leads" ? (
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div>
+            <div className="card p-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="font-display text-base font-semibold">Leads with a phone come first</h2>
+                <select
+                  className="input ml-auto w-auto"
+                  value={listFilter}
+                  onChange={(event) => void onListFilterChange(event.target.value)}
+                  aria-label="Filter by list"
+                >
+                  <option value="">All lists</option>
+                  {lists.map((list) => (
+                    <option key={list.id} value={list.id}>
+                      {list.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <ul className="mt-4 divide-y divide-line">
+                {leads.length === 0 ? (
+                  <li className="py-4 text-sm text-muted">
+                    No leads yet. Add a call lead below, or add phone numbers to existing leads
+                    (a phone field) and they will appear here.
+                  </li>
+                ) : (
+                  leads.map((lead) => (
+                    <li key={lead.id}>
+                      <button
+                        type="button"
+                        className={`w-full px-2 py-3 text-left ${lead.id === selectedLeadId ? "bg-elevated" : ""}`}
+                        onClick={() => setSelectedLeadId(lead.id)}
+                      >
+                        <span className="block text-sm font-medium">{leadDisplayName(lead)}</span>
+                        <span className="block text-xs text-muted">
+                          {lead.phone || "No phone"} · {fieldText(lead.fields, "company") || lead.email}
+                          {lead.lastCall
+                            ? ` · Last call: ${dispositionLabel(lead.lastCall.disposition)}`
+                            : " · Not called yet"}
+                        </span>
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+
+            <form onSubmit={submitAddLead} className="card mt-6 p-5">
+              <h2 className="font-display text-base font-semibold">Add a call lead</h2>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor="call-name">Name</label>
+                  <input id="call-name" className="input" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="Jane Smith" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="call-company">Company</label>
+                  <input id="call-company" className="input" value={addForm.company} onChange={(e) => setAddForm({ ...addForm, company: e.target.value })} placeholder="Acme Inc" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="call-phone">Phone</label>
+                  <input id="call-phone" className="input" required value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} placeholder="+1 555 010 2030" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="call-website">Website</label>
+                  <input id="call-website" className="input" value={addForm.website} onChange={(e) => setAddForm({ ...addForm, website: e.target.value })} placeholder="https://example.com" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="call-email">Email (optional)</label>
+                  <input id="call-email" className="input" type="email" value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} placeholder="jane@company.com" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="call-list">List</label>
+                  <select id="call-list" className="input" value={addForm.listId} onChange={(e) => setAddForm({ ...addForm, listId: e.target.value })}>
+                    <option value="">New list (name below, or Calling leads)</option>
+                    {lists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {!addForm.listId ? (
+                  <div>
+                    <label className="label" htmlFor="call-new-list">New list name (optional)</label>
+                    <input id="call-new-list" className="input" value={addForm.newListName} onChange={(e) => setAddForm({ ...addForm, newListName: e.target.value })} placeholder="Calling leads" />
+                  </div>
+                ) : null}
+              </div>
+              <button type="submit" className="btn-primary mt-4" disabled={addingLead}>
+                {addingLead ? "Adding..." : "Add call lead"}
+              </button>
+            </form>
+          </div>
+
+          <div className="card h-fit p-5">
+            <h2 className="font-display text-base font-semibold">Call panel</h2>
+            {!selectedLead ? (
+              <p className="mt-3 text-sm text-muted">Pick a lead on the left to open its call panel.</p>
+            ) : (
+              <div className="mt-4">
+                <p className="text-sm font-medium">{leadDisplayName(selectedLead)}</p>
+                <p className="text-xs text-muted">
+                  {fieldText(selectedLead.fields, "company")}
+                  {fieldText(selectedLead.fields, "website")
+                    ? ` · ${fieldText(selectedLead.fields, "website")}`
+                    : ""}
+                  {` · ${selectedLead.email}`}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedLead.phone ? (
+                    <a className="btn-primary" href={`tel:${selectedLead.phone.replace(/[^+\d]/g, "")}`}>
+                      <PhoneCall className="mr-2 h-4 w-4" aria-hidden="true" />
+                      Call {selectedLead.phone}
+                    </a>
+                  ) : (
+                    <span className="text-sm text-muted">This lead has no phone number yet.</span>
+                  )}
+                  <a className="btn-secondary" href="https://app.krispcall.com" target="_blank" rel="noreferrer">
+                    Open KrispCall
+                    <ExternalLink className="ml-2 h-4 w-4" aria-hidden="true" />
+                  </a>
+                </div>
+
+                <label className="label mt-5" htmlFor="call-script-select">Script</label>
+                <select
+                  id="call-script-select"
+                  className="input"
+                  value={selectedScriptId}
+                  onChange={(event) => setSelectedScriptId(event.target.value)}
+                >
+                  <option value="">No script</option>
+                  {scripts.map((script) => (
+                    <option key={script.id} value={script.id}>
+                      {script.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedScript ? (
+                  <>
+                    <div className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm leading-6">
+                      {renderedScript}
+                    </div>
+                    {renderedObjections ? (
+                      <>
+                        <h3 className="mt-4 text-sm font-semibold">Objection replies</h3>
+                        <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm leading-6">
+                          {renderedObjections}
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="mt-3 text-sm text-muted">
+                    No script selected. Create one in the Scripts tab, or insert the WordPress
+                    speed sample there.
+                  </p>
+                )}
+
+                <h3 className="mt-5 text-sm font-semibold">Log this call</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {CALL_DISPOSITIONS.map((item) => (
+                    <button
+                      type="button"
+                      key={item.value}
+                      onClick={() => setDisposition(item.value)}
+                      className={disposition === item.value ? "btn-primary" : "btn-secondary"}
+                      aria-pressed={disposition === item.value}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="label" htmlFor="call-duration">Duration (minutes, optional)</label>
+                    <input id="call-duration" className="input" type="number" min="0" step="0.5" value={durationMinutes} onChange={(e) => setDurationMinutes(e.target.value)} placeholder="3" />
+                  </div>
+                  {disposition === "CALLBACK" ? (
+                    <div>
+                      <label className="label" htmlFor="call-followup">Follow up at</label>
+                      <input id="call-followup" className="input" type="datetime-local" value={followUpAt} onChange={(e) => setFollowUpAt(e.target.value)} />
+                    </div>
+                  ) : null}
+                </div>
+                <label className="label mt-4" htmlFor="call-notes">Notes</label>
+                <textarea id="call-notes" className="input" rows={3} value={callNotes} onChange={(e) => setCallNotes(e.target.value)} placeholder="What they said, what to send, anything to remember." />
+                <button type="button" className="btn-primary mt-4" onClick={() => void saveCall()} disabled={savingCall}>
+                  {savingCall ? "Saving..." : "Save call"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {tab === "scripts" ? (
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div className="card h-fit p-5">
+            <h2 className="font-display text-base font-semibold">Your scripts</h2>
+            <ul className="mt-4 divide-y divide-line">
+              {scripts.length === 0 ? (
+                <li className="py-3 text-sm text-muted">No scripts yet. Write one, or insert the sample.</li>
+              ) : (
+                scripts.map((script) => (
+                  <li key={script.id} className="flex items-center gap-2 py-3">
+                    <button type="button" className="text-left text-sm font-medium" onClick={() => startEditScript(script)}>
+                      {script.name}
+                    </button>
+                    <button type="button" className="btn-ghost ml-auto text-red-600" onClick={() => void deleteScript(script)}>
+                      Delete
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" className="btn-secondary" onClick={startNewScript}>
+                New script
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => void insertSampleScript()}>
+                Insert WordPress speed sample script
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              Placeholders you can use in a script: {"{{firstName}}"}, {"{{lastName}}"},{" "}
+              {"{{company}}"}, {"{{phone}}"}, {"{{website}}"}, {"{{mobileScore}}"}, {"{{lcp}}"},{" "}
+              {"{{email}}"}. They fill from the lead when you open the call panel.
+            </p>
+          </div>
+          <form onSubmit={saveScript} className="card h-fit p-5">
+            <h2 className="font-display text-base font-semibold">
+              {editingScriptId ? "Edit script" : "New script"}
+            </h2>
+            <label className="label mt-4" htmlFor="script-name">Name</label>
+            <input id="script-name" className="input" required value={scriptForm.name} onChange={(e) => setScriptForm({ ...scriptForm, name: e.target.value })} placeholder="WordPress Speed, owner call" />
+            <label className="label mt-4" htmlFor="script-body">Script</label>
+            <textarea id="script-body" className="input" rows={14} required value={scriptForm.body} onChange={(e) => setScriptForm({ ...scriptForm, body: e.target.value })} placeholder="What you say, word for word." />
+            <label className="label mt-4" htmlFor="script-objections">Objection replies (optional)</label>
+            <textarea id="script-objections" className="input" rows={8} value={scriptForm.objectionNotes} onChange={(e) => setScriptForm({ ...scriptForm, objectionNotes: e.target.value })} placeholder="Short replies to the pushbacks you hear most." />
+            <button type="submit" className="btn-primary mt-4" disabled={savingScript}>
+              {savingScript ? "Saving..." : "Save script"}
+            </button>
+          </form>
+        </div>
+      ) : null}
+
+      {tab === "tracking" ? (
+        <div className="mt-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {[
+              { label: "Calls today", value: stats.callsToday },
+              { label: "Total calls", value: stats.totalCalls },
+              { label: "Talked", value: stats.talked },
+              { label: "Interested", value: stats.interested },
+              { label: "Callbacks booked", value: stats.callbacksBooked },
+            ].map((card) => (
+              <div key={card.label} className="card p-4">
+                <p className="text-xs uppercase tracking-wide text-muted">{card.label}</p>
+                <p className="mt-1 font-display text-2xl font-semibold">{card.value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="card mt-6 p-5">
+            <h2 className="font-display text-base font-semibold">Callbacks due</h2>
+            {callbacks.length === 0 ? (
+              <p className="mt-3 text-sm text-muted">No callbacks booked yet.</p>
+            ) : (
+              <ul className="mt-3 divide-y divide-line">
+                {callbacks.map((callback) => (
+                  <li key={callback.logId} className="flex flex-wrap items-center gap-2 py-3 text-sm">
+                    <span className="font-medium">
+                      {callback.lead ? leadDisplayName(callback.lead) : "Deleted lead"}
+                    </span>
+                    <span className="text-muted">{formatWhen(callback.followUpAt)}</span>
+                    {callback.due ? (
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                        Due now
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="card mt-6 p-5">
+            <h2 className="font-display text-base font-semibold">Recent calls</h2>
+            {history.length === 0 ? (
+              <p className="mt-3 text-sm text-muted">No calls logged yet.</p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-line text-xs uppercase tracking-wide text-muted">
+                      <th className="py-2 pr-3">Lead</th>
+                      <th className="py-2 pr-3">Outcome</th>
+                      <th className="py-2 pr-3">Notes</th>
+                      <th className="py-2 pr-3">Duration</th>
+                      <th className="py-2">When</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((entry) => (
+                      <tr key={entry.id} className="border-b border-line align-top">
+                        <td className="py-2 pr-3 font-medium">
+                          {entry.lead ? leadDisplayName(entry.lead) : "Deleted lead"}
+                        </td>
+                        <td className="py-2 pr-3">{dispositionLabel(entry.disposition)}</td>
+                        <td className="max-w-xs py-2 pr-3 text-muted">{entry.notes ?? ""}</td>
+                        <td className="py-2 pr-3">
+                          {entry.durationSeconds ? `${Math.round(entry.durationSeconds / 60)} min` : ""}
+                        </td>
+                        <td className="py-2">{formatWhen(entry.calledAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

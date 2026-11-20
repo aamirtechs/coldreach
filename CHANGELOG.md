@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.43.0 (2026-11-20)
+
+A Calling section joins the app, so the same workspace that runs
+email outreach can now work a call list next to it: leads, scripts
+and call tracking in one place, on the same lead records.
+
+- New "Calling" destination in the sidebar, in the same uniform
+  style as every other item, with three views: Call Leads, Scripts
+  and Tracking.
+- Call Leads: pick a lead list or see every lead, phone numbers
+  first (phones live in the lead's fields under "phone", alongside
+  website, mobileScore and lcp). A manual "Add call lead" form
+  creates a lead in a chosen or new list; email is optional for
+  calling. Clicking a lead opens the call panel: contact details,
+  the chosen script rendered with the lead's own values filled in,
+  a tel: call link, a link out to KrispCall, disposition buttons
+  (No answer, Voicemail, Gatekeeper, Talked, Interested, Callback,
+  Not interested, Do not call), notes, an optional duration, and a
+  follow up date on Callback.
+- Scripts: create, edit and delete per-workspace call scripts with
+  objection notes. Placeholders {{firstName}}, {{company}},
+  {{mobileScore}}, {{lcp}} and friends fill from the lead at call
+  time. An "Insert WordPress speed sample script" action seeds the
+  researched WordPress speed script (owner, voicemail and
+  gatekeeper versions plus objection replies).
+- Tracking: calls today, total calls, talked, interested and
+  callbacks booked; a callbacks due list (latest booking per lead,
+  soonest first); and a recent call history table.
+- Schema: CallScript and CallLog (local and production
+  migrations). CallLog keeps its history when a lead or a script
+  is deleted (SetNull). No email is sent by any part of this
+  feature, and every query is workspace scoped.
+
 ## 1.42.0 (2026-11-18)
 
 Sending windows are now enforced at the moment of sending, and

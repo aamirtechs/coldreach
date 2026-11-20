@@ -112,6 +112,8 @@ model Workspace {
   invites         Invite[]
   threadNotes     ThreadNote[]
   snippets        Snippet[]
+  callScripts     CallScript[]
+  callLogs        CallLog[]
   supportTickets  SupportTicket[]
   webhookEndpoints WebhookEndpoint[]
   subscription    Subscription?
@@ -288,6 +290,7 @@ model Lead {
   list        LeadList?    @relation(fields: [listId], references: [id], onDelete: SetNull)
   enrollments Enrollment[]
   threads     Thread[]
+  callLogs    CallLog[]
 
   @@unique([workspaceId, email])
   @@index([workspaceId, status])
@@ -644,6 +647,55 @@ model Snippet {
   createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Calling (v1.43.0)
+// ---------------------------------------------------------------------------
+
+// A reusable cold call script for the Calling section. Scripts are
+// per-workspace plain text; the body may carry {{placeholder}} tokens
+// (firstName, company, mobileScore, lcp, website, phone) that the
+// call panel fills from the selected lead's fields at call time.
+// objectionNotes holds the short objection replies shown under the
+// script while calling. Anyone in the workspace can edit them.
+model CallScript {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  name           String
+  body           String
+  objectionNotes String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  callLogs       CallLog[]
+
+  @@index([workspaceId, createdAt])
+}
+
+// One logged call from the Calling section. disposition is one of the
+// CALL_DISPOSITIONS values in src/lib/calling/dispositions.ts, kept as
+// a plain string so both dialects store it identically. leadId and
+// scriptId are nullable with SetNull so deleting a lead or a script
+// never erases the workspace's call history.
+model CallLog {
+  id              String     @id @default(cuid())
+  workspaceId     String
+  leadId          String?
+  scriptId        String?
+  disposition     String
+  notes           String?
+  durationSeconds Int?
+  followUpAt      DateTime?
+  calledAt        DateTime   @default(now())
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead            Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  script          CallScript? @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, calledAt])
+  @@index([workspaceId, followUpAt])
 }
 
 // ---------------------------------------------------------------------------
