@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, PhoneCall, Volume2 } from "lucide-react";
 import { CALL_DISPOSITIONS, dispositionLabel } from "@/lib/calling/dispositions";
+import {
+  CALL_FLOW_START_ID,
+  flowRoadmap,
+  getFlowNode,
+  resolveFlowNode,
+} from "@/lib/calling/callFlow";
 import { renderScriptTemplate } from "@/lib/calling/renderScript";
 import { US_TIMEZONES, callWindowStatus, formatHour } from "@/lib/calling/callWindow";
 import {
@@ -192,6 +198,12 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
   });
   const [savingLead, setSavingLead] = useState(false);
   const [scriptView, setScriptView] = useState<"personal" | "workspace">("personal");
+  // Guided call mode: the branching flow from lib/calling/callFlow,
+  // shown one card at a time. flowPath is the trail of visited node
+  // ids for the selected lead; the last entry is the current card.
+  const [panelMode, setPanelMode] = useState<"guided" | "script">("guided");
+  const [flowPath, setFlowPath] = useState<string[]>([CALL_FLOW_START_ID]);
+  const [showRoadmap, setShowRoadmap] = useState(false);
   // Ticking clock so the lead local times and call-now chips stay live.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -234,6 +246,8 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
   useEffect(() => {
     setScriptView("personal");
     setShowEditLead(false);
+    setFlowPath([CALL_FLOW_START_ID]);
+    setShowRoadmap(false);
     if (selectedLead) {
       setEditForm({
         name: leadDisplayName(selectedLead),
@@ -271,6 +285,44 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
       email: selectedLead.email,
     });
   }, [selectedScript, selectedLead]);
+
+  // Guided flow: the current card, resolved for the selected lead
+  // (speed or generic variant, placeholders filled).
+  const currentFlowNode =
+    getFlowNode(flowPath[flowPath.length - 1] ?? CALL_FLOW_START_ID) ??
+    getFlowNode(CALL_FLOW_START_ID) ??
+    null;
+  const resolvedFlow = useMemo(() => {
+    if (!currentFlowNode) return null;
+    return resolveFlowNode(currentFlowNode, {
+      fields: selectedLead?.fields ?? null,
+      email: selectedLead?.email ?? null,
+    });
+  }, [currentFlowNode, selectedLead]);
+  const guidedFollowUp = Boolean(
+    panelMode === "guided" && currentFlowNode?.terminal && currentFlowNode.followUp,
+  );
+
+  // Landing on a terminal card preselects its suggested outcome in
+  // the log form. The caller can still override it before saving.
+  useEffect(() => {
+    if (panelMode === "guided" && currentFlowNode?.terminal && currentFlowNode.suggestedDisposition) {
+      setDisposition(currentFlowNode.suggestedDisposition);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowPath, panelMode]);
+
+  function goFlow(next: string) {
+    setFlowPath((path) => [...path, next]);
+  }
+
+  function flowBack() {
+    setFlowPath((path) => (path.length > 1 ? path.slice(0, -1) : path));
+  }
+
+  function flowRestart() {
+    setFlowPath([CALL_FLOW_START_ID]);
+  }
 
   async function refreshLeads(nextListFilter: string) {
     const query = nextListFilter ? `?listId=${encodeURIComponent(nextListFilter)}` : "";
@@ -442,8 +494,8 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     );
   }
 
-  async function saveCall() {
-    if (!selectedLead) return;
+  async function postCallLog(): Promise<boolean> {
+    if (!selectedLead) return false;
     setError("");
     setNotice("");
     setSavingCall(true);
@@ -457,21 +509,49 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
           disposition,
           notes: callNotes,
           durationMinutes: durationMinutes === "" ? null : Number(durationMinutes),
-          followUpAt: disposition === "CALLBACK" && followUpAt ? new Date(followUpAt).toISOString() : null,
+          followUpAt:
+            followUpAt && (disposition === "CALLBACK" || guidedFollowUp)
+              ? new Date(followUpAt).toISOString()
+              : null,
         }),
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
         setError(data.error ?? "Could not save the call");
-        return;
+        return false;
       }
       setCallNotes("");
       setDurationMinutes("");
       setFollowUpAt("");
-      setNotice(`Call logged as ${dispositionLabel(disposition)}.`);
       await Promise.all([refreshLeads(listFilter), refreshTracking()]);
+      return true;
     } finally {
       setSavingCall(false);
+    }
+  }
+
+  async function saveCall() {
+    if (await postCallLog()) {
+      setNotice(`Call logged as ${dispositionLabel(disposition)}.`);
+    }
+  }
+
+  /** Guided flow finish: save this call, then open the next lead. */
+  async function saveAndNextLead() {
+    if (!selectedLead) return;
+    const index = leads.findIndex((lead) => lead.id === selectedLead.id);
+    const next = leads.slice(index + 1).find((lead) => lead.phone) ?? null;
+    const saved = await postCallLog();
+    if (!saved) return;
+    if (next) {
+      setSelectedLeadId(next.id);
+      setNotice(
+        `Call logged as ${dispositionLabel(disposition)}. Next lead: ${leadDisplayName(next)}.`,
+      );
+    } else {
+      setNotice(
+        `Call logged as ${dispositionLabel(disposition)}. That was the last lead with a phone in this list.`,
+      );
     }
   }
 
@@ -821,6 +901,166 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   </a>
                 </div>
 
+                <div className="mt-5 flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold">Call mode</span>
+                  <button
+                    type="button"
+                    className={panelMode === "guided" ? "btn-primary" : "btn-secondary"}
+                    aria-pressed={panelMode === "guided"}
+                    onClick={() => setPanelMode("guided")}
+                  >
+                    Guided call
+                  </button>
+                  <button
+                    type="button"
+                    className={panelMode === "script" ? "btn-primary" : "btn-secondary"}
+                    aria-pressed={panelMode === "script"}
+                    onClick={() => setPanelMode("script")}
+                  >
+                    Full script
+                  </button>
+                </div>
+
+                {panelMode === "guided" && resolvedFlow ? (
+                  <div className="mt-4">
+                    <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted" aria-label="Call steps so far">
+                      {flowPath.map((id, index) => {
+                        const trailNode = getFlowNode(id);
+                        if (!trailNode) return null;
+                        return (
+                          <span key={`${id}-${index}`} className={index === flowPath.length - 1 ? "font-semibold text-body" : ""}>
+                            {index > 0 ? "› " : ""}
+                            {trailNode.title}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 rounded-lg border border-line bg-surface p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                        {resolvedFlow.node.stage}
+                      </p>
+                      <h3 className="mt-1 font-display text-base font-semibold">
+                        {resolvedFlow.node.title}
+                      </h3>
+                      {resolvedFlow.say ? (
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{resolvedFlow.say}</p>
+                      ) : null}
+                      {resolvedFlow.hint ? (
+                        <p className="mt-3 text-xs text-muted">Hint: {resolvedFlow.hint}</p>
+                      ) : null}
+                      {resolvedFlow.terminal && resolvedFlow.node.suggestedDisposition ? (
+                        <p className="mt-3 text-sm">
+                          Suggested outcome:{" "}
+                          <span className="font-semibold">
+                            {dispositionLabel(resolvedFlow.node.suggestedDisposition)}
+                          </span>
+                          {resolvedFlow.node.followUp
+                            ? ". Set the follow up date in the log form below, then save."
+                            : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                    {resolvedFlow.terminal ? (
+                      <button
+                        type="button"
+                        className="btn-primary mt-3"
+                        onClick={() => void saveAndNextLead()}
+                        disabled={savingCall}
+                      >
+                        {savingCall ? "Saving..." : "Save and next lead"}
+                      </button>
+                    ) : (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                          They say
+                        </p>
+                        <div className="mt-2 grid gap-2">
+                          {resolvedFlow.responses.map((response) => (
+                            <button
+                              type="button"
+                              key={response.label}
+                              className="btn-secondary text-left"
+                              onClick={() => goFlow(response.next)}
+                            >
+                              {response.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        onClick={flowBack}
+                        disabled={flowPath.length <= 1}
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        onClick={flowRestart}
+                        disabled={flowPath.length <= 1}
+                      >
+                        Restart call
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        aria-expanded={showRoadmap}
+                        onClick={() => setShowRoadmap((value) => !value)}
+                      >
+                        {showRoadmap ? "Hide roadmap" : "Show roadmap"}
+                      </button>
+                    </div>
+                    {showRoadmap ? (
+                      <div className="mt-3 max-h-96 overflow-y-auto rounded-lg border border-line bg-surface p-4 text-sm">
+                        <p className="text-xs text-muted">
+                          Every stage of the call and where each answer leads. The card you are
+                          on is in bold.
+                        </p>
+                        {flowRoadmap().map((group) => (
+                          <div key={group.stage} className="mt-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide">
+                              {group.stage}
+                            </p>
+                            <ul className="mt-1 space-y-1">
+                              {group.nodes.map((roadNode) => (
+                                <li key={roadNode.id}>
+                                  <span className={roadNode.id === currentFlowNode?.id ? "font-semibold" : ""}>
+                                    {roadNode.title}
+                                  </span>
+                                  {roadNode.terminal ? (
+                                    <span className="text-muted">
+                                      {" "}
+                                      (ends the call
+                                      {roadNode.suggestedDisposition
+                                        ? `: ${dispositionLabel(roadNode.suggestedDisposition)}`
+                                        : ""}
+                                      )
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted">
+                                      {" "}
+                                      leads to:{" "}
+                                      {(roadNode.responses ?? [])
+                                        .map((response) => getFlowNode(response.next)?.title ?? response.next)
+                                        .join(", ")}
+                                    </span>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {panelMode === "script" ? (
+                  <>
                 {personalScript ? (
                   <div className="mt-5 flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold">Script</span>
@@ -892,6 +1132,8 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                     </div>
                   </>
                 ) : null}
+                  </>
+                ) : null}
 
                 <div className="mt-5">
                   <button
@@ -949,7 +1191,7 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                     <label className="label" htmlFor="call-duration">Duration (minutes, optional)</label>
                     <input id="call-duration" className="input" type="number" min="0" step="0.5" value={durationMinutes} onChange={(e) => setDurationMinutes(e.target.value)} placeholder="3" />
                   </div>
-                  {disposition === "CALLBACK" ? (
+                  {disposition === "CALLBACK" || guidedFollowUp ? (
                     <div>
                       <label className="label" htmlFor="call-followup">Follow up at</label>
                       <input id="call-followup" className="input" type="datetime-local" value={followUpAt} onChange={(e) => setFollowUpAt(e.target.value)} />

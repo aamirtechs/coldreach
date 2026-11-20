@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.46.0 (2026-11-20)
+
+The call panel learns to walk the caller through the call, one
+answer at a time.
+
+- New Guided call mode in the call panel, alongside the Full
+  script view. One card at a time shows exactly what to say for
+  the current step, filled in with the selected lead's name,
+  company, hook, pain points and, for speed leads, their measured
+  score and load time. Buttons for what the prospect just said
+  move to the next card written for that answer: who answered,
+  gatekeeper branches, the permission opener, bad time, the early
+  and late not interested isolates, the reason, the pain question,
+  proof, the offer, the price, email, web person, think about it,
+  money and will it work answers, and every close.
+- The flow is data in a new pure lib (lib/calling/callFlow): 31
+  nodes with integrity tests proving every response target
+  exists, every node is reachable from the start, every path
+  reaches an ending, and every ending suggests a valid call
+  outcome. Leads without a measured score get the generic
+  variant: the offer becomes a free review with a fixed price in
+  writing, never an invented number.
+- Ending cards preselect the matching disposition in the log
+  form and ask for the follow up date where the ending books
+  one. A Save and next lead button logs the call and opens the
+  next lead with a phone in the current list. Back and Restart
+  are always available, switching leads resets the flow, and a
+  collapsible Roadmap outlines every stage and branch before or
+  during a call.
+- No schema change, no new API. No email is sent by any part of
+  this feature.
+
 ## 1.45.0 (2026-11-20)
 
 Call leads can now teach the caller how to say the decision
