@@ -72,7 +72,9 @@ export default async function CallingPage() {
       lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
         ? (lead.fields as Record<string, unknown>)
         : {};
-    const phone = typeof fields.phone === "string" ? fields.phone : "";
+    const phoneKey = Object.keys(fields).find((key) => key.toLowerCase() === "phone");
+    const phone =
+      phoneKey && typeof fields[phoneKey] === "string" ? (fields[phoneKey] as string) : "";
     return {
       id: lead.id,
       email: lead.email,

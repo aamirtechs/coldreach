@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.44.0 (2026-11-20)
+
+Call leads grow up: every lead can now carry the full calling
+picture, and the call panel puts it in front of the caller.
+
+- Enriched call lead fields, stored in the lead's fields alongside
+  the phone: city, state, timezone, bestTimeNote, bestStartHour and
+  bestEndHour (the best window in lead-local hours, fractional
+  values allowed), decisionMaker, painPoints, hook, mobileScore,
+  lcp and a per lead personalScript. The Add call lead form and a
+  new Edit lead details form in the call panel cover all of them,
+  with a dropdown of the common US timezones. When a lead has a
+  timezone but no window, the best window defaults to 9 to 11am
+  lead local.
+- Call panel: location, the lead's current local time computed
+  live from its timezone, a good-time-to-call indicator when the
+  local time sits inside the best window, the best time note, the
+  pain points, and the hook in its own highlighted block. When a
+  lead carries a personalScript, the panel shows and uses it
+  (editable in the lead details) with a toggle back to the shared
+  script; the shared script's objection replies stay available.
+- Call Leads list rows now show city and state plus a best time
+  chip with the lead's local time.
+- Script renderer gains the {{city}}, {{state}}, {{painPoints}},
+  {{hook}} and {{decisionMaker}} tokens; {{hook}} falls back to
+  the lead's icebreaker line, which is where a CSV hook column
+  lands. The CSV import wizard now guesses the calling columns
+  (phone, city, state, timezone, painPoints, mobileScore, lcp and
+  friends) onto their canonical field keys, so a calling CSV
+  imports ready to dial.
+- No schema change: everything lives in the existing fields JSON.
+  No email is sent by any part of this feature.
+
 ## 1.43.0 (2026-11-20)
 
 A Calling section joins the app, so the same workspace that runs

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError, readJson, requireSession, stringField } from "@/lib/api";
 import { writeAuditLog } from "@/lib/audit";
 import { createLead } from "@/lib/leads/createLead";
+import { callingFieldsFromBody } from "@/lib/calling/leadFields";
 
 const SCAN_LIMIT = 5000;
 const DEFAULT_LIST_NAME = "Calling leads";
@@ -53,7 +54,11 @@ export async function GET(request: Request) {
         lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
           ? (lead.fields as Record<string, unknown>)
           : {};
-      const phone = typeof fields.phone === "string" ? fields.phone : "";
+      // Case-insensitive: imports made before v1.44.0 could land the
+      // number under a capitalised "Phone" key.
+      const phoneKey = Object.keys(fields).find((key) => key.toLowerCase() === "phone");
+      const phone =
+        phoneKey && typeof fields[phoneKey] === "string" ? (fields[phoneKey] as string) : "";
       return {
         id: lead.id,
         email: lead.email,
@@ -109,11 +114,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A name or a company is required" }, { status: 400 });
   }
   const [firstName, ...rest] = name.split(/\s+/).filter(Boolean);
-  const fields: Record<string, string> = { phone };
+  const fields: Record<string, string | number> = { phone };
   if (firstName) fields.firstName = firstName;
   if (rest.length) fields.lastName = rest.join(" ");
   if (company) fields.company = company;
   if (website) fields.website = website;
+  // Enriched calling fields (v1.44.0): location, timezone and best
+  // window, decision maker, pain points, hook, score and the per
+  // lead personal script. Empty strings are dropped on create.
+  const calling = callingFieldsFromBody(body as Record<string, unknown>);
+  if ("error" in calling) {
+    return NextResponse.json({ error: calling.error }, { status: 400 });
+  }
+  for (const [key, value] of Object.entries(calling.fields)) {
+    if (value !== "") fields[key] = value;
+  }
 
   try {
     let listId = stringField(body.listId) || null;

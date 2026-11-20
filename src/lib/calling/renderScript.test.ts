@@ -46,4 +46,36 @@ describe("renderScriptTemplate", () => {
     expect(renderScriptTemplate("Hi {{firstName}}", { fields: null })).toBe("Hi ");
     expect(scriptValuesForLead({ fields: null, email: null })).toEqual({});
   });
+
+  it("fills the v1.44.0 tokens: city, state, painPoints, hook, decisionMaker", () => {
+    const rendered = renderScriptTemplate(
+      "Ask for {{decisionMaker}} in {{city}}, {{state}}. Hook: {{hook}} Pain: {{painPoints}}",
+      {
+        fields: {
+          decisionMaker: "Anna Handy",
+          city: "Daytona Beach",
+          state: "FL",
+          hook: "Your site scored 24 out of 100 on mobile.",
+          painPoints: "Solo practice, every lost mobile visitor is a lost intake.",
+        },
+      },
+    );
+    expect(rendered).toBe(
+      "Ask for Anna Handy in Daytona Beach, FL. Hook: Your site scored 24 out of 100 on mobile. Pain: Solo practice, every lost mobile visitor is a lost intake.",
+    );
+  });
+
+  it("falls back to the icebreaker field for the hook token, as CSV hook columns land there", () => {
+    const rendered = renderScriptTemplate("Open with: {{hook}}", {
+      fields: { icebreaker: "Your homepage took 16 seconds to load on a phone." },
+    });
+    expect(rendered).toBe("Open with: Your homepage took 16 seconds to load on a phone.");
+  });
+
+  it("prefers an explicit hook field over the icebreaker fallback", () => {
+    const rendered = renderScriptTemplate("{{hook}}", {
+      fields: { hook: "The calling hook.", icebreaker: "The email icebreaker." },
+    });
+    expect(rendered).toBe("The calling hook.");
+  });
 });

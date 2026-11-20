@@ -55,6 +55,21 @@ export function guessImportTarget(header: string): string {
     ["icebreaker", "icebreakers", "icebreakerline", "openingline", "hook", "hooks", "hookline", "hooklines"].includes(h)
   )
     return "icebreaker";
+  // Calling columns (v1.44.0): the Calling section reads these lead
+  // fields under their canonical keys, so the wizard maps the common
+  // header spellings onto them instead of passing the header through
+  // with its original casing.
+  if (["phone", "phonenumber", "telephone", "mobile", "cell", "cellphone"].includes(h)) return "phone";
+  if (["website", "site", "webpage", "homepage"].includes(h)) return "website";
+  if (["city", "town"].includes(h)) return "city";
+  if (["state", "province", "region"].includes(h)) return "state";
+  if (["timezone", "tz"].includes(h)) return "timezone";
+  if (["besttimenote", "besttime", "callwindow"].includes(h)) return "bestTimeNote";
+  if (["decisionmaker", "decisionmakers"].includes(h)) return "decisionMaker";
+  if (["painpoints", "painpoint", "pains"].includes(h)) return "painPoints";
+  if (["mobilescore", "pagespeedscore", "speedscore"].includes(h)) return "mobileScore";
+  if (["lcp", "loadtime", "lcpseconds"].includes(h)) return "lcp";
+  if (["personalscript", "callscript"].includes(h)) return "personalScript";
   return header;
 }
 

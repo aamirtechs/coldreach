@@ -91,6 +91,45 @@ describe("importLeadsFromCsv", () => {
     expect(kept[0].fields).toMatchObject({ firstName: "Ada", company: "Acme" });
   });
 
+  it("lands the Calling columns in lead fields under their own names (v1.44.0)", async () => {
+    const csv = [
+      "Email,Phone,City,State,Timezone,PainPoints,MobileScore,LCP,Hook",
+      "callme@example.com,+1 555 010 2030,Daytona Beach,FL,America/New_York,Slow mobile site,24,15.9s,Scored 24 out of 100",
+    ].join("\n");
+
+    const result = await importLeadsFromCsv(db, {
+      workspaceId,
+      listId,
+      csvText: csv,
+      mapping: {
+        Email: "email",
+        Phone: guessImportTarget("Phone"),
+        City: guessImportTarget("City"),
+        State: guessImportTarget("State"),
+        Timezone: guessImportTarget("Timezone"),
+        PainPoints: guessImportTarget("PainPoints"),
+        MobileScore: guessImportTarget("MobileScore"),
+        LCP: guessImportTarget("LCP"),
+        Hook: guessImportTarget("Hook"),
+      },
+    });
+
+    expect(result.summary.kept).toBe(1);
+    const lead = await db.lead.findFirst({ where: { workspaceId, email: "callme@example.com" } });
+    expect(lead?.fields).toMatchObject({
+      phone: "+1 555 010 2030",
+      city: "Daytona Beach",
+      state: "FL",
+      timezone: "America/New_York",
+      painPoints: "Slow mobile site",
+      mobileScore: "24",
+      lcp: "15.9s",
+      // A Hook column is guessed to the icebreaker target (v1.30.1);
+      // Calling reads it back as the hook fallback.
+      icebreaker: "Scored 24 out of 100",
+    });
+  });
+
   it("refuses an import with no email mapping", async () => {
     await expect(
       importLeadsFromCsv(db, {

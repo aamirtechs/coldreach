@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, PhoneCall } from "lucide-react";
 import { CALL_DISPOSITIONS, dispositionLabel } from "@/lib/calling/dispositions";
 import { renderScriptTemplate } from "@/lib/calling/renderScript";
+import { US_TIMEZONES, callWindowStatus, formatHour } from "@/lib/calling/callWindow";
 
 export interface CallingLead {
   id: string;
@@ -71,6 +72,57 @@ function fieldText(fields: Record<string, unknown> | unknown, key: string): stri
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function fieldNumberText(fields: Record<string, unknown> | unknown, key: string): string {
+  const text = fieldText(fields, key);
+  if (!text) return "";
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? String(parsed) : "";
+}
+
+/** City, State line for a lead, empty when neither is recorded. */
+function leadLocation(fields: Record<string, unknown> | unknown): string {
+  const city = fieldText(fields, "city");
+  const state = fieldText(fields, "state");
+  return [city, state].filter(Boolean).join(", ");
+}
+
+/** The lead's hook, falling back to its email icebreaker line. */
+function leadHook(fields: Record<string, unknown> | unknown): string {
+  return fieldText(fields, "hook") || fieldText(fields, "icebreaker");
+}
+
+const EMPTY_CALLING_DETAILS = {
+  city: "",
+  state: "",
+  timezone: "",
+  bestTimeNote: "",
+  bestStartHour: "",
+  bestEndHour: "",
+  decisionMaker: "",
+  mobileScore: "",
+  lcp: "",
+  painPoints: "",
+  hook: "",
+  personalScript: "",
+};
+
+function callingDetailsFromFields(fields: Record<string, unknown> | unknown) {
+  return {
+    city: fieldText(fields, "city"),
+    state: fieldText(fields, "state"),
+    timezone: fieldText(fields, "timezone"),
+    bestTimeNote: fieldText(fields, "bestTimeNote"),
+    bestStartHour: fieldNumberText(fields, "bestStartHour"),
+    bestEndHour: fieldNumberText(fields, "bestEndHour"),
+    decisionMaker: fieldText(fields, "decisionMaker"),
+    mobileScore: fieldText(fields, "mobileScore"),
+    lcp: fieldText(fields, "lcp"),
+    painPoints: fieldText(fields, "painPoints"),
+    hook: leadHook(fields),
+    personalScript: fieldText(fields, "personalScript"),
+  };
+}
+
 function leadDisplayName(lead: { email: string; fields: unknown }): string {
   const first = fieldText(lead.fields, "firstName");
   const last = fieldText(lead.fields, "lastName");
@@ -117,8 +169,26 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     email: "",
     listId: "",
     newListName: "",
+    ...EMPTY_CALLING_DETAILS,
   });
   const [addingLead, setAddingLead] = useState(false);
+  // Edit lead details (call panel) and which script the panel shows.
+  const [showEditLead, setShowEditLead] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    company: "",
+    phone: "",
+    website: "",
+    ...EMPTY_CALLING_DETAILS,
+  });
+  const [savingLead, setSavingLead] = useState(false);
+  const [scriptView, setScriptView] = useState<"personal" | "workspace">("personal");
+  // Ticking clock so the lead local times and call-now chips stay live.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Scripts state
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
@@ -129,17 +199,42 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     () => leads.find((lead) => lead.id === selectedLeadId) ?? null,
     [leads, selectedLeadId],
   );
+
+  // Opening a lead resets the panel: personal script first when the
+  // lead has one, edit form closed and prefilled from the lead.
+  useEffect(() => {
+    setScriptView("personal");
+    setShowEditLead(false);
+    if (selectedLead) {
+      setEditForm({
+        name: leadDisplayName(selectedLead),
+        company: fieldText(selectedLead.fields, "company"),
+        phone: selectedLead.phone,
+        website: fieldText(selectedLead.fields, "website"),
+        ...callingDetailsFromFields(selectedLead.fields),
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLeadId]);
   const selectedScript = useMemo(
     () => scripts.find((script) => script.id === selectedScriptId) ?? null,
     [scripts, selectedScriptId],
   );
+  const personalScript = selectedLead ? fieldText(selectedLead.fields, "personalScript") : "";
   const renderedScript = useMemo(() => {
-    if (!selectedScript || !selectedLead) return "";
+    if (!selectedLead) return "";
+    if (scriptView === "personal" && personalScript) {
+      return renderScriptTemplate(personalScript, {
+        fields: selectedLead.fields,
+        email: selectedLead.email,
+      });
+    }
+    if (!selectedScript) return "";
     return renderScriptTemplate(selectedScript.body, {
       fields: selectedLead.fields,
       email: selectedLead.email,
     });
-  }, [selectedScript, selectedLead]);
+  }, [selectedScript, selectedLead, scriptView, personalScript]);
   const renderedObjections = useMemo(() => {
     if (!selectedScript?.objectionNotes || !selectedLead) return "";
     return renderScriptTemplate(selectedScript.objectionNotes, {
@@ -192,13 +287,122 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
         setError(data.error ?? "Could not add the lead");
         return;
       }
-      setAddForm({ name: "", company: "", phone: "", website: "", email: "", listId: "", newListName: "" });
+      setAddForm({
+        name: "",
+        company: "",
+        phone: "",
+        website: "",
+        email: "",
+        listId: "",
+        newListName: "",
+        ...EMPTY_CALLING_DETAILS,
+      });
       await refreshLeads(listFilter);
       if (data.lead?.id) setSelectedLeadId(data.lead.id);
       setNotice("Call lead added.");
     } finally {
       setAddingLead(false);
     }
+  }
+
+  async function submitEditLead(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedLead) return;
+    setError("");
+    setNotice("");
+    setSavingLead(true);
+    try {
+      const response = await fetch(`/api/calling/leads/${selectedLead.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setError(data.error ?? "Could not save the lead details");
+        return;
+      }
+      await refreshLeads(listFilter);
+      setShowEditLead(false);
+      setNotice("Lead details saved.");
+    } finally {
+      setSavingLead(false);
+    }
+  }
+
+  /** The enriched calling fields, shared by the add and edit forms. */
+  function callingDetailsFields(
+    form: typeof EMPTY_CALLING_DETAILS,
+    patch: (values: Partial<typeof EMPTY_CALLING_DETAILS>) => void,
+    prefix: string,
+  ) {
+    const set = (key: keyof typeof EMPTY_CALLING_DETAILS) => (value: string) =>
+      patch({ [key]: value });
+    return (
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="label" htmlFor={`${prefix}-city`}>City</label>
+          <input id={`${prefix}-city`} className="input" value={form.city} onChange={(e) => set("city")(e.target.value)} placeholder="Daytona Beach" />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-state`}>State</label>
+          <input id={`${prefix}-state`} className="input" value={form.state} onChange={(e) => set("state")(e.target.value)} placeholder="FL" />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-timezone`}>Timezone</label>
+          <select id={`${prefix}-timezone`} className="input" value={form.timezone} onChange={(e) => set("timezone")(e.target.value)}>
+            <option value="">Not set</option>
+            {US_TIMEZONES.map((zone) => (
+              <option key={zone} value={zone}>
+                {zone.replace("_", " ")}
+              </option>
+            ))}
+            {form.timezone && !(US_TIMEZONES as readonly string[]).includes(form.timezone) ? (
+              <option value={form.timezone}>{form.timezone.replace("_", " ")}</option>
+            ) : null}
+          </select>
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-decision`}>Decision maker</label>
+          <input id={`${prefix}-decision`} className="input" value={form.decisionMaker} onChange={(e) => set("decisionMaker")(e.target.value)} placeholder="Anna Handy, owner" />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-start`}>Best window start (their time, 24h)</label>
+          <input id={`${prefix}-start`} className="input" type="number" min="0" max="24" step="0.5" value={form.bestStartHour} onChange={(e) => set("bestStartHour")(e.target.value)} placeholder="9" />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-end`}>Best window end (their time, 24h)</label>
+          <input id={`${prefix}-end`} className="input" type="number" min="0" max="24" step="0.5" value={form.bestEndHour} onChange={(e) => set("bestEndHour")(e.target.value)} placeholder="11" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor={`${prefix}-bestnote`}>Best time note</label>
+          <input id={`${prefix}-bestnote`} className="input" value={form.bestTimeNote} onChange={(e) => set("bestTimeNote")(e.target.value)} placeholder="Mon to Thu, 9 to 11am her time" />
+          <p className="mt-1 text-xs text-muted">
+            Leave the window empty to use the default best window, 9 to 11am their time.
+          </p>
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-score`}>Mobile score</label>
+          <input id={`${prefix}-score`} className="input" value={form.mobileScore} onChange={(e) => set("mobileScore")(e.target.value)} placeholder="24" />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-lcp`}>Load time (LCP)</label>
+          <input id={`${prefix}-lcp`} className="input" value={form.lcp} onChange={(e) => set("lcp")(e.target.value)} placeholder="15.9s" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor={`${prefix}-pain`}>Pain points</label>
+          <textarea id={`${prefix}-pain`} className="input" rows={3} value={form.painPoints} onChange={(e) => set("painPoints")(e.target.value)} placeholder="Why this lead hurts, in plain words." />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor={`${prefix}-hook`}>Hook (one line opener)</label>
+          <textarea id={`${prefix}-hook`} className="input" rows={2} value={form.hook} onChange={(e) => set("hook")(e.target.value)} placeholder="The one personal line that opens the call." />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor={`${prefix}-personal`}>Personalized script for this lead (optional)</label>
+          <textarea id={`${prefix}-personal`} className="input" rows={8} value={form.personalScript} onChange={(e) => set("personalScript")(e.target.value)} placeholder="A script written for this lead alone. When set, the call panel shows this instead of the shared script." />
+        </div>
+      </div>
+    );
   }
 
   async function saveCall() {
@@ -356,23 +560,40 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                     (a phone field) and they will appear here.
                   </li>
                 ) : (
-                  leads.map((lead) => (
-                    <li key={lead.id}>
-                      <button
-                        type="button"
-                        className={`w-full px-2 py-3 text-left ${lead.id === selectedLeadId ? "bg-elevated" : ""}`}
-                        onClick={() => setSelectedLeadId(lead.id)}
-                      >
-                        <span className="block text-sm font-medium">{leadDisplayName(lead)}</span>
-                        <span className="block text-xs text-muted">
-                          {lead.phone || "No phone"} · {fieldText(lead.fields, "company") || lead.email}
-                          {lead.lastCall
-                            ? ` · Last call: ${dispositionLabel(lead.lastCall.disposition)}`
-                            : " · Not called yet"}
-                        </span>
-                      </button>
-                    </li>
-                  ))
+                  leads.map((lead) => {
+                    const status = callWindowStatus(lead.fields, now);
+                    return (
+                      <li key={lead.id}>
+                        <button
+                          type="button"
+                          className={`w-full px-2 py-3 text-left ${lead.id === selectedLeadId ? "bg-elevated" : ""}`}
+                          onClick={() => setSelectedLeadId(lead.id)}
+                        >
+                          <span className="block text-sm font-medium">{leadDisplayName(lead)}</span>
+                          <span className="block text-xs text-muted">
+                            {lead.phone || "No phone"} · {fieldText(lead.fields, "company") || lead.email}
+                            {leadLocation(lead.fields) ? ` · ${leadLocation(lead.fields)}` : ""}
+                            {lead.lastCall
+                              ? ` · Last call: ${dispositionLabel(lead.lastCall.disposition)}`
+                              : " · Not called yet"}
+                          </span>
+                          {status.state !== "unknown" ? (
+                            <span
+                              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                status.state === "good"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-surface text-muted"
+                              }`}
+                            >
+                              {status.state === "good"
+                                ? `Good time to call, their time ${status.localTimeLabel}`
+                                : `Their time ${status.localTimeLabel}, best ${formatHour(status.window!.startHour)} to ${formatHour(status.window!.endHour)}`}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })
                 )}
               </ul>
             </div>
@@ -418,9 +639,17 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   </div>
                 ) : null}
               </div>
+              <h3 className="mt-5 text-sm font-semibold">Calling details (optional)</h3>
+              {callingDetailsFields(addForm, (values) => setAddForm({ ...addForm, ...values }), "add")}
               <button type="submit" className="btn-primary mt-4" disabled={addingLead}>
                 {addingLead ? "Adding..." : "Add call lead"}
               </button>
+              <p className="mt-3 text-xs text-muted">
+                Bulk instead? The CSV import in Leads accepts these columns and stores them on
+                the lead: phone, city, state, timezone, bestTimeNote, decisionMaker, painPoints,
+                mobileScore, lcp and personalScript. A column named hook imports as the lead's
+                icebreaker, and Calling uses it as the hook when no hook field is set.
+              </p>
             </form>
           </div>
 
@@ -438,6 +667,57 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                     : ""}
                   {` · ${selectedLead.email}`}
                 </p>
+                {(() => {
+                  const status = callWindowStatus(selectedLead.fields, now);
+                  const location = leadLocation(selectedLead.fields);
+                  const decisionMaker = fieldText(selectedLead.fields, "decisionMaker");
+                  const bestTimeNote = fieldText(selectedLead.fields, "bestTimeNote");
+                  if (!location && status.state === "unknown" && !decisionMaker && !bestTimeNote) {
+                    return null;
+                  }
+                  return (
+                    <div className="mt-3 rounded-lg border border-line bg-surface p-3 text-sm">
+                      {location ? <p>{location}</p> : null}
+                      {decisionMaker ? (
+                        <p className="text-muted">Ask for: {decisionMaker}</p>
+                      ) : null}
+                      {status.state !== "unknown" ? (
+                        <p className="mt-1">
+                          Their time now: {status.localTimeLabel}.{" "}
+                          {status.state === "good" ? (
+                            <span className="font-semibold text-emerald-600">
+                              Good time to call, inside the best window (
+                              {formatHour(status.window!.startHour)} to{" "}
+                              {formatHour(status.window!.endHour)}).
+                            </span>
+                          ) : (
+                            <span className="text-muted">
+                              Best window {formatHour(status.window!.startHour)} to{" "}
+                              {formatHour(status.window!.endHour)} their time.
+                            </span>
+                          )}
+                        </p>
+                      ) : null}
+                      {bestTimeNote ? <p className="mt-1 text-muted">{bestTimeNote}</p> : null}
+                    </div>
+                  );
+                })()}
+                {leadHook(selectedLead.fields) ? (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
+                    <p className="text-xs font-semibold uppercase tracking-wide">Hook</p>
+                    <p className="mt-1">{leadHook(selectedLead.fields)}</p>
+                  </div>
+                ) : null}
+                {fieldText(selectedLead.fields, "painPoints") ? (
+                  <div className="mt-3 text-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      Pain points
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap">
+                      {fieldText(selectedLead.fields, "painPoints")}
+                    </p>
+                  </div>
+                ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {selectedLead.phone ? (
                     <a className="btn-primary" href={`tel:${selectedLead.phone.replace(/[^+\d]/g, "")}`}>
@@ -453,40 +733,114 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   </a>
                 </div>
 
-                <label className="label mt-5" htmlFor="call-script-select">Script</label>
-                <select
-                  id="call-script-select"
-                  className="input"
-                  value={selectedScriptId}
-                  onChange={(event) => setSelectedScriptId(event.target.value)}
-                >
-                  <option value="">No script</option>
-                  {scripts.map((script) => (
-                    <option key={script.id} value={script.id}>
-                      {script.name}
-                    </option>
-                  ))}
-                </select>
-                {selectedScript ? (
-                  <>
-                    <div className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm leading-6">
-                      {renderedScript}
-                    </div>
-                    {renderedObjections ? (
-                      <>
-                        <h3 className="mt-4 text-sm font-semibold">Objection replies</h3>
-                        <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm leading-6">
-                          {renderedObjections}
-                        </div>
-                      </>
-                    ) : null}
-                  </>
+                {personalScript ? (
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold">Script</span>
+                    <button
+                      type="button"
+                      className={scriptView === "personal" ? "btn-primary" : "btn-secondary"}
+                      aria-pressed={scriptView === "personal"}
+                      onClick={() => setScriptView("personal")}
+                    >
+                      Personalized for this lead
+                    </button>
+                    <button
+                      type="button"
+                      className={scriptView === "workspace" ? "btn-primary" : "btn-secondary"}
+                      aria-pressed={scriptView === "workspace"}
+                      onClick={() => setScriptView("workspace")}
+                    >
+                      Shared script
+                    </button>
+                  </div>
+                ) : null}
+                {scriptView === "personal" && personalScript ? (
+                  <div className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm leading-6">
+                    {renderedScript}
+                  </div>
                 ) : (
-                  <p className="mt-3 text-sm text-muted">
-                    No script selected. Create one in the Scripts tab, or insert the WordPress
-                    speed sample there.
-                  </p>
+                  <>
+                    <label className="label mt-5" htmlFor="call-script-select">Script</label>
+                    <select
+                      id="call-script-select"
+                      className="input"
+                      value={selectedScriptId}
+                      onChange={(event) => setSelectedScriptId(event.target.value)}
+                    >
+                      <option value="">No script</option>
+                      {scripts.map((script) => (
+                        <option key={script.id} value={script.id}>
+                          {script.name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedScript ? (
+                      <>
+                        <div className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm leading-6">
+                          {renderedScript}
+                        </div>
+                        {renderedObjections ? (
+                          <>
+                            <h3 className="mt-4 text-sm font-semibold">Objection replies</h3>
+                            <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm leading-6">
+                              {renderedObjections}
+                            </div>
+                          </>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="mt-3 text-sm text-muted">
+                        No script selected. Create one in the Scripts tab, or insert the WordPress
+                        speed sample there.
+                      </p>
+                    )}
+                  </>
                 )}
+                {scriptView === "personal" && personalScript && renderedObjections ? (
+                  <>
+                    <h3 className="mt-4 text-sm font-semibold">Objection replies (shared script)</h3>
+                    <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm leading-6">
+                      {renderedObjections}
+                    </div>
+                  </>
+                ) : null}
+
+                <div className="mt-5">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    aria-expanded={showEditLead}
+                    onClick={() => setShowEditLead((value) => !value)}
+                  >
+                    {showEditLead ? "Close lead details" : "Edit lead details"}
+                  </button>
+                  {showEditLead ? (
+                    <form onSubmit={submitEditLead} className="mt-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                          <label className="label" htmlFor="edit-name">Name</label>
+                          <input id="edit-name" className="input" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label" htmlFor="edit-company">Company</label>
+                          <input id="edit-company" className="input" value={editForm.company} onChange={(e) => setEditForm({ ...editForm, company: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label" htmlFor="edit-phone">Phone</label>
+                          <input id="edit-phone" className="input" required value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label" htmlFor="edit-website">Website</label>
+                          <input id="edit-website" className="input" value={editForm.website} onChange={(e) => setEditForm({ ...editForm, website: e.target.value })} />
+                        </div>
+                      </div>
+                      {callingDetailsFields(editForm, (values) => setEditForm({ ...editForm, ...values }), "edit")}
+                      <button type="submit" className="btn-primary mt-4" disabled={savingLead}>
+                        {savingLead ? "Saving..." : "Save lead details"}
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
 
                 <h3 className="mt-5 text-sm font-semibold">Log this call</h3>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -556,7 +910,8 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
             <p className="mt-3 text-xs text-muted">
               Placeholders you can use in a script: {"{{firstName}}"}, {"{{lastName}}"},{" "}
               {"{{company}}"}, {"{{phone}}"}, {"{{website}}"}, {"{{mobileScore}}"}, {"{{lcp}}"},{" "}
-              {"{{email}}"}. They fill from the lead when you open the call panel.
+              {"{{email}}"}, {"{{city}}"}, {"{{state}}"}, {"{{painPoints}}"}, {"{{hook}}"},{" "}
+              {"{{decisionMaker}}"}. They fill from the lead when you open the call panel.
             </p>
           </div>
           <form onSubmit={saveScript} className="card h-fit p-5">

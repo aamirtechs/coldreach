@@ -1,9 +1,14 @@
 /**
- * Placeholder rendering for call scripts (v1.43.0). A script body can
- * carry {{token}} placeholders that the call panel fills from the
- * selected lead at call time, so one script serves every lead. Values
- * come from the lead's fields JSON (phone, company, firstName,
- * lastName, website, mobileScore, lcp) plus the lead's email column.
+ * Placeholder rendering for call scripts (v1.43.0, extended in
+ * v1.44.0). A script body can carry {{token}} placeholders that the
+ * call panel fills from the selected lead at call time, so one
+ * script serves every lead. Values come from the lead's fields JSON
+ * (phone, company, firstName, lastName, website, mobileScore, lcp,
+ * city, state, painPoints, hook, decisionMaker) plus the lead's
+ * email column. The {{hook}} token falls back to the lead's
+ * icebreaker field, because the CSV import wizard maps a "hook"
+ * column onto the icebreaker field (v1.30.1) and an icebreaker line
+ * is exactly what a hook is.
  *
  * Lookup is case-insensitive on the token name, matching how lead
  * fields arrive from CSV imports with mixed casing. A token with no
@@ -22,6 +27,11 @@ export const SCRIPT_PLACEHOLDER_KEYS = [
   "mobileScore",
   "lcp",
   "email",
+  "city",
+  "state",
+  "painPoints",
+  "hook",
+  "decisionMaker",
 ] as const;
 
 const KNOWN_KEYS = new Set<string>(SCRIPT_PLACEHOLDER_KEYS.map((k) => k.toLowerCase()));
@@ -48,6 +58,7 @@ export function scriptValuesForLead(context: ScriptLeadContext): Record<string, 
   }
   const email = fieldString(context.email);
   if (email && !values.email) values.email = email;
+  if (!values.hook && values.icebreaker) values.hook = values.icebreaker;
   return values;
 }
 
