@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.45.0 (2026-11-20)
+
+Call leads can now teach the caller how to say the decision
+maker's name before the phone rings.
+
+- New lead field namePronunciation, a phonetic respelling of the
+  decision maker's name in simple American English syllables (for
+  example "LEN-erd duh-ZEER"). The Add call lead form, the Edit
+  lead details form and the CSV import wizard (a column named
+  namePronunciation or Pronunciation) all carry it.
+- Call panel: the respelling sits at the top of the panel near
+  the lead's name and again next to the decision maker, with two
+  small listen buttons. Listen speaks the name, Hear the greeting
+  speaks the opening line "Hi, is that Anna?", both through the
+  browser's built in speech synthesis with a US English voice at
+  a slower rate, so there is no paid API and no key. Browsers
+  without speech built in show a plain note instead.
+- The six seeded WordPress Speed Call Leads carry their
+  respellings: Anna Handy, Amy Smith, Leonard Desir, Austin
+  Arnow, Adam Campbell and Michael Peterson.
+- No schema change: the respelling lives in the existing fields
+  JSON. No email is sent by any part of this feature.
+
 ## 1.44.0 (2026-11-20)
 
 Call leads grow up: every lead can now carry the full calling

@@ -16,6 +16,7 @@ export const CALLING_STRING_FIELDS = [
   "timezone",
   "bestTimeNote",
   "decisionMaker",
+  "namePronunciation",
   "painPoints",
   "hook",
   "mobileScore",

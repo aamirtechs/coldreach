@@ -37,6 +37,7 @@ async function main() {
         `tz=${f.timezone ?? "MISSING"}`,
         `window=${f.bestStartHour ?? "?"}-${f.bestEndHour ?? "?"}`,
         `dm=${f.decisionMaker ? "yes" : "MISSING"}`,
+        `pron=${f.namePronunciation ? String(f.namePronunciation) : "MISSING"}`,
         `score=${f.mobileScore ?? "?"}`,
         `lcp=${f.lcp ?? "?"}`,
         `pain=${typeof f.painPoints === "string" && f.painPoints.length > 20 ? "yes" : "MISSING"}`,

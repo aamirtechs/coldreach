@@ -26,6 +26,15 @@ describe("callingFieldsFromBody", () => {
     });
   });
 
+  it("extracts the name pronunciation respelling, trimmed", () => {
+    expect(callingFieldsFromBody({ namePronunciation: " LEN-erd duh-ZEER " })).toEqual({
+      fields: { namePronunciation: "LEN-erd duh-ZEER" },
+    });
+    expect(callingFieldsFromBody({ namePronunciation: 42 })).toEqual({
+      error: "namePronunciation must be text",
+    });
+  });
+
   it("accepts a fractional start hour for early morning windows", () => {
     expect(callingFieldsFromBody({ bestStartHour: 7.5 })).toEqual({
       fields: { bestStartHour: 7.5 },

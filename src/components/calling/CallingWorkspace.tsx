@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, PhoneCall } from "lucide-react";
+import { ExternalLink, PhoneCall, Volume2 } from "lucide-react";
 import { CALL_DISPOSITIONS, dispositionLabel } from "@/lib/calling/dispositions";
 import { renderScriptTemplate } from "@/lib/calling/renderScript";
 import { US_TIMEZONES, callWindowStatus, formatHour } from "@/lib/calling/callWindow";
+import {
+  NAME_SPEECH_RATE,
+  greetingNameForFields,
+  greetingUtteranceText,
+  pickEnUsVoice,
+  spokenNameForFields,
+} from "@/lib/calling/pronunciation";
 
 export interface CallingLead {
   id: string;
@@ -99,6 +106,7 @@ const EMPTY_CALLING_DETAILS = {
   bestStartHour: "",
   bestEndHour: "",
   decisionMaker: "",
+  namePronunciation: "",
   mobileScore: "",
   lcp: "",
   painPoints: "",
@@ -115,6 +123,7 @@ function callingDetailsFromFields(fields: Record<string, unknown> | unknown) {
     bestStartHour: fieldNumberText(fields, "bestStartHour"),
     bestEndHour: fieldNumberText(fields, "bestEndHour"),
     decisionMaker: fieldText(fields, "decisionMaker"),
+    namePronunciation: fieldText(fields, "namePronunciation"),
     mobileScore: fieldText(fields, "mobileScore"),
     lcp: fieldText(fields, "lcp"),
     painPoints: fieldText(fields, "painPoints"),
@@ -189,6 +198,26 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
+  // Name pronunciation audio: the browser's built in speech
+  // synthesis, free in Chrome. Null until the client check runs, so
+  // nothing flashes during hydration; false hides the buttons and
+  // shows a plain note instead.
+  const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
+  useEffect(() => {
+    setSpeechSupported("speechSynthesis" in window);
+  }, []);
+
+  function speakText(text: string) {
+    if (!text || !("speechSynthesis" in window)) return;
+    const synth = window.speechSynthesis;
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voice = pickEnUsVoice(synth.getVoices());
+    if (voice) utterance.voice = voice;
+    utterance.lang = "en-US";
+    utterance.rate = NAME_SPEECH_RATE;
+    synth.cancel();
+    synth.speak(utterance);
+  }
 
   // Scripts state
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
@@ -365,6 +394,14 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
         <div>
           <label className="label" htmlFor={`${prefix}-decision`}>Decision maker</label>
           <input id={`${prefix}-decision`} className="input" value={form.decisionMaker} onChange={(e) => set("decisionMaker")(e.target.value)} placeholder="Anna Handy, owner" />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-pronunciation`}>Name pronunciation</label>
+          <input id={`${prefix}-pronunciation`} className="input" value={form.namePronunciation} onChange={(e) => set("namePronunciation")(e.target.value)} placeholder="LEN-erd duh-ZEER" />
+          <p className="mt-1 text-xs text-muted">
+            How the decision maker's name sounds, in plain syllables. The call panel shows it
+            next to the name, with a listen button that speaks the name aloud.
+          </p>
         </div>
         <div>
           <label className="label" htmlFor={`${prefix}-start`}>Best window start (their time, 24h)</label>
@@ -646,7 +683,8 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
               </button>
               <p className="mt-3 text-xs text-muted">
                 Bulk instead? The CSV import in Leads accepts these columns and stores them on
-                the lead: phone, city, state, timezone, bestTimeNote, decisionMaker, painPoints,
+                the lead: phone, city, state, timezone, bestTimeNote, decisionMaker,
+                namePronunciation (or a column named Pronunciation), painPoints,
                 mobileScore, lcp and personalScript. A column named hook imports as the lead's
                 icebreaker, and Calling uses it as the hook when no hook field is set.
               </p>
@@ -668,6 +706,51 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   {` · ${selectedLead.email}`}
                 </p>
                 {(() => {
+                  const pronunciation = fieldText(selectedLead.fields, "namePronunciation");
+                  const spokenName = spokenNameForFields(selectedLead.fields);
+                  const greeting =
+                    greetingUtteranceText(greetingNameForFields(selectedLead.fields)) ||
+                    (spokenName ? greetingUtteranceText(spokenName.split(" ")[0]) : "");
+                  if (!pronunciation && !spokenName) return null;
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                      {pronunciation ? (
+                        <span className="text-muted">
+                          Say the name: <span className="font-medium">{pronunciation}</span>
+                        </span>
+                      ) : null}
+                      {speechSupported ? (
+                        <>
+                          {spokenName ? (
+                            <button
+                              type="button"
+                              className="btn-ghost text-xs"
+                              onClick={() => speakText(spokenName)}
+                            >
+                              <Volume2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                              Listen
+                            </button>
+                          ) : null}
+                          {greeting ? (
+                            <button
+                              type="button"
+                              className="btn-ghost text-xs"
+                              onClick={() => speakText(greeting)}
+                            >
+                              <Volume2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                              Hear the greeting
+                            </button>
+                          ) : null}
+                        </>
+                      ) : speechSupported === false ? (
+                        <span className="text-xs text-muted">
+                          Name audio needs a browser with speech built in, like Chrome.
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+                {(() => {
                   const status = callWindowStatus(selectedLead.fields, now);
                   const location = leadLocation(selectedLead.fields);
                   const decisionMaker = fieldText(selectedLead.fields, "decisionMaker");
@@ -679,7 +762,12 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                     <div className="mt-3 rounded-lg border border-line bg-surface p-3 text-sm">
                       {location ? <p>{location}</p> : null}
                       {decisionMaker ? (
-                        <p className="text-muted">Ask for: {decisionMaker}</p>
+                        <p className="text-muted">
+                          Ask for: {decisionMaker}
+                          {fieldText(selectedLead.fields, "namePronunciation")
+                            ? ` (say: ${fieldText(selectedLead.fields, "namePronunciation")})`
+                            : ""}
+                        </p>
                       ) : null}
                       {status.state !== "unknown" ? (
                         <p className="mt-1">

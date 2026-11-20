@@ -93,8 +93,8 @@ describe("importLeadsFromCsv", () => {
 
   it("lands the Calling columns in lead fields under their own names (v1.44.0)", async () => {
     const csv = [
-      "Email,Phone,City,State,Timezone,PainPoints,MobileScore,LCP,Hook",
-      "callme@example.com,+1 555 010 2030,Daytona Beach,FL,America/New_York,Slow mobile site,24,15.9s,Scored 24 out of 100",
+      "Email,Phone,City,State,Timezone,PainPoints,MobileScore,LCP,Hook,Pronunciation",
+      "callme@example.com,+1 555 010 2030,Daytona Beach,FL,America/New_York,Slow mobile site,24,15.9s,Scored 24 out of 100,AN-uh HAN-dee",
     ].join("\n");
 
     const result = await importLeadsFromCsv(db, {
@@ -111,12 +111,14 @@ describe("importLeadsFromCsv", () => {
         MobileScore: guessImportTarget("MobileScore"),
         LCP: guessImportTarget("LCP"),
         Hook: guessImportTarget("Hook"),
+        Pronunciation: guessImportTarget("Pronunciation"),
       },
     });
 
     expect(result.summary.kept).toBe(1);
     const lead = await db.lead.findFirst({ where: { workspaceId, email: "callme@example.com" } });
     expect(lead?.fields).toMatchObject({
+      namePronunciation: "AN-uh HAN-dee",
       phone: "+1 555 010 2030",
       city: "Daytona Beach",
       state: "FL",
@@ -128,6 +130,12 @@ describe("importLeadsFromCsv", () => {
       // Calling reads it back as the hook fallback.
       icebreaker: "Scored 24 out of 100",
     });
+  });
+
+  it("guesses pronunciation columns onto the namePronunciation field (v1.45.0)", () => {
+    expect(guessImportTarget("NamePronunciation")).toBe("namePronunciation");
+    expect(guessImportTarget("Pronunciation")).toBe("namePronunciation");
+    expect(guessImportTarget("name pronunciation")).toBe("namePronunciation");
   });
 
   it("refuses an import with no email mapping", async () => {

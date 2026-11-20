@@ -66,6 +66,8 @@ export function guessImportTarget(header: string): string {
   if (["timezone", "tz"].includes(h)) return "timezone";
   if (["besttimenote", "besttime", "callwindow"].includes(h)) return "bestTimeNote";
   if (["decisionmaker", "decisionmakers"].includes(h)) return "decisionMaker";
+  if (["namepronunciation", "pronunciation", "pronounce", "howtopronounce"].includes(h))
+    return "namePronunciation";
   if (["painpoints", "painpoint", "pains"].includes(h)) return "painPoints";
   if (["mobilescore", "pagespeedscore", "speedscore"].includes(h)) return "mobileScore";
   if (["lcp", "loadtime", "lcpseconds"].includes(h)) return "lcp";
