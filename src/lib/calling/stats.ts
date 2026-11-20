@@ -56,16 +56,19 @@ export interface CallbackDue<T extends CallLogLike> {
 }
 
 /**
- * The callbacks still owed to the caller: for each lead, only its
- * latest Callback log counts (a lead called again after booking a
- * callback supersedes the older booking), and only when that log
- * carries a follow up time. Sorted with the soonest first, overdue
- * entries included and flagged due.
+ * The follow ups still owed to the caller: for each lead, only its
+ * latest log carrying a follow up time counts (a lead called again
+ * after booking a follow up supersedes the older booking). Any
+ * disposition can carry the booking: a plain Callback does, and so
+ * does an Interested log whose ending booked the walkthrough, which
+ * the guided call flow stores as a follow up date on an INTERESTED
+ * log rather than a CALLBACK one. Sorted with the soonest first,
+ * overdue entries included and flagged due.
  */
 export function callbacksDue<T extends CallLogLike>(logs: T[], now: Date = new Date()): CallbackDue<T>[] {
   const latestByLead = new Map<string, T>();
   for (const log of logs) {
-    if (!log.leadId || log.disposition !== "CALLBACK" || !log.followUpAt) continue;
+    if (!log.leadId || !log.followUpAt) continue;
     const existing = latestByLead.get(log.leadId);
     if (!existing || toTime(log.calledAt) > toTime(existing.calledAt)) {
       latestByLead.set(log.leadId, log);

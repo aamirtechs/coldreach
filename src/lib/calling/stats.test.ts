@@ -71,7 +71,7 @@ describe("summarizeCallLogs", () => {
 });
 
 describe("callbacksDue", () => {
-  it("keeps only the latest callback per lead and sorts soonest first", () => {
+  it("keeps only the latest follow up per lead and sorts soonest first", () => {
     const due = callbacksDue(
       [
         log({ leadId: "a", disposition: "CALLBACK", calledAt: new Date("2026-11-18T09:00:00"), followUpAt: new Date("2026-11-25T09:00:00") }),
@@ -82,9 +82,48 @@ describe("callbacksDue", () => {
       ],
       NOW,
     );
-    expect(due.map((entry) => entry.log.leadId)).toEqual(["b", "a"]);
+    expect(due.map((entry) => entry.log.leadId)).toEqual(["b", "c", "a"]);
     expect(due[0].due).toBe(true);
-    expect(due[1].due).toBe(false);
-    expect(due[1].followUpAt).toEqual(new Date("2026-11-22T09:00:00"));
+    expect(due[1].due).toBe(true);
+    expect(due[2].due).toBe(false);
+    expect(due[2].followUpAt).toEqual(new Date("2026-11-22T09:00:00"));
+  });
+
+  it("surfaces an interested log whose follow up is a booked walkthrough", () => {
+    const due = callbacksDue(
+      [
+        log({ leadId: "w", disposition: "INTERESTED", calledAt: new Date("2026-11-20T10:00:00"), followUpAt: new Date("2026-11-23T10:00:00") }),
+      ],
+      NOW,
+    );
+    expect(due).toHaveLength(1);
+    expect(due[0].log.disposition).toBe("INTERESTED");
+    expect(due[0].followUpAt).toEqual(new Date("2026-11-23T10:00:00"));
+    expect(due[0].due).toBe(false);
+  });
+
+  it("ignores logs with no follow up time, whatever the disposition", () => {
+    const due = callbacksDue(
+      [
+        log({ leadId: "a", disposition: "INTERESTED", followUpAt: null }),
+        log({ leadId: "b", disposition: "CALLBACK", followUpAt: null }),
+        log({ leadId: "c", disposition: "TALKED", followUpAt: null }),
+      ],
+      NOW,
+    );
+    expect(due).toEqual([]);
+  });
+
+  it("lets a newer log with a follow up supersede an older booking for the same lead", () => {
+    const due = callbacksDue(
+      [
+        log({ leadId: "a", disposition: "CALLBACK", calledAt: new Date("2026-11-18T09:00:00"), followUpAt: new Date("2026-11-21T09:00:00") }),
+        log({ leadId: "a", disposition: "INTERESTED", calledAt: new Date("2026-11-19T09:00:00"), followUpAt: new Date("2026-11-24T09:00:00") }),
+      ],
+      NOW,
+    );
+    expect(due).toHaveLength(1);
+    expect(due[0].log.disposition).toBe("INTERESTED");
+    expect(due[0].followUpAt).toEqual(new Date("2026-11-24T09:00:00"));
   });
 });

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.46.1 (2026-11-20)
+
+Booked walkthroughs now show up in Tracking.
+
+- The Calling Tracking "Callbacks due" list now surfaces the
+  latest follow up per lead from any call log that carries a
+  follow up date, not only logs with the Callback outcome. The
+  guided call endings that book a walkthrough store that date on
+  an Interested log, so those bookings were saved but never
+  listed; they now appear alongside plain callbacks, soonest
+  first with overdue entries flagged as before.
+- Each due item now shows its outcome label (for example
+  Interested or Callback) next to the lead and date, so a booked
+  walkthrough reads differently from a plain callback.
+
 ## 1.46.0 (2026-11-20)
 
 The call panel learns to walk the caller through the call, one

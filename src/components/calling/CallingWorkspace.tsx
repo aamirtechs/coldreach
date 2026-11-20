@@ -57,6 +57,7 @@ export interface CallingHistoryEntry {
 export interface CallingCallback {
   logId: string;
   leadId: string | null;
+  disposition: string;
   followUpAt: string;
   due: boolean;
   lead: CallingLeadRef | null;
@@ -1288,6 +1289,9 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   <li key={callback.logId} className="flex flex-wrap items-center gap-2 py-3 text-sm">
                     <span className="font-medium">
                       {callback.lead ? leadDisplayName(callback.lead) : "Deleted lead"}
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                      {dispositionLabel(callback.disposition)}
                     </span>
                     <span className="text-muted">{formatWhen(callback.followUpAt)}</span>
                     {callback.due ? (

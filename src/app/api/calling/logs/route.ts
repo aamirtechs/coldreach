@@ -42,6 +42,7 @@ export async function GET() {
     const callbacks = due.map((entry) => ({
       logId: entry.log.id,
       leadId: entry.log.leadId,
+      disposition: entry.log.disposition,
       followUpAt: entry.followUpAt,
       due: entry.due,
       lead: entry.log.leadId ? (leadById.get(entry.log.leadId) ?? null) : null,
