@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { getSessionWorkspace } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
-import { callbacksDue, summarizeCallLogs } from "@/lib/calling/stats";
+import { callbacksDue, logLeadKey, summarizeCallLogs } from "@/lib/calling/stats";
+import { shapeCallLead } from "@/lib/calling/callLeadShape";
+import { sortCallLeads } from "@/lib/calling/statePriority";
+import { CALLING_SERVICES, CALLING_CADENCE_RULES, SCORE_BLOCKS } from "@/lib/calling/services";
 import { CallingWorkspace, type CallingInitialData } from "@/components/calling/CallingWorkspace";
 
 export const dynamic = "force-dynamic";
@@ -10,10 +13,12 @@ const SCAN_LIMIT = 5000;
 const HISTORY_LIMIT = 100;
 
 /**
- * Calling section (v1.43.0): call leads with a script in front of the
- * caller, and the tracking that follows from each logged call. The
- * page loads the workspace's lists, leads, scripts and recent logs
- * server side; every mutation goes through the /api/calling routes.
+ * Calling section (v1.47.0): a dedicated call lead system, fully
+ * separate from the email Leads. The page loads the workspace's
+ * call lists, call leads, scripts, the service catalog and recent
+ * logs server side; every mutation goes through /api/calling.
+ * Older logs linked to email leads still resolve their names for
+ * history, but nothing here writes to the email side.
  */
 export default async function CallingPage() {
   const session = await getSessionWorkspace();
@@ -23,16 +28,15 @@ export default async function CallingPage() {
   const workspaceId = session.workspace.id;
 
   const [lists, leads, scripts, logs] = await Promise.all([
-    prisma.leadList.findMany({
+    prisma.callLeadList.findMany({
       where: { workspaceId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, serviceSlug: true },
     }),
-    prisma.lead.findMany({
+    prisma.callLead.findMany({
       where: { workspaceId },
       orderBy: { createdAt: "desc" },
       take: SCAN_LIMIT,
-      select: { id: true, email: true, listId: true, fields: true },
     }),
     prisma.callScript.findMany({
       where: { workspaceId },
@@ -46,6 +50,7 @@ export default async function CallingPage() {
       select: {
         id: true,
         leadId: true,
+        callLeadId: true,
         scriptId: true,
         disposition: true,
         notes: true,
@@ -53,70 +58,89 @@ export default async function CallingPage() {
         followUpAt: true,
         calledAt: true,
         lead: { select: { email: true, fields: true } },
+        callLead: {
+          select: {
+            firstName: true,
+            lastName: true,
+            company: true,
+            phone: true,
+            email: true,
+            fields: true,
+          },
+        },
       },
     }),
   ]);
 
   const lastCallByLead = new Map<string, { disposition: string; calledAt: string }>();
   for (const log of logs) {
-    if (log.leadId && !lastCallByLead.has(log.leadId)) {
-      lastCallByLead.set(log.leadId, {
+    const key = logLeadKey(log);
+    if (key && !lastCallByLead.has(key)) {
+      lastCallByLead.set(key, {
         disposition: log.disposition,
         calledAt: log.calledAt.toISOString(),
       });
     }
   }
 
-  const shapedLeads = leads.map((lead) => {
-    const fields =
-      lead.fields && typeof lead.fields === "object" && !Array.isArray(lead.fields)
-        ? (lead.fields as Record<string, unknown>)
-        : {};
-    const phoneKey = Object.keys(fields).find((key) => key.toLowerCase() === "phone");
-    const phone =
-      phoneKey && typeof fields[phoneKey] === "string" ? (fields[phoneKey] as string) : "";
-    return {
-      id: lead.id,
-      email: lead.email,
-      listId: lead.listId,
-      fields,
-      phone,
-      lastCall: lastCallByLead.get(lead.id) ?? null,
-    };
-  });
-  const orderedLeads = [
-    ...shapedLeads.filter((lead) => lead.phone),
-    ...shapedLeads.filter((lead) => !lead.phone),
-  ];
+  const shapedLeads = sortCallLeads(
+    leads.map((lead) => shapeCallLead(lead, lastCallByLead.get(lead.id) ?? null)),
+  );
 
-  const leadById = new Map(logs.filter((l) => l.leadId).map((l) => [l.leadId as string, l.lead]));
+  const refFor = (log: (typeof logs)[number]) => {
+    if (log.callLead) {
+      return {
+        email: log.callLead.email ?? "",
+        fields: {
+          ...((log.callLead.fields as Record<string, unknown>) ?? {}),
+          firstName: log.callLead.firstName,
+          lastName: log.callLead.lastName,
+          company: log.callLead.company,
+          phone: log.callLead.phone,
+        },
+      };
+    }
+    return log.lead;
+  };
+  const refByKey = new Map<string, ReturnType<typeof refFor>>();
+  for (const log of logs) {
+    const key = logLeadKey(log);
+    if (key && !refByKey.has(key)) refByKey.set(key, refFor(log));
+  }
+
   const initial: CallingInitialData = {
     lists,
-    leads: orderedLeads,
+    leads: shapedLeads,
     scripts: scripts.map((script) => ({
       ...script,
       createdAt: script.createdAt.toISOString(),
       updatedAt: script.updatedAt.toISOString(),
     })),
+    services: CALLING_SERVICES,
+    cadenceRules: CALLING_CADENCE_RULES,
+    scoreBlocks: SCORE_BLOCKS,
     stats: summarizeCallLogs(logs),
-    callbacks: callbacksDue(logs).map((entry) => ({
-      logId: entry.log.id,
-      leadId: entry.log.leadId,
-      disposition: entry.log.disposition,
-      followUpAt: entry.followUpAt.toISOString(),
-      due: entry.due,
-      lead: entry.log.leadId ? (leadById.get(entry.log.leadId) ?? null) : null,
-    })),
+    callbacks: callbacksDue(logs).map((entry) => {
+      const key = logLeadKey(entry.log);
+      return {
+        logId: entry.log.id,
+        leadId: key,
+        disposition: entry.log.disposition,
+        followUpAt: entry.followUpAt.toISOString(),
+        due: entry.due,
+        lead: key ? (refByKey.get(key) ?? null) : null,
+      };
+    }),
     history: logs.slice(0, HISTORY_LIMIT).map((log) => ({
       id: log.id,
-      leadId: log.leadId,
+      leadId: logLeadKey(log),
       scriptId: log.scriptId,
       disposition: log.disposition,
       notes: log.notes,
       durationSeconds: log.durationSeconds,
       followUpAt: log.followUpAt ? log.followUpAt.toISOString() : null,
       calledAt: log.calledAt.toISOString(),
-      lead: log.lead,
+      lead: refFor(log),
     })),
   };
 
@@ -124,8 +148,9 @@ export default async function CallingPage() {
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
       <h1 className="font-display text-2xl font-semibold tracking-tight">Calling</h1>
       <p className="mt-1 text-sm text-muted">
-        Call your leads with the script in front of you, log every outcome, and keep callbacks
-        from slipping. Phone numbers live on the lead, next to the email history.
+        A dedicated calling pipeline, separate from your email leads: scored prospects per
+        service, a full screen call mode with the branching script, and manual verification
+        for every claim before you dial.
       </p>
       <CallingWorkspace initial={initial} />
     </div>

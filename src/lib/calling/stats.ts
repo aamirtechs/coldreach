@@ -10,9 +10,16 @@ import { CONVERSATION_DISPOSITIONS } from "./dispositions";
 
 export interface CallLogLike {
   leadId: string | null;
+  /** The dedicated Calling lead (v1.47.0); takes naming priority. */
+  callLeadId?: string | null;
   disposition: string;
   calledAt: Date | string;
   followUpAt: Date | string | null;
+}
+
+/** The identity a log belongs to: the call lead when set, else the legacy lead. */
+export function logLeadKey(log: CallLogLike): string | null {
+  return log.callLeadId ?? log.leadId ?? null;
 }
 
 export interface CallingStats {
@@ -68,10 +75,11 @@ export interface CallbackDue<T extends CallLogLike> {
 export function callbacksDue<T extends CallLogLike>(logs: T[], now: Date = new Date()): CallbackDue<T>[] {
   const latestByLead = new Map<string, T>();
   for (const log of logs) {
-    if (!log.leadId || !log.followUpAt) continue;
-    const existing = latestByLead.get(log.leadId);
+    const key = logLeadKey(log);
+    if (!key || !log.followUpAt) continue;
+    const existing = latestByLead.get(key);
     if (!existing || toTime(log.calledAt) > toTime(existing.calledAt)) {
-      latestByLead.set(log.leadId, log);
+      latestByLead.set(key, log);
     }
   }
   return [...latestByLead.values()]

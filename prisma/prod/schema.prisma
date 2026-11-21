@@ -114,6 +114,8 @@ model Workspace {
   snippets        Snippet[]
   callScripts     CallScript[]
   callLogs        CallLog[]
+  callLeadLists   CallLeadList[]
+  callLeads       CallLead[]
   supportTickets  SupportTicket[]
   webhookEndpoints WebhookEndpoint[]
   subscription    Subscription?
@@ -682,6 +684,7 @@ model CallLog {
   id              String     @id @default(cuid())
   workspaceId     String
   leadId          String?
+  callLeadId      String?
   scriptId        String?
   disposition     String
   notes           String?
@@ -692,11 +695,73 @@ model CallLog {
   updatedAt       DateTime   @updatedAt
   workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lead            Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  callLead        CallLead?  @relation(fields: [callLeadId], references: [id], onDelete: SetNull)
   script          CallScript? @relation(fields: [scriptId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, calledAt])
   @@index([workspaceId, followUpAt])
 }
+
+// ---------------------------------------------------------------------------
+// Calling leads (v1.47.0): a DEDICATED lead system for the Calling
+// section, fully separate from the email Lead model. A CallLead is a
+// person to phone, with the intel a caller needs (pain points, hook,
+// signals, what not to say, evidence for every claim and a manual
+// verification state). Nothing in the email side reads these tables.
+// ---------------------------------------------------------------------------
+
+model CallLeadList {
+  id          String     @id @default(cuid())
+  workspaceId String
+  name        String
+  serviceSlug String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  callLeads   CallLead[]
+
+  @@index([workspaceId, createdAt])
+}
+
+model CallLead {
+  id                String        @id @default(cuid())
+  workspaceId       String
+  listId            String?
+  serviceSlug       String        @default("wordpress-speed")
+  temperature       String        @default("WARM")
+  leadScore         Int?
+  firstName         String        @default("")
+  lastName          String        @default("")
+  company           String        @default("")
+  phone             String
+  email             String?
+  website           String?
+  city              String?
+  state             String?
+  timezone          String?
+  decisionMaker     String?
+  namePronunciation String?
+  // Extended intel as JSON: mobileScore, lcp, bestStartHour,
+  // bestEndHour, bestTimeNote, painPoints, hook, signals (string[]),
+  // personalScript, dontSay (string[] or text), offerLine, and
+  // evidence: an array of {label, url, note} entries, one per
+  // factual claim, so the caller can verify the lead by hand.
+  fields            Json
+  verifyStatus      String        @default("UNVERIFIED")
+  verifyNote        String?
+  verifiedAt        DateTime?
+  lastCallAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  workspace         Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  list              CallLeadList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+  callLogs          CallLog[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, listId])
+  @@index([workspaceId, temperature])
+}
+
 
 // ---------------------------------------------------------------------------
 // Audit and API access

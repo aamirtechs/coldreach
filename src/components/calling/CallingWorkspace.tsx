@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, PhoneCall, Volume2 } from "lucide-react";
+import { ExternalLink, Maximize2, PhoneCall, Volume2 } from "lucide-react";
+import { CallMode, type CallSavePayload } from "./CallMode";
+import type { CallingService } from "@/lib/calling/services";
+import type { ScoreBlock } from "@/lib/calling/services";
+import { scoreBreakdownFromFields } from "@/lib/calling/callLeadFields";
+import { stateStatus } from "@/lib/calling/statePriority";
+import type { EvidenceEntry } from "@/lib/calling/callLeadFields";
+
+export type CallingServiceShape = CallingService;
 import { CALL_DISPOSITIONS, dispositionLabel } from "@/lib/calling/dispositions";
 import {
   CALL_FLOW_START_ID,
@@ -21,10 +29,26 @@ import {
 
 export interface CallingLead {
   id: string;
-  email: string;
   listId: string | null;
-  fields: Record<string, unknown>;
+  serviceSlug: string;
+  temperature: string;
+  leadScore: number | null;
+  firstName: string;
+  lastName: string;
+  company: string;
   phone: string;
+  email: string;
+  website: string;
+  state: string;
+  fields: Record<string, unknown>;
+  verifyStatus: string;
+  verifyNote: string | null;
+  verifiedAt: string | null;
+  lastCallAt: string | null;
+  evidence: EvidenceEntry[];
+  signals: string[];
+  dontSay: string[];
+  offerLine: string;
   lastCall: { disposition: string; calledAt: string } | null;
 }
 
@@ -72,8 +96,11 @@ export interface CallingStatsShape {
 }
 
 export interface CallingInitialData {
-  lists: { id: string; name: string }[];
+  lists: { id: string; name: string; serviceSlug: string | null }[];
   leads: CallingLead[];
+  services: CallingServiceShape[];
+  cadenceRules: string[];
+  scoreBlocks: ScoreBlock[];
   scripts: CallingScript[];
   stats: CallingStatsShape;
   callbacks: CallingCallback[];
@@ -119,7 +146,21 @@ const EMPTY_CALLING_DETAILS = {
   painPoints: "",
   hook: "",
   personalScript: "",
+  signals: "",
+  dontSay: "",
+  offerLine: "",
+  scoreFit: "",
+  scoreSignal: "",
+  scoreRecency: "",
+  scoreReachability: "",
 };
+
+function stringListText(fields: Record<string, unknown> | unknown, key: string): string {
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return "";
+  const value = (fields as Record<string, unknown>)[key];
+  if (Array.isArray(value)) return value.map((item) => String(item)).join("\n");
+  return typeof value === "string" ? value : "";
+}
 
 function callingDetailsFromFields(fields: Record<string, unknown> | unknown) {
   return {
@@ -136,6 +177,13 @@ function callingDetailsFromFields(fields: Record<string, unknown> | unknown) {
     painPoints: fieldText(fields, "painPoints"),
     hook: leadHook(fields),
     personalScript: fieldText(fields, "personalScript"),
+    signals: stringListText(fields, "signals"),
+    dontSay: stringListText(fields, "dontSay"),
+    offerLine: fieldText(fields, "offerLine"),
+    scoreFit: fieldNumberText(fields, "scoreFit"),
+    scoreSignal: fieldNumberText(fields, "scoreSignal"),
+    scoreRecency: fieldNumberText(fields, "scoreRecency"),
+    scoreReachability: fieldNumberText(fields, "scoreReachability"),
   };
 }
 
@@ -148,12 +196,17 @@ function leadDisplayName(lead: { email: string; fields: unknown }): string {
   return company || lead.email;
 }
 
+function callLeadDisplayName(lead: CallingLead): string {
+  const name = `${lead.firstName} ${lead.lastName}`.trim();
+  return name || lead.company || lead.phone;
+}
+
 function formatWhen(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-type Tab = "leads" | "scripts" | "tracking";
+type Tab = "leads" | "scripts" | "services" | "tracking";
 
 export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
   const [tab, setTab] = useState<Tab>("leads");
@@ -168,6 +221,11 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
 
   // Call Leads state
   const [listFilter, setListFilter] = useState("");
+  const [serviceFilter, setServiceFilter] = useState("");
+  const [temperatureFilter, setTemperatureFilter] = useState("");
+  const [callModeOpen, setCallModeOpen] = useState(false);
+  const [importCsv, setImportCsv] = useState("");
+  const [importing, setImporting] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(
     initial.leads.find((lead) => lead.phone)?.id ?? null,
   );
@@ -185,6 +243,7 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     email: "",
     listId: "",
     newListName: "",
+    serviceSlug: "wordpress-speed",
     ...EMPTY_CALLING_DETAILS,
   });
   const [addingLead, setAddingLead] = useState(false);
@@ -195,6 +254,7 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     company: "",
     phone: "",
     website: "",
+    serviceSlug: "wordpress-speed",
     ...EMPTY_CALLING_DETAILS,
   });
   const [savingLead, setSavingLead] = useState(false);
@@ -251,10 +311,11 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     setShowRoadmap(false);
     if (selectedLead) {
       setEditForm({
-        name: leadDisplayName(selectedLead),
-        company: fieldText(selectedLead.fields, "company"),
+        name: callLeadDisplayName(selectedLead),
+        company: selectedLead.company,
         phone: selectedLead.phone,
-        website: fieldText(selectedLead.fields, "website"),
+        website: selectedLead.website,
+        serviceSlug: selectedLead.serviceSlug,
         ...callingDetailsFromFields(selectedLead.fields),
       });
     }
@@ -325,13 +386,30 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     setFlowPath([CALL_FLOW_START_ID]);
   }
 
-  async function refreshLeads(nextListFilter: string) {
-    const query = nextListFilter ? `?listId=${encodeURIComponent(nextListFilter)}` : "";
-    const response = await fetch(`/api/calling/leads${query}`);
+  async function refreshLeads(
+    filters: { listId: string; serviceSlug: string; temperature: string } = {
+      listId: listFilter,
+      serviceSlug: serviceFilter,
+      temperature: temperatureFilter,
+    },
+  ) {
+    const params = new URLSearchParams();
+    if (filters.listId) params.set("listId", filters.listId);
+    if (filters.serviceSlug) params.set("serviceSlug", filters.serviceSlug);
+    if (filters.temperature) params.set("temperature", filters.temperature);
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const response = await fetch(`/api/calling/call-leads${query}`);
     if (!response.ok) return;
     const data = (await response.json()) as { lists: typeof lists; leads: CallingLead[] };
     setLists(data.lists);
     setLeads(data.leads);
+  }
+
+  async function refreshLists() {
+    const response = await fetch("/api/calling/call-lists");
+    if (!response.ok) return;
+    const data = (await response.json()) as { lists: typeof lists };
+    setLists(data.lists);
   }
 
   async function refreshTracking() {
@@ -350,7 +428,19 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
   async function onListFilterChange(value: string) {
     setListFilter(value);
     setSelectedLeadId(null);
-    await refreshLeads(value);
+    await refreshLeads({ listId: value, serviceSlug: serviceFilter, temperature: temperatureFilter });
+  }
+
+  async function onServiceFilterChange(value: string) {
+    setServiceFilter(value);
+    setSelectedLeadId(null);
+    await refreshLeads({ listId: listFilter, serviceSlug: value, temperature: temperatureFilter });
+  }
+
+  async function onTemperatureFilterChange(value: string) {
+    setTemperatureFilter(value);
+    setSelectedLeadId(null);
+    await refreshLeads({ listId: listFilter, serviceSlug: serviceFilter, temperature: value });
   }
 
   async function submitAddLead(event: React.FormEvent) {
@@ -359,7 +449,7 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     setNotice("");
     setAddingLead(true);
     try {
-      const response = await fetch("/api/calling/leads", {
+      const response = await fetch("/api/calling/call-leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(addForm),
@@ -377,13 +467,48 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
         email: "",
         listId: "",
         newListName: "",
+        serviceSlug: "wordpress-speed",
         ...EMPTY_CALLING_DETAILS,
       });
-      await refreshLeads(listFilter);
+      await refreshLeads();
       if (data.lead?.id) setSelectedLeadId(data.lead.id);
       setNotice("Call lead added.");
     } finally {
       setAddingLead(false);
+    }
+  }
+
+  async function submitImportCsv() {
+    setError("");
+    setNotice("");
+    setImporting(true);
+    try {
+      const response = await fetch("/api/calling/call-leads/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          csv: importCsv,
+          listId: addForm.listId || undefined,
+          newListName: addForm.newListName || undefined,
+          serviceSlug: addForm.serviceSlug,
+        }),
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        created?: number;
+        skipped?: { row: number; reason: string }[];
+      };
+      if (!response.ok) {
+        setError(data.error ?? "Could not import the CSV");
+        return;
+      }
+      setImportCsv("");
+      await Promise.all([refreshLeads(), refreshLists()]);
+      setNotice(
+        `Imported ${data.created ?? 0} call leads.${data.skipped?.length ? ` Skipped ${data.skipped.length}: ${data.skipped.map((item) => `row ${item.row} (${item.reason})`).join(", ")}.` : ""}`,
+      );
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -394,17 +519,17 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     setNotice("");
     setSavingLead(true);
     try {
-      const response = await fetch(`/api/calling/leads/${selectedLead.id}`, {
+      const response = await fetch(`/api/calling/call-leads/${selectedLead.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify({ ...editForm, evidence: selectedLead.evidence }),
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
         setError(data.error ?? "Could not save the lead details");
         return;
       }
-      await refreshLeads(listFilter);
+      await refreshLeads();
       setShowEditLead(false);
       setNotice("Lead details saved.");
     } finally {
@@ -491,45 +616,167 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
           <label className="label" htmlFor={`${prefix}-personal`}>Personalized script for this lead (optional)</label>
           <textarea id={`${prefix}-personal`} className="input" rows={8} value={form.personalScript} onChange={(e) => set("personalScript")(e.target.value)} placeholder="A script written for this lead alone. When set, the call panel shows this instead of the shared script." />
         </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor={`${prefix}-signals`}>Signals, why now (one per line)</label>
+          <textarea id={`${prefix}-signals`} className="input" rows={2} value={form.signals} onChange={(e) => set("signals")(e.target.value)} placeholder="The dated, verified triggers that make this lead hot or warm." />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor={`${prefix}-offer`}>Offer line for this lead</label>
+          <input id={`${prefix}-offer`} className="input" value={form.offerLine} onChange={(e) => set("offerLine")(e.target.value)} placeholder="The exact offer sentence for this lead's service." />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor={`${prefix}-dontsay`}>Do not say (one per line)</label>
+          <textarea id={`${prefix}-dontsay`} className="input" rows={2} value={form.dontSay} onChange={(e) => set("dontSay")(e.target.value)} placeholder="Claims and phrases that must never be said to this lead." />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-scorefit`}>Score: Fit (of 25)</label>
+          <input id={`${prefix}-scorefit`} className="input" type="number" min="0" max="25" value={form.scoreFit} onChange={(e) => set("scoreFit")(e.target.value)} />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-scoresignal`}>Score: Signal (of 40)</label>
+          <input id={`${prefix}-scoresignal`} className="input" type="number" min="0" max="40" value={form.scoreSignal} onChange={(e) => set("scoreSignal")(e.target.value)} />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-scorerecency`}>Score: Recency (of 15)</label>
+          <input id={`${prefix}-scorerecency`} className="input" type="number" min="0" max="15" value={form.scoreRecency} onChange={(e) => set("scoreRecency")(e.target.value)} />
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-scorereach`}>Score: Reachability (of 20)</label>
+          <input id={`${prefix}-scorereach`} className="input" type="number" min="0" max="20" value={form.scoreReachability} onChange={(e) => set("scoreReachability")(e.target.value)} />
+          <p className="mt-1 text-xs text-muted">
+            With all four scores set, the total and the HOT or WARM temperature are worked out
+            from the rubric gates, and a lead under 40 is refused: park it instead.
+          </p>
+        </div>
       </div>
     );
   }
 
+  async function postCallLogFor(
+    leadId: string,
+    payload: {
+      disposition: string;
+      notes: string;
+      durationSeconds: number | null;
+      followUpAt: string | null;
+    },
+  ): Promise<boolean> {
+    setError("");
+    const response = await fetch("/api/calling/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callLeadId: leadId,
+        scriptId: selectedScriptId || null,
+        disposition: payload.disposition,
+        notes: payload.notes,
+        durationSeconds: payload.durationSeconds,
+        followUpAt: payload.followUpAt,
+      }),
+    });
+    const data = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setError(data.error ?? "Could not save the call");
+      return false;
+    }
+    await Promise.all([refreshLeads(), refreshTracking()]);
+    return true;
+  }
+
   async function postCallLog(): Promise<boolean> {
     if (!selectedLead) return false;
-    setError("");
     setNotice("");
     setSavingCall(true);
     try {
-      const response = await fetch("/api/calling/logs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          leadId: selectedLead.id,
-          scriptId: selectedScriptId || null,
-          disposition,
-          notes: callNotes,
-          durationMinutes: durationMinutes === "" ? null : Number(durationMinutes),
-          followUpAt:
-            followUpAt && (disposition === "CALLBACK" || guidedFollowUp)
-              ? new Date(followUpAt).toISOString()
-              : null,
-        }),
+      const ok = await postCallLogFor(selectedLead.id, {
+        disposition,
+        notes: callNotes,
+        durationSeconds:
+          durationMinutes === "" ? null : Math.round(Number(durationMinutes) * 60),
+        followUpAt:
+          followUpAt && (disposition === "CALLBACK" || guidedFollowUp)
+            ? new Date(followUpAt).toISOString()
+            : null,
       });
-      const data = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setError(data.error ?? "Could not save the call");
-        return false;
+      if (ok) {
+        setCallNotes("");
+        setDurationMinutes("");
+        setFollowUpAt("");
       }
-      setCallNotes("");
-      setDurationMinutes("");
-      setFollowUpAt("");
-      await Promise.all([refreshLeads(listFilter), refreshTracking()]);
-      return true;
+      return ok;
     } finally {
       setSavingCall(false);
     }
   }
+
+  /** Full screen call mode: save through the same log path. */
+  async function callModeSave(payload: CallSavePayload, mode: "next" | "exit"): Promise<boolean> {
+    if (!selectedLead) return false;
+    const ok = await postCallLogFor(selectedLead.id, payload);
+    if (!ok) return false;
+    setNotice(`Call logged as ${dispositionLabel(payload.disposition)}.`);
+    if (mode === "next") {
+      const index = leads.findIndex((lead) => lead.id === selectedLead.id);
+      const next = leads.slice(index + 1).find((lead) => lead.phone) ?? null;
+      if (next) {
+        setSelectedLeadId(next.id);
+      } else {
+        setCallModeOpen(false);
+        setNotice("Call logged. That was the last lead in this view.");
+      }
+    }
+    return true;
+  }
+
+  async function callModeVerify(status: string, note: string): Promise<void> {
+    if (!selectedLead) return;
+    const response = await fetch(`/api/calling/call-leads/${selectedLead.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ verifyStatus: status, verifyNote: note }),
+    });
+    const data = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setError(data.error ?? "Could not save the verification");
+      return;
+    }
+    await refreshLeads();
+    setNotice(
+      status === "VERIFIED"
+        ? "Lead marked verified."
+        : status === "FLAGGED"
+          ? "Lead flagged. Do not trust the flagged claim until it is fixed."
+          : "Verification reset.",
+    );
+  }
+
+  async function deleteSelectedLead() {
+    if (!selectedLead) return;
+    if (
+      !window.confirm(
+        `Delete the call lead ${callLeadDisplayName(selectedLead)}? Its call history is kept.`,
+      )
+    ) {
+      return;
+    }
+    const response = await fetch(`/api/calling/call-leads/${selectedLead.id}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      const data = (await response.json()) as { error?: string };
+      setError(data.error ?? "Could not delete the call lead");
+      return;
+    }
+    setSelectedLeadId(null);
+    await refreshLeads();
+    setNotice("Call lead deleted.");
+  }
+
+  const nextLeadAfterSelected = useMemo(() => {
+    if (!selectedLead) return null;
+    const index = leads.findIndex((lead) => lead.id === selectedLead.id);
+    return leads.slice(index + 1).find((lead) => lead.phone) ?? null;
+  }, [leads, selectedLead]);
 
   async function saveCall() {
     if (await postCallLog()) {
@@ -547,7 +794,7 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     if (next) {
       setSelectedLeadId(next.id);
       setNotice(
-        `Call logged as ${dispositionLabel(disposition)}. Next lead: ${leadDisplayName(next)}.`,
+        `Call logged as ${dispositionLabel(disposition)}. Next lead: ${callLeadDisplayName(next)}.`,
       );
     } else {
       setNotice(
@@ -646,6 +893,7 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
       <div className="flex flex-wrap gap-2">
         {tabButton("leads", "Call Leads")}
         {tabButton("scripts", "Scripts")}
+        {tabButton("services", "Services")}
         {tabButton("tracking", "Tracking")}
       </div>
       {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
@@ -670,12 +918,35 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                     </option>
                   ))}
                 </select>
+                <select
+                  className="input w-auto"
+                  value={serviceFilter}
+                  onChange={(event) => void onServiceFilterChange(event.target.value)}
+                  aria-label="Filter by service"
+                >
+                  <option value="">All services</option>
+                  {initial.services.map((service) => (
+                    <option key={service.slug} value={service.slug}>
+                      {service.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="input w-auto"
+                  value={temperatureFilter}
+                  onChange={(event) => void onTemperatureFilterChange(event.target.value)}
+                  aria-label="Filter by temperature"
+                >
+                  <option value="">Hot and warm</option>
+                  <option value="HOT">Hot only</option>
+                  <option value="WARM">Warm only</option>
+                </select>
               </div>
               <ul className="mt-4 divide-y divide-line">
                 {leads.length === 0 ? (
                   <li className="py-4 text-sm text-muted">
-                    No leads yet. Add a call lead below, or add phone numbers to existing leads
-                    (a phone field) and they will appear here.
+                    No call leads in this view yet. Add one below, or import a CSV of call
+                    leads. Call leads live in their own system here, separate from email leads.
                   </li>
                 ) : (
                   leads.map((lead) => {
@@ -687,13 +958,53 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                           className={`w-full px-2 py-3 text-left ${lead.id === selectedLeadId ? "bg-elevated" : ""}`}
                           onClick={() => setSelectedLeadId(lead.id)}
                         >
-                          <span className="block text-sm font-medium">{leadDisplayName(lead)}</span>
+                          <span className="block text-sm font-medium">{callLeadDisplayName(lead)}</span>
                           <span className="block text-xs text-muted">
-                            {lead.phone || "No phone"} · {fieldText(lead.fields, "company") || lead.email}
+                            {lead.phone || "No phone"} · {lead.company || lead.email}
                             {leadLocation(lead.fields) ? ` · ${leadLocation(lead.fields)}` : ""}
                             {lead.lastCall
                               ? ` · Last call: ${dispositionLabel(lead.lastCall.disposition)}`
                               : " · Not called yet"}
+                          </span>
+                          <span className="mt-1 flex flex-wrap gap-1">
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${
+                                lead.temperature === "HOT"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {lead.temperature}
+                              {lead.leadScore !== null ? ` · ${lead.leadScore}` : ""}
+                            </span>
+                            <span className="inline-block rounded-full bg-elevated px-2 py-0.5 text-xs font-semibold">
+                              {initial.services.find((item) => item.slug === lead.serviceSlug)?.name ?? lead.serviceSlug}
+                            </span>
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                lead.verifyStatus === "VERIFIED"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : lead.verifyStatus === "FLAGGED"
+                                    ? "bg-red-100 text-red-700"
+                                    : "bg-surface text-muted"
+                              }`}
+                            >
+                              {lead.verifyStatus === "VERIFIED"
+                                ? "Verified"
+                                : lead.verifyStatus === "FLAGGED"
+                                  ? "Flagged"
+                                  : "Unverified"}
+                            </span>
+                            {lead.state ? (
+                              <span className="inline-block rounded-full bg-surface px-2 py-0.5 text-xs font-semibold">
+                                State: {lead.state}
+                              </span>
+                            ) : null}
+                            {stateStatus(lead.state) === "HELD" || stateStatus(lead.state) === "BLOCKED" ? (
+                              <span className="inline-block rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+                                HELD, do not call
+                              </span>
+                            ) : null}
                           </span>
                           {status.state !== "unknown" ? (
                             <span
@@ -757,18 +1068,47 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   </div>
                 ) : null}
               </div>
+              <div className="mt-4">
+                <label className="label" htmlFor="call-service">Service this lead is for</label>
+                <select id="call-service" className="input" value={addForm.serviceSlug} onChange={(e) => setAddForm({ ...addForm, serviceSlug: e.target.value })}>
+                  {initial.services.map((service) => (
+                    <option key={service.slug} value={service.slug}>
+                      {service.priority}. {service.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <h3 className="mt-5 text-sm font-semibold">Calling details (optional)</h3>
               {callingDetailsFields(addForm, (values) => setAddForm({ ...addForm, ...values }), "add")}
               <button type="submit" className="btn-primary mt-4" disabled={addingLead}>
                 {addingLead ? "Adding..." : "Add call lead"}
               </button>
-              <p className="mt-3 text-xs text-muted">
-                Bulk instead? The CSV import in Leads accepts these columns and stores them on
-                the lead: phone, city, state, timezone, bestTimeNote, decisionMaker,
-                namePronunciation (or a column named Pronunciation), painPoints,
-                mobileScore, lcp and personalScript. A column named hook imports as the lead's
-                icebreaker, and Calling uses it as the hook when no hook field is set.
-              </p>
+              <div className="mt-5 border-t border-line pt-4">
+                <h3 className="text-sm font-semibold">Import call leads from CSV</h3>
+                <p className="mt-1 text-xs text-muted">
+                  Paste CSV with a header row. Recognised columns include name, company, phone,
+                  website, email, city, state, timezone, bestTimeNote, decisionMaker,
+                  namePronunciation (or Pronunciation), painPoints, mobileScore, lcp,
+                  personalScript, signals, hook and the four score columns. Rows go into the
+                  selected list and service above, as CallLeads in this dedicated system only.
+                </p>
+                <textarea
+                  className="input mt-2"
+                  rows={4}
+                  value={importCsv}
+                  onChange={(event) => setImportCsv(event.target.value)}
+                  placeholder="name,company,phone,city,state,timezone,hook"
+                  aria-label="Call leads CSV"
+                />
+                <button
+                  type="button"
+                  className="btn-secondary mt-2"
+                  disabled={importing || !importCsv.trim()}
+                  onClick={() => void submitImportCsv()}
+                >
+                  {importing ? "Importing..." : "Import CSV"}
+                </button>
+              </div>
             </form>
           </div>
 
@@ -778,14 +1118,73 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
               <p className="mt-3 text-sm text-muted">Pick a lead on the left to open its call panel.</p>
             ) : (
               <div className="mt-4">
-                <p className="text-sm font-medium">{leadDisplayName(selectedLead)}</p>
+                <p className="text-sm font-medium">{callLeadDisplayName(selectedLead)}</p>
                 <p className="text-xs text-muted">
-                  {fieldText(selectedLead.fields, "company")}
-                  {fieldText(selectedLead.fields, "website")
-                    ? ` · ${fieldText(selectedLead.fields, "website")}`
-                    : ""}
-                  {` · ${selectedLead.email}`}
+                  {selectedLead.company}
+                  {selectedLead.website ? ` · ${selectedLead.website}` : ""}
+                  {selectedLead.email ? ` · ${selectedLead.email}` : ""}
                 </p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <span
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${
+                      selectedLead.temperature === "HOT"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {selectedLead.temperature}
+                    {selectedLead.leadScore !== null ? ` · score ${selectedLead.leadScore}/100` : ""}
+                  </span>
+                  <span className="inline-block rounded-full bg-elevated px-2 py-0.5 text-xs font-semibold">
+                    {initial.services.find((item) => item.slug === selectedLead.serviceSlug)?.name ?? selectedLead.serviceSlug}
+                  </span>
+                  <span
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      selectedLead.verifyStatus === "VERIFIED"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : selectedLead.verifyStatus === "FLAGGED"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-surface text-muted"
+                    }`}
+                  >
+                    {selectedLead.verifyStatus === "VERIFIED"
+                      ? "Verified by you"
+                      : selectedLead.verifyStatus === "FLAGGED"
+                        ? "Flagged, check before calling"
+                        : "Not verified yet"}
+                  </span>
+                  {selectedLead.state ? (
+                    <span className="inline-block rounded-full bg-surface px-2 py-0.5 text-xs font-semibold">
+                      State: {selectedLead.state}
+                    </span>
+                  ) : null}
+                  {stateStatus(selectedLead.state) === "HELD" ||
+                  stateStatus(selectedLead.state) === "BLOCKED" ? (
+                    <span className="inline-block rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+                      HELD, do not call
+                    </span>
+                  ) : null}
+                </div>
+                {stateStatus(selectedLead.state) === "HELD" ||
+                stateStatus(selectedLead.state) === "BLOCKED" ? (
+                  <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+                    This lead is held by the state rule and must not be called yet.
+                    {selectedLead.verifyNote ? ` ${selectedLead.verifyNote}` : ""}
+                  </p>
+                ) : null}
+                {(() => {
+                  const breakdown = scoreBreakdownFromFields(selectedLead.fields);
+                  if (!breakdown) return null;
+                  return (
+                    <p className="mt-2 text-xs text-muted">
+                      Score breakdown: Fit {breakdown.fit}/25 · Signal {breakdown.signal}/40 ·
+                      Recency {breakdown.recency}/15 · Reachability {breakdown.reachability}/20
+                      {breakdown.hotGateFailures.length
+                        ? ` · Not HOT: ${breakdown.hotGateFailures.join("; ")}`
+                        : " · Passes every HOT gate"}
+                    </p>
+                  );
+                })()}
                 {(() => {
                   const pronunciation = fieldText(selectedLead.fields, "namePronunciation");
                   const spokenName = spokenNameForFields(selectedLead.fields);
@@ -889,10 +1288,20 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                 ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {selectedLead.phone ? (
-                    <a className="btn-primary" href={`tel:${selectedLead.phone.replace(/[^+\d]/g, "")}`}>
-                      <PhoneCall className="mr-2 h-4 w-4" aria-hidden="true" />
-                      Call {selectedLead.phone}
-                    </a>
+                    <>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={() => setCallModeOpen(true)}
+                      >
+                        <Maximize2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Call in full screen
+                      </button>
+                      <a className="btn-secondary" href={`tel:${selectedLead.phone.replace(/[^+\d]/g, "")}`}>
+                        <PhoneCall className="mr-2 h-4 w-4" aria-hidden="true" />
+                        {selectedLead.phone}
+                      </a>
+                    </>
                   ) : (
                     <span className="text-sm text-muted">This lead has no phone number yet.</span>
                   )}
@@ -1145,9 +1554,26 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   >
                     {showEditLead ? "Close lead details" : "Edit lead details"}
                   </button>
+                  <button
+                    type="button"
+                    className="btn-ghost ml-2 text-red-600"
+                    onClick={() => void deleteSelectedLead()}
+                  >
+                    Delete this call lead
+                  </button>
                   {showEditLead ? (
                     <form onSubmit={submitEditLead} className="mt-4">
                       <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                          <label className="label" htmlFor="edit-service">Service</label>
+                          <select id="edit-service" className="input" value={editForm.serviceSlug} onChange={(e) => setEditForm({ ...editForm, serviceSlug: e.target.value })}>
+                            {initial.services.map((service) => (
+                              <option key={service.slug} value={service.slug}>
+                                {service.priority}. {service.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         <div>
                           <label className="label" htmlFor="edit-name">Name</label>
                           <input id="edit-name" className="input" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
@@ -1262,6 +1688,108 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
         </div>
       ) : null}
 
+      {tab === "services" ? (
+        <div className="mt-6 space-y-6">
+          <div className="card p-5">
+            <h2 className="font-display text-base font-semibold">How leads are scored, the 100 point rubric</h2>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              {initial.scoreBlocks.map((block) => (
+                <div key={block.key} className="rounded-lg bg-elevated p-3">
+                  <p className="text-sm font-semibold">
+                    {block.label}, up to {block.max} points
+                  </p>
+                  <p className="mt-1 text-sm text-muted">{block.guide}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-sm">
+              <strong>HOT</strong> is 70 or more AND Signal 30 or more AND Reachability 12 or
+              more AND Recency 10 or more, with the hot signal verified within the last 14 days.
+              <strong> WARM</strong> is 40 to 69, or a lead failing exactly one HOT gate.
+              Under 40 is parked, not called, and any disqualifier means do not add the lead at all.
+            </p>
+          </div>
+          <div className="card p-5">
+            <h2 className="font-display text-base font-semibold">Calling cadence</h2>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+              {initial.cadenceRules.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="card p-5">
+            <h2 className="font-display text-base font-semibold">State priority for calling leads</h2>
+            <p className="mt-2 text-sm">
+              Calling leads are only sourced from <strong>Georgia</strong>, <strong>Illinois</strong>,{" "}
+              <strong>North Carolina</strong> and <strong>Ohio</strong>, in that order. Lead lists
+              sort in this order automatically, hottest first inside each state.
+            </p>
+            <p className="mt-2 text-sm">
+              Texas joins after telemarketer registration there is done. Florida, Oklahoma,
+              Maryland, Washington and Connecticut are excluded.
+            </p>
+            <p className="mt-2 text-sm">
+              Leads outside the four states are not added to the calling system at all.
+            </p>
+          </div>
+          {initial.services.map((service) => (
+            <div key={service.slug} className="card p-5">
+              <h2 className="font-display text-base font-semibold">
+                {service.priority}. {service.name}
+              </h2>
+              <p className="mt-2 text-sm">{service.idealProspect}</p>
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-red-600">Hot signals</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                    {service.hotSignals.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Warm signals</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                    {service.warmSignals.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Core pains</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                    {service.corePains.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Disqualifiers, walk away</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                    {service.disqualifiers.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              <p className="mt-3 text-sm">
+                <span className="font-semibold">Offer line:</span> {service.defaultOfferLine}
+              </p>
+              <div className="mt-2 rounded-lg border border-red-300 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
+                <p className="text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">
+                  Never say for this service
+                </p>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                  {service.defaultDontSay.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {tab === "tracking" ? (
         <div className="mt-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -1341,6 +1869,21 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
             )}
           </div>
         </div>
+      ) : null}
+      {callModeOpen && selectedLead ? (
+        <CallMode
+          key={selectedLead.id}
+          lead={selectedLead}
+          services={initial.services}
+          renderedScript={renderedScript}
+          renderedObjections={renderedObjections}
+          speechSupported={speechSupported}
+          speak={speakText}
+          onClose={() => setCallModeOpen(false)}
+          onSave={callModeSave}
+          onVerify={callModeVerify}
+          hasNext={Boolean(nextLeadAfterSelected)}
+        />
       ) : null}
     </div>
   );

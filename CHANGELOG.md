@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.47.2 - 2026-11-21
+
+Calling leads only exist for the four priority states.
+
+- Per the user's final call: calling leads may only exist for Georgia, Illinois, North Carolina and Ohio. Out of state leads are removed, not flagged.
+- Of the 16 November call leads, only Next Gen Electric Co. (Monroe, Georgia) was kept in the new CallLead system. The other 15 were removed from the calling lists entirely.
+- The Services view state block now reads: leads are only sourced from Georgia, Illinois, North Carolina and Ohio, in that order; Texas joins after telemarketer registration; Florida, Oklahoma, Maryland, Washington and Connecticut are excluded.
+- The copy script now skips any out of state lead, and the state priority config remains the single source of truth the daily pipeline will read.
+
+## 1.47.1 - 2026-11-21
+
+State priority for calling leads.
+
+- One shared state priority source for the UI, the API sort and the future daily lead pipeline: Georgia first, then Illinois, North Carolina and Ohio. Texas is held until telemarketer registration there is done. Florida, Oklahoma, Maryland, Washington and Connecticut are blocked for sourcing (legal risk states).
+- Call lead lists now sort by state priority first, then HOT before WARM, then score, so Georgia leads sit at the top and held or blocked states sink to the bottom.
+- Every lead shows its state with a clear State label in the list, the lead detail and the full screen call mode header. Held and blocked state leads carry a red HELD, do not call badge, a warning in the lead detail, and a full width warning banner in call mode.
+- The Services view shows the state priority order with the held and blocked states as a reference block.
+- The 16 copied leads follow the rule: Florida and Texas leads were copied flagged with the hold note at WARM, the rest unverified as planned.
+
+## 1.47.0 - 2026-11-20
+
+Calling gets its own lead system and a full screen call mode.
+
+- Dedicated CallLead and CallLeadList models, fully separate from the email Lead model. Calling no longer reads email leads; the old email Lead based calling routes are removed. CallLog gains callLeadId, and Tracking resolves names from CallLead for new logs.
+- The 16 existing call leads were copied into the new system (originals untouched), all starting UNVERIFIED so each can be checked by hand.
+- Service catalog for calling in priority order (WordPress speed first, truck dispatching last) with a perfect prospect profile, hot and warm signals, disqualifiers, pains, offer line and never say list per service, shown in a new Services view.
+- 100 point lead scoring rubric (Fit 25, Signal 40, Recency 15, Reachability 20). HOT is gated: 70 or more with Signal 30 or more, Reachability 12 or more and Recency 10 or more. Leads under 40 are refused. Subscores live on the lead and the breakdown shows in the lead detail and the Verify tab.
+- Full screen call mode: giant say text, colour coded response cards with icons, a call timer, the lead header always visible, and an intel rail with Intel, Say and Do not say, and Verify tabs. Every claim carries evidence links the caller can open and check, with Mark verified and Flag actions. Saving logs the call from the bottom bar and can load the next lead.
+- Merchant Center hard rule baked into the catalog: a prospect's disapproval status is private and must never be claimed on a call; only public proxies may be cited.
+- Calling cadence reference (windows, 5 dial cap, voicemail rules) in the Services view.
+
 ## 1.46.1 (2026-11-20)
 
 Booked walkthroughs now show up in Tracking.
