@@ -72,6 +72,14 @@ export function guessImportTarget(header: string): string {
   if (["mobilescore", "pagespeedscore", "speedscore"].includes(h)) return "mobileScore";
   if (["lcp", "loadtime", "lcpseconds"].includes(h)) return "lcp";
   if (["personalscript", "callscript"].includes(h)) return "personalScript";
+  // Saturday columns (v1.48.0): whether the business opens on a
+  // Saturday, its Saturday hours and the best Saturday call window.
+  if (["saturdayopen", "openonsaturday", "satopen", "saturday"].includes(h)) return "saturdayOpen";
+  if (["saturdayhours", "sathours"].includes(h)) return "saturdayHours";
+  if (
+    ["saturdaybestwindow", "saturdaywindow", "saturdaycallwindow", "satbestwindow", "satwindow"].includes(h)
+  )
+    return "saturdayBestWindow";
   return header;
 }
 

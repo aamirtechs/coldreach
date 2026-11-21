@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.48.0 - 2026-11-21
+
+Saturday information on every calling lead.
+
+- Every call lead now carries Saturday facts in its fields: saturdayOpen (open, closed, or not recorded yet), saturdayHours and saturdayBestWindow. They are accepted on create, edit and CSV import (new recognised columns saturdayOpen, saturdayHours, saturdayBestWindow), and normalised on save: a business marked closed on Saturday stores null hours and null window, so stored hours always mean open.
+- Lead list rows show a compact Saturday chip (green "Sat: Open" with the hours, muted "Sat: Closed"), and a "Saturday open only" filter toggle lists just the Saturday callable leads for a Saturday session.
+- The call panel shows the Saturday status, hours and best Saturday window next to the weekday best window, and on a Saturday in the lead's own timezone the Saturday window is highlighted as the active one. Full screen call mode shows the same block in the Intel tab plus an "Open today (Sat)" header chip on the day.
+- Accuracy rule enforced in the lead validation: a non-empty hook now requires at least one evidence entry on create, edit and CSV import, and is rejected with "A hook needs at least one evidence link captured at research time" otherwise. The Services view carries the rule as reference text, including the live verification gate: leads are added only after complete live verification at research time, and if any part cannot be confirmed live, the lead is not added.
+- The one lead in the system, Next Gen Electric Co. (Monroe, GA), was deleted on 2026-11-21 at the owner's instruction after its hook failed his manual check: the hook claimed the site still showed the default WordPress tagline, but the live site is finished and current and Google shows it correctly. The system now holds zero call leads, ready for the daily pipeline to refill under the accuracy rule. Sundays stay off either way.
+
 ## 1.47.2 - 2026-11-21
 
 Calling leads only exist for the four priority states.

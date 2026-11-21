@@ -1,8 +1,10 @@
 import {
   callLeadRenderFields,
   evidenceFromFields,
+  saturdayInfoFromFields,
   stringListFromFields,
   type EvidenceEntry,
+  type SaturdayInfo,
 } from "./callLeadFields";
 
 /**
@@ -60,6 +62,7 @@ export interface ShapedCallLead {
   verifiedAt: string | null;
   lastCallAt: string | null;
   evidence: EvidenceEntry[];
+  saturday: SaturdayInfo;
   signals: string[];
   dontSay: string[];
   offerLine: string;
@@ -101,6 +104,7 @@ export function shapeCallLead(
     verifiedAt: iso(row.verifiedAt),
     lastCallAt: iso(row.lastCallAt),
     evidence: evidenceFromFields(row.fields),
+    saturday: saturdayInfoFromFields(row.fields),
     signals: stringListFromFields(row.fields, "signals"),
     dontSay: stringListFromFields(row.fields, "dontSay"),
     offerLine: fieldText(fields, "offerLine"),

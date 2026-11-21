@@ -88,6 +88,21 @@ export function leadLocalTime(
   return { label, hourFloat: hour + minute / 60 };
 }
 
+/** Lead-local weekday short name ("Mon" to "Sun"), or null for a bad timezone. */
+export function leadLocalWeekday(timezone: string, now: Date = new Date()): string | null {
+  if (!isValidTimezone(timezone)) return null;
+  return new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(now);
+}
+
+/**
+ * True when it is Saturday in the lead's own timezone at `now`
+ * (v1.48.0). The call panel and call mode use it to promote the
+ * lead's Saturday best window to the active window on the day.
+ */
+export function isLeadLocalSaturday(timezone: unknown, now: Date = new Date()): boolean {
+  return typeof timezone === "string" && leadLocalWeekday(timezone, now) === "Sat";
+}
+
 export type CallWindowState = "good" | "outside" | "unknown";
 
 export interface CallWindowStatus {

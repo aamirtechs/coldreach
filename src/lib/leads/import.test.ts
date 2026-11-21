@@ -45,6 +45,14 @@ describe("guessImportTarget", () => {
     }
   });
 
+  it("recognises the Saturday calling columns (v1.48.0)", () => {
+    expect(guessImportTarget("Saturday Open")).toBe("saturdayOpen");
+    expect(guessImportTarget("Open on Saturday")).toBe("saturdayOpen");
+    expect(guessImportTarget("Saturday Hours")).toBe("saturdayHours");
+    expect(guessImportTarget("Saturday Best Window")).toBe("saturdayBestWindow");
+    expect(guessImportTarget("Sat Window")).toBe("saturdayBestWindow");
+  });
+
   it("keeps the existing standard guesses and passes custom headers through", () => {
     expect(guessImportTarget("Email Address")).toBe("email");
     expect(guessImportTarget("First Name")).toBe("firstName");

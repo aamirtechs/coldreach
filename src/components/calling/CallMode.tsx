@@ -28,7 +28,7 @@ import {
   resolveFlowNode,
 } from "@/lib/calling/callFlow";
 import { CALL_DISPOSITIONS, dispositionLabel } from "@/lib/calling/dispositions";
-import { callWindowStatus, formatHour } from "@/lib/calling/callWindow";
+import { callWindowStatus, formatHour, isLeadLocalSaturday } from "@/lib/calling/callWindow";
 import { scoreBreakdownFromFields } from "@/lib/calling/callLeadFields";
 import { getCallingService } from "@/lib/calling/services";
 import { stateStatus } from "@/lib/calling/statePriority";
@@ -208,6 +208,8 @@ export function CallMode({
 
   const now = new Date();
   const status = callWindowStatus(lead.fields, now);
+  const saturday = lead.saturday;
+  const todayIsSaturday = isLeadLocalSaturday(fieldText(lead.fields, "timezone"), now);
   const service = services.find((item) => item.slug === lead.serviceSlug) ?? getCallingService(lead.serviceSlug);
   const breakdown = scoreBreakdownFromFields(lead.fields);
   const pronunciation = fieldText(lead.fields, "namePronunciation");
@@ -319,6 +321,12 @@ export function CallMode({
               >
                 Their time {status.localTimeLabel}
                 {status.state === "good" ? " · good time to call" : ""}
+              </span>
+            ) : null}
+            {todayIsSaturday && saturday.open === true ? (
+              <span className="rounded-full bg-emerald-600 px-3 py-1 text-sm font-bold text-white">
+                Open today (Sat){saturday.hours ? ` ${saturday.hours}` : ""}
+                {saturday.bestWindow ? ` · Best ${saturday.bestWindow}` : ""}
               </span>
             ) : null}
             {lead.phone ? (
@@ -507,6 +515,35 @@ export function CallMode({
                     ? ` (${formatHour(status.window.startHour)} to ${formatHour(status.window.endHour)} their time)`
                     : ""}
                 </p>
+              ) : null}
+              {saturday.open !== null ? (
+                <div
+                  className={
+                    todayIsSaturday && saturday.open
+                      ? "rounded-lg border border-emerald-400 bg-emerald-50 p-3 dark:border-emerald-700 dark:bg-emerald-950"
+                      : ""
+                  }
+                >
+                  <p className="text-sm font-semibold uppercase tracking-wide text-muted">
+                    Saturday
+                  </p>
+                  {saturday.open ? (
+                    <p className="mt-1">
+                      Open{saturday.hours ? `, ${saturday.hours}` : ""}
+                      {saturday.bestWindow ? (
+                        <>
+                          {" "}· Best Saturday window:{" "}
+                          <span className="font-bold">{saturday.bestWindow}</span>
+                          {todayIsSaturday
+                            ? " (today, this is the active window)"
+                            : ""}
+                        </>
+                      ) : null}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-muted">Closed on Saturdays.</p>
+                  )}
+                </div>
               ) : null}
             </div>
           ) : null}

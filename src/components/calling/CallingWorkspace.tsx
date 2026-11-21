@@ -5,7 +5,8 @@ import { ExternalLink, Maximize2, PhoneCall, Volume2 } from "lucide-react";
 import { CallMode, type CallSavePayload } from "./CallMode";
 import type { CallingService } from "@/lib/calling/services";
 import type { ScoreBlock } from "@/lib/calling/services";
-import { scoreBreakdownFromFields } from "@/lib/calling/callLeadFields";
+import { saturdayInfoFromFields, scoreBreakdownFromFields } from "@/lib/calling/callLeadFields";
+import type { SaturdayInfo } from "@/lib/calling/callLeadFields";
 import { stateStatus } from "@/lib/calling/statePriority";
 import type { EvidenceEntry } from "@/lib/calling/callLeadFields";
 
@@ -18,7 +19,12 @@ import {
   resolveFlowNode,
 } from "@/lib/calling/callFlow";
 import { renderScriptTemplate } from "@/lib/calling/renderScript";
-import { US_TIMEZONES, callWindowStatus, formatHour } from "@/lib/calling/callWindow";
+import {
+  US_TIMEZONES,
+  callWindowStatus,
+  formatHour,
+  isLeadLocalSaturday,
+} from "@/lib/calling/callWindow";
 import {
   NAME_SPEECH_RATE,
   greetingNameForFields,
@@ -46,6 +52,7 @@ export interface CallingLead {
   verifiedAt: string | null;
   lastCallAt: string | null;
   evidence: EvidenceEntry[];
+  saturday: SaturdayInfo;
   signals: string[];
   dontSay: string[];
   offerLine: string;
@@ -153,6 +160,9 @@ const EMPTY_CALLING_DETAILS = {
   scoreSignal: "",
   scoreRecency: "",
   scoreReachability: "",
+  saturdayOpen: "",
+  saturdayHours: "",
+  saturdayBestWindow: "",
 };
 
 function stringListText(fields: Record<string, unknown> | unknown, key: string): string {
@@ -163,6 +173,7 @@ function stringListText(fields: Record<string, unknown> | unknown, key: string):
 }
 
 function callingDetailsFromFields(fields: Record<string, unknown> | unknown) {
+  const saturday = saturdayInfoFromFields(fields);
   return {
     city: fieldText(fields, "city"),
     state: fieldText(fields, "state"),
@@ -184,6 +195,9 @@ function callingDetailsFromFields(fields: Record<string, unknown> | unknown) {
     scoreSignal: fieldNumberText(fields, "scoreSignal"),
     scoreRecency: fieldNumberText(fields, "scoreRecency"),
     scoreReachability: fieldNumberText(fields, "scoreReachability"),
+    saturdayOpen: saturday.open === null ? "" : saturday.open ? "true" : "false",
+    saturdayHours: saturday.hours ?? "",
+    saturdayBestWindow: saturday.bestWindow ?? "",
   };
 }
 
@@ -223,6 +237,7 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
   const [listFilter, setListFilter] = useState("");
   const [serviceFilter, setServiceFilter] = useState("");
   const [temperatureFilter, setTemperatureFilter] = useState("");
+  const [saturdayOnly, setSaturdayOnly] = useState(false);
   const [callModeOpen, setCallModeOpen] = useState(false);
   const [importCsv, setImportCsv] = useState("");
   const [importing, setImporting] = useState(false);
@@ -597,6 +612,30 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
           </p>
         </div>
         <div>
+          <label className="label" htmlFor={`${prefix}-satopen`}>Open on Saturday?</label>
+          <select id={`${prefix}-satopen`} className="input" value={form.saturdayOpen} onChange={(e) => set("saturdayOpen")(e.target.value)}>
+            <option value="">Not recorded yet</option>
+            <option value="true">Open on Saturdays</option>
+            <option value="false">Closed on Saturdays</option>
+          </select>
+          <p className="mt-1 text-xs text-muted">
+            From the business's own site or its Google listing. Saturday open leads power the
+            Saturday calling block; Sundays stay off.
+          </p>
+        </div>
+        <div>
+          <label className="label" htmlFor={`${prefix}-sathours`}>Saturday hours</label>
+          <input id={`${prefix}-sathours`} className="input" value={form.saturdayHours} onChange={(e) => set("saturdayHours")(e.target.value)} placeholder="8:00 AM to 2:00 PM" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor={`${prefix}-satwindow`}>Best Saturday call window</label>
+          <input id={`${prefix}-satwindow`} className="input" value={form.saturdayBestWindow} onChange={(e) => set("saturdayBestWindow")(e.target.value)} placeholder="Sat 9:00 to 11:00 AM" />
+          <p className="mt-1 text-xs text-muted">
+            Hours and window only apply when the business is open on Saturday. Mark it closed
+            and both are cleared on save.
+          </p>
+        </div>
+        <div>
           <label className="label" htmlFor={`${prefix}-score`}>Mobile score</label>
           <input id={`${prefix}-score`} className="input" value={form.mobileScore} onChange={(e) => set("mobileScore")(e.target.value)} placeholder="24" />
         </div>
@@ -876,6 +915,12 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
     setNotice(data.created ? "Sample script added." : "The sample script is already in your list.");
   }
 
+  // Saturday session view: only the leads whose business opens on
+  // a Saturday, for the Saturday morning calling block.
+  const visibleLeads = saturdayOnly
+    ? leads.filter((lead) => lead.saturday.open === true)
+    : leads;
+
   const tabButton = (value: Tab, label: string) => (
     <button
       type="button"
@@ -941,15 +986,24 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   <option value="HOT">Hot only</option>
                   <option value="WARM">Warm only</option>
                 </select>
+                <button
+                  type="button"
+                  className={saturdayOnly ? "btn-primary" : "btn-secondary"}
+                  aria-pressed={saturdayOnly}
+                  onClick={() => setSaturdayOnly((value) => !value)}
+                >
+                  Saturday open only
+                </button>
               </div>
               <ul className="mt-4 divide-y divide-line">
-                {leads.length === 0 ? (
+                {visibleLeads.length === 0 ? (
                   <li className="py-4 text-sm text-muted">
-                    No call leads in this view yet. Add one below, or import a CSV of call
-                    leads. Call leads live in their own system here, separate from email leads.
+                    {saturdayOnly
+                      ? "No Saturday open call leads in this view. Turn the Saturday filter off to see every lead."
+                      : "No call leads in this view yet. Add one below, or import a CSV of call leads. Call leads live in their own system here, separate from email leads."}
                   </li>
                 ) : (
-                  leads.map((lead) => {
+                  visibleLeads.map((lead) => {
                     const status = callWindowStatus(lead.fields, now);
                     return (
                       <li key={lead.id}>
@@ -1003,6 +1057,15 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                             {stateStatus(lead.state) === "HELD" || stateStatus(lead.state) === "BLOCKED" ? (
                               <span className="inline-block rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
                                 HELD, do not call
+                              </span>
+                            ) : null}
+                            {lead.saturday.open === true ? (
+                              <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                Sat: Open{lead.saturday.hours ? ` ${lead.saturday.hours}` : ""}
+                              </span>
+                            ) : lead.saturday.open === false ? (
+                              <span className="inline-block rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-muted">
+                                Sat: Closed
                               </span>
                             ) : null}
                           </span>
@@ -1089,7 +1152,8 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   Paste CSV with a header row. Recognised columns include name, company, phone,
                   website, email, city, state, timezone, bestTimeNote, decisionMaker,
                   namePronunciation (or Pronunciation), painPoints, mobileScore, lcp,
-                  personalScript, signals, hook and the four score columns. Rows go into the
+                  personalScript, signals, hook, saturdayOpen, saturdayHours, saturdayBestWindow
+                  and the four score columns. Rows go into the
                   selected list and service above, as CallLeads in this dedicated system only.
                 </p>
                 <textarea
@@ -1235,7 +1299,18 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                   const location = leadLocation(selectedLead.fields);
                   const decisionMaker = fieldText(selectedLead.fields, "decisionMaker");
                   const bestTimeNote = fieldText(selectedLead.fields, "bestTimeNote");
-                  if (!location && status.state === "unknown" && !decisionMaker && !bestTimeNote) {
+                  const saturday = selectedLead.saturday;
+                  const todayIsSaturday = isLeadLocalSaturday(
+                    fieldText(selectedLead.fields, "timezone"),
+                    now,
+                  );
+                  if (
+                    !location &&
+                    status.state === "unknown" &&
+                    !decisionMaker &&
+                    !bestTimeNote &&
+                    saturday.open === null
+                  ) {
                     return null;
                   }
                   return (
@@ -1267,6 +1342,29 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                         </p>
                       ) : null}
                       {bestTimeNote ? <p className="mt-1 text-muted">{bestTimeNote}</p> : null}
+                      {saturday.open === true ? (
+                        <p className="mt-1">
+                          Saturday: <span className="font-semibold text-emerald-600">Open</span>
+                          {saturday.hours ? `, ${saturday.hours}` : ""}
+                          {saturday.bestWindow ? (
+                            <>
+                              {" "}· Best Saturday window:{" "}
+                              <span
+                                className={
+                                  todayIsSaturday
+                                    ? "rounded bg-emerald-100 px-1 font-semibold text-emerald-700"
+                                    : "font-semibold"
+                                }
+                              >
+                                {saturday.bestWindow}
+                              </span>
+                              {todayIsSaturday ? " (today, this is the active window)" : ""}
+                            </>
+                          ) : null}
+                        </p>
+                      ) : saturday.open === false ? (
+                        <p className="mt-1 text-muted">Saturday: Closed</p>
+                      ) : null}
                     </div>
                   );
                 })()}
@@ -1716,6 +1814,25 @@ export function CallingWorkspace({ initial }: { initial: CallingInitialData }) {
                 <li key={rule}>{rule}</li>
               ))}
             </ul>
+          </div>
+          <div className="card p-5">
+            <h2 className="font-display text-base font-semibold">Accuracy rule</h2>
+            <p className="mt-2 text-sm">
+              Accuracy rule: no hook, pain point or intel claim may be written as fact without a
+              checkable evidence link captured at research time. Anything not backed that way is
+              labelled an unverified observation or dropped. A wrong hook on a live call costs
+              more than a clever angle earns.
+            </p>
+            <p className="mt-2 text-sm">
+              Leads are added only after complete live verification at research time: live site
+              fetched today, Google presence checked live, phone confirmed on the business's own
+              site or listing, every claim re-confirmed with an evidence link and check date. If
+              any part cannot be confirmed live, the lead is not added.
+            </p>
+            <p className="mt-2 text-sm">
+              The system enforces the first half of this rule: a call lead with a hook and no
+              evidence link is refused on add, edit and import.
+            </p>
           </div>
           <div className="card p-5">
             <h2 className="font-display text-base font-semibold">State priority for calling leads</h2>

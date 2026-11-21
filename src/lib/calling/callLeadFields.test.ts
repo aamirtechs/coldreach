@@ -3,6 +3,8 @@ import {
   callLeadFromBody,
   callLeadRenderFields,
   evidenceFromFields,
+  saturdayInfoFromFields,
+  saturdayOpenValue,
   stringListFromFields,
   verifyFromBody,
 } from "./callLeadFields";
@@ -105,6 +107,126 @@ describe("stored field readers", () => {
     expect(evidenceFromFields(null)).toEqual([]);
     expect(stringListFromFields({ signals: ["a", "b"] }, "signals")).toEqual(["a", "b"]);
     expect(stringListFromFields({ dontSay: "one\ntwo" }, "dontSay")).toEqual(["one", "two"]);
+  });
+});
+
+describe("Saturday fields", () => {
+  it("keeps hours and the best window for a Saturday open lead", () => {
+    const result = callLeadFromBody({
+      phone: "1",
+      company: "Open Saturdays LLC",
+      saturdayOpen: true,
+      saturdayHours: "8:00 AM to 2:00 PM",
+      saturdayBestWindow: "Sat 9:00 to 11:00 AM",
+    });
+    if (!("lead" in result)) throw new Error("expected a lead");
+    expect(result.lead.fields.saturdayOpen).toBe(true);
+    expect(result.lead.fields.saturdayHours).toBe("8:00 AM to 2:00 PM");
+    expect(result.lead.fields.saturdayBestWindow).toBe("Sat 9:00 to 11:00 AM");
+    expect(saturdayInfoFromFields(result.lead.fields)).toEqual({
+      open: true,
+      hours: "8:00 AM to 2:00 PM",
+      bestWindow: "Sat 9:00 to 11:00 AM",
+    });
+  });
+
+  it("forces hours and window to null for a closed lead, even when supplied", () => {
+    const result = callLeadFromBody({
+      phone: "1",
+      company: "Closed Saturdays LLC",
+      saturdayOpen: false,
+      saturdayHours: "8:00 AM to 2:00 PM",
+      saturdayBestWindow: "Sat 9:00 to 11:00 AM",
+    });
+    if (!("lead" in result)) throw new Error("expected a lead");
+    expect(result.lead.fields.saturdayOpen).toBe(false);
+    expect(result.lead.fields.saturdayHours).toBeNull();
+    expect(result.lead.fields.saturdayBestWindow).toBeNull();
+    expect(saturdayInfoFromFields(result.lead.fields)).toEqual({
+      open: false,
+      hours: null,
+      bestWindow: null,
+    });
+  });
+
+  it("parses the loose string forms the forms and CSV import send", () => {
+    expect(saturdayOpenValue("Open")).toBe(true);
+    expect(saturdayOpenValue("yes")).toBe(true);
+    expect(saturdayOpenValue("Closed")).toBe(false);
+    expect(saturdayOpenValue("no")).toBe(false);
+    expect(saturdayOpenValue("")).toBeNull();
+    expect(saturdayOpenValue(undefined)).toBeNull();
+    const result = callLeadFromBody({
+      phone: "1",
+      company: "String Flags LLC",
+      saturdayOpen: "Closed",
+      saturdayHours: "9 to 5",
+    });
+    if (!("lead" in result)) throw new Error("expected a lead");
+    expect(result.lead.fields.saturdayOpen).toBe(false);
+    expect(result.lead.fields.saturdayHours).toBeNull();
+  });
+
+  it("leaves Saturday unknown when the body says nothing about it", () => {
+    const result = callLeadFromBody({ phone: "1", company: "Unknown Saturdays LLC" });
+    if (!("lead" in result)) throw new Error("expected a lead");
+    expect("saturdayOpen" in result.lead.fields).toBe(false);
+    expect(saturdayInfoFromFields(result.lead.fields)).toEqual({
+      open: null,
+      hours: null,
+      bestWindow: null,
+    });
+    expect(saturdayInfoFromFields(null)).toEqual({ open: null, hours: null, bestWindow: null });
+  });
+
+  it("never reports hours or a window off a stored closed lead", () => {
+    expect(
+      saturdayInfoFromFields({
+        saturdayOpen: false,
+        saturdayHours: "8:00 AM to 2:00 PM",
+        saturdayBestWindow: "Sat 9:00 to 11:00 AM",
+      }),
+    ).toEqual({ open: false, hours: null, bestWindow: null });
+  });
+});
+
+describe("hook accuracy rule", () => {
+  it("rejects a hook with no evidence entry", () => {
+    const result = callLeadFromBody({
+      phone: "1",
+      company: "Unbacked Hook LLC",
+      hook: "Your site still shows the default tagline.",
+    });
+    expect("error" in result).toBe(true);
+    if ("error" in result) {
+      expect(result.error).toBe(
+        "A hook needs at least one evidence link captured at research time",
+      );
+    }
+  });
+
+  it("rejects an icebreaker only hook with no evidence entry", () => {
+    const result = callLeadFromBody({
+      phone: "1",
+      company: "Unbacked Icebreaker LLC",
+      icebreaker: "Saw your checkout is broken.",
+    });
+    expect("error" in result).toBe(true);
+  });
+
+  it("accepts a hook backed by at least one evidence entry", () => {
+    const result = callLeadFromBody({
+      phone: "1",
+      company: "Backed Hook LLC",
+      hook: "Your contact page 404s.",
+      evidence: [{ label: "Contact page", url: "https://example.com/contact", note: "404 checked today" }],
+    });
+    expect("lead" in result).toBe(true);
+  });
+
+  it("accepts a lead with no hook and no evidence", () => {
+    const result = callLeadFromBody({ phone: "1", company: "Plain LLC" });
+    expect("lead" in result).toBe(true);
   });
 });
 

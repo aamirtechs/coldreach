@@ -3,8 +3,10 @@ import {
   callWindowForFields,
   callWindowStatus,
   formatHour,
+  isLeadLocalSaturday,
   isValidTimezone,
   leadLocalTime,
+  leadLocalWeekday,
 } from "./callWindow";
 
 // 2026-11-20 15:00 UTC is 10:00 in New York (EST, UTC-5) and
@@ -96,6 +98,28 @@ describe("callWindowStatus", () => {
   it("is unknown without a timezone", () => {
     expect(callWindowStatus({}).state).toBe("unknown");
     expect(callWindowStatus(null).state).toBe("unknown");
+  });
+});
+
+describe("Saturday detection (v1.48.0)", () => {
+  // 2026-11-21 is a Saturday; 15:00 UTC is 10:00 in New York and
+  // already Sunday 04:00 in Auckland, so one instant can be both.
+  const SATURDAY_UTC = new Date("2026-11-21T15:00:00Z");
+  const FRIDAY_UTC = new Date("2026-11-20T15:00:00Z");
+
+  it("reads the weekday in the lead's own timezone", () => {
+    expect(leadLocalWeekday("America/New_York", SATURDAY_UTC)).toBe("Sat");
+    expect(leadLocalWeekday("America/New_York", FRIDAY_UTC)).toBe("Fri");
+    expect(leadLocalWeekday("Pacific/Auckland", SATURDAY_UTC)).toBe("Sun");
+    expect(leadLocalWeekday("Mars/Olympus", SATURDAY_UTC)).toBeNull();
+  });
+
+  it("flags Saturday only in the lead's timezone", () => {
+    expect(isLeadLocalSaturday("America/New_York", SATURDAY_UTC)).toBe(true);
+    expect(isLeadLocalSaturday("America/New_York", FRIDAY_UTC)).toBe(false);
+    expect(isLeadLocalSaturday("Pacific/Auckland", SATURDAY_UTC)).toBe(false);
+    expect(isLeadLocalSaturday("", SATURDAY_UTC)).toBe(false);
+    expect(isLeadLocalSaturday(null, SATURDAY_UTC)).toBe(false);
   });
 });
 

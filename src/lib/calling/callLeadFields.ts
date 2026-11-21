@@ -77,6 +77,49 @@ export function evidenceFromBody(value: unknown): EvidenceEntry[] {
   return entries;
 }
 
+/**
+ * Saturday facts (v1.48.0): whether the business opens on a
+ * Saturday, its Saturday hours and the best Saturday call window.
+ * They live in the fields JSON as saturdayOpen (boolean),
+ * saturdayHours and saturdayBestWindow (strings), so Amir can plan
+ * a Saturday calling block for Saturday open businesses only.
+ * A closed business never carries hours or a window: supplying
+ * them alongside saturdayOpen false is normalised away, so any
+ * hours found on a stored lead always mean open.
+ */
+export interface SaturdayInfo {
+  /** True open, false closed, null not recorded yet. */
+  open: boolean | null;
+  hours: string | null;
+  bestWindow: string | null;
+}
+
+/** Parses a Saturday open flag from a boolean or a loose string. */
+export function saturdayOpenValue(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "yes", "open", "y", "1"].includes(normalized)) return true;
+    if (["false", "no", "closed", "n", "0"].includes(normalized)) return false;
+  }
+  return null;
+}
+
+/** Saturday facts off a stored fields JSON, defensively shaped. */
+export function saturdayInfoFromFields(fields: unknown): SaturdayInfo {
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+    return { open: null, hours: null, bestWindow: null };
+  }
+  const record = fields as Record<string, unknown>;
+  const open = saturdayOpenValue(record.saturdayOpen);
+  if (open !== true) return { open, hours: null, bestWindow: null };
+  return {
+    open,
+    hours: nullableText(record.saturdayHours),
+    bestWindow: nullableText(record.saturdayBestWindow),
+  };
+}
+
 function hour(value: unknown): number | null {
   if (value === undefined || value === null || value === "") return null;
   const parsed = typeof value === "number" ? value : Number(value);
@@ -135,6 +178,18 @@ export function callLeadFromBody(
   if (endHour !== null) fields.bestEndHour = endHour;
   const bestTimeNote = text(body.bestTimeNote);
   if (bestTimeNote) fields.bestTimeNote = bestTimeNote;
+  // Saturday facts: written only when the body says something
+  // about Saturday at all. All three keys are set together, so a
+  // closed business stores null hours and window, and the extra
+  // fields carry through below cannot resurrect them.
+  if (body.saturdayOpen !== undefined) {
+    const open = saturdayOpenValue(body.saturdayOpen);
+    if (open !== null) {
+      fields.saturdayOpen = open;
+      fields.saturdayHours = open ? nullableText(body.saturdayHours) : null;
+      fields.saturdayBestWindow = open ? nullableText(body.saturdayBestWindow) : null;
+    }
+  }
   const painPoints = text(body.painPoints);
   if (painPoints) fields.painPoints = painPoints;
   const hook = text(body.hook) || text(body.icebreaker);
@@ -149,6 +204,15 @@ export function callLeadFromBody(
   if (offerLine) fields.offerLine = offerLine;
   const evidence = evidenceFromBody(body.evidence);
   if (evidence.length) fields.evidence = evidence;
+  // Accuracy rule (2026-11-21): a hook is stated as fact on a
+  // live call, so it may only be stored with at least one
+  // evidence link captured at research time. A hook that cannot
+  // be backed that way is dropped, or the lead is not added.
+  if (hook && evidence.length === 0) {
+    return {
+      error: "A hook needs at least one evidence link captured at research time",
+    };
+  }
   const scored = scoreFieldsFromBody(body);
   if ("error" in scored) return scored;
   for (const [key, value] of Object.entries(scored.scores)) {
